@@ -4,7 +4,13 @@
  * KNOLL before every route.
  */
 export { ApexRouter } from './router.js';
-export type { ApexRouterOptions, AgentHandler, DispatchResult } from './router.js';
+export type {
+  ApexRouterOptions,
+  AgentHandler,
+  DispatchResult,
+  DispatchEvent,
+  DispatchObserver,
+} from './router.js';
 export { InMemoryLedger } from './ledger.js';
 export type { BillingLedger, LedgerEntry, LogRequestInput, InMemoryLedgerOptions } from './ledger.js';
 export { createPacket, isRoutingPacket, verifyPacketHash } from './packet.js';

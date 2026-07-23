@@ -1,5 +1,8 @@
 # HDV_Foundation
 
+[![CI](https://github.com/joeholloway445-maker/HDV_Foundation/actions/workflows/ci.yml/badge.svg)](https://github.com/joeholloway445-maker/HDV_Foundation/actions/workflows/ci.yml)
+[![Security](https://github.com/joeholloway445-maker/HDV_Foundation/actions/workflows/security.yml/badge.svg)](https://github.com/joeholloway445-maker/HDV_Foundation/actions/workflows/security.yml)
+
 > Infrastructure for the **Big 5 Agent Matrix** (Hope, Dream, Vision, KNOLL, APEX) — a 14.3-quadrillion-parameter hierarchy over ephemeral 20,480-node matrices. Security-first, Colab-ready, strict modular governance with automated billing ledgers.
 
 Formerly titled Big 5 Matrix; this repository is the HDV Foundation.
@@ -144,6 +147,7 @@ npm run demo:phase4   # Phase 4: queue intake · worker re-ingestion · params �
 npm run demo:vision   # Phase 4.2: VISION tools · http_fetch stub · timeout kill · session limits · audit
 npm run demo:hope-ui  # HOPE console: interpret + document + voice, renders standalone HTML
 npm run demo:dream-energy # Phase 4.2: energy-driven DREAM scheduling (accumulate/decay)
+npm run demo:metrics  # Phase 5: observability metrics · trace ring buffer · Prometheus text
 npm run gateway       # start HOPE HTTP gateway on PORT (default 8787)
 npm test              # all tests (backbone + phase2 + phase3 + phase4)
 npm run python:demo        # persona loop + billing ledger (python3)
@@ -154,6 +158,28 @@ npm run python:test-backend# model backend seam tests (stub always; transformers
 npm run db:generate   # prisma generate (client from config/schema.prisma)
 npm run db:push       # create/sync Postgres tables from config/schema.prisma
 ```
+
+### Continuous Integration
+
+Every push to `main` / feature branches (`cursor/**`, `feature/**`, `feat/**`) and every PR
+to `main` runs [`/.github/workflows/ci.yml`](./.github/workflows/ci.yml). Any failure fails
+the workflow.
+
+| Job | Runtime | Steps |
+|-----|---------|-------|
+| **node** | Node 22 (matrix) | `npm ci` → `npm run db:generate` (Prisma client) → `npm run typecheck` → `npm test` |
+| **python** | Python 3.12 (matrix) | `personamatrix/demo.py` → `personamatrix/test_model_backend.py` → `colab/03_behavioral_scoring.py` |
+
+Reproduce the CI gates locally:
+
+```bash
+npm run ci          # db:generate + typecheck + test (Node backbone)
+npm run ci:python   # personamatrix demo + backend tests + behavioral scoring (Python)
+```
+
+A lightweight [`/.github/workflows/security.yml`](./.github/workflows/security.yml) adds a
+PR-only dependency review (blocks new high-severity vulnerabilities) plus a non-blocking
+`npm audit` (advisory, `continue-on-error`).
 
 ### Database (Postgres) setup — optional
 
@@ -197,6 +223,7 @@ bypasses APEX):
 | GET    | `/v1/ledger`        | Recent APEX billing entries (read-only)                        |
 | GET    | `/v1/audit`         | Recent KNOLL verdicts (read-only)                              |
 | GET    | `/v1/matrix/stats`  | Node/persona topology + 14.3Q parameter accounting            |
+| GET    | `/v1/metrics`       | Observability snapshot (JSON; `?format=prometheus` for text)  |
 
 Example:
 
@@ -232,6 +259,33 @@ curl -s localhost:8787/v1/matrix/stats -H 'X-HDV-Key: s3cret'      # 200
 
 npm run demo:gateway-auth   # scripted 401 → 200 → 429 + public-health walkthrough
 npm run test:gateway-auth   # gateway hardening tests
+```
+
+#### Observability (`observability/`)
+
+A strictly **out-of-band** metering layer. It plugs into a new read-only dispatch-observer
+seam on the APEX router (`ApexRouterOptions.observer` / `ApexOrchestratorOptions.observer`) and
+**only meters what already happened** — it never routes, gates, mutates a packet, or influences
+a KNOLL verdict, so the constitution's separation of concerns is preserved. The observer is
+optional: unset, APEX behaves byte-for-byte as before; a throwing observer can never break
+routing.
+
+- `MetricsCollector` — counters (packets routed / blocked / failed), a simple latency
+  histogram, KNOLL deny reasons (keyed by enforced-constraint for bounded cardinality),
+  per-destination counts, an active-personas estimate, and total billed cost. Emits a JSON
+  `snapshot()` or a Prometheus-ish `toPrometheus()` exposition.
+- `PacketTracer` — a bounded in-memory ring buffer of trace spans
+  (`packetId · source · dest · durationMs · verdict`); oldest spans roll off. No payload
+  contents are retained.
+- The gateway wires both into the orchestrator it builds and serves them at
+  **`GET /v1/metrics`** (JSON by default, `?format=prometheus` for text). It covers APEX's
+  internal DREAM/VISION forwards too, since metering happens at the router.
+
+```bash
+npm run demo:metrics        # legal + blocked traffic → JSON snapshot · Prometheus · trace spans
+npm run test:observability  # observability unit + gateway integration tests
+curl -s localhost:8787/v1/metrics                        # JSON snapshot
+curl -s 'localhost:8787/v1/metrics?format=prometheus'    # Prometheus-ish text
 ```
 
 Other Phase 4 pieces: a **Kafka-like partitioned task queue** (`persistence/kafka_stub.ts`,

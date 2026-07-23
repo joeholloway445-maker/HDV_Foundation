@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>HDV Foundation · The Governed Matrix</title>
+<meta name="description" content="HDV Foundation — a governed five-role agent matrix (HOPE · DREAM · VISION · KNOLL · APEX). Strict separation of concerns, tamper-evident routing, idle-cheap ephemeral fleet." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,340;9..144,600;9..144,900&family=Space+Grotesk:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg-0: #04141a;
+    --bg-1: #072428;
+    --bg-2: #0b3a34;
+    --ink: #eaf4ef;
+    --ink-soft: rgba(234, 244, 239, 0.74);
+    --ink-faint: rgba(234, 244, 239, 0.48);
+    --ink-ghost: rgba(234, 244, 239, 0.16);
+    --gold: #f0cf8e;
+    --gold-deep: #d8a94f;
+    --teal: #4fd6b8;
+    --teal-deep: #2b8f86;
+    --line: rgba(240, 207, 142, 0.20);
+    --line-soft: rgba(234, 244, 239, 0.10);
+    --panel: rgba(6, 26, 28, 0.55);
+    --panel-2: rgba(234, 244, 239, 0.035);
+    --danger: #e8877a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    color: var(--ink);
+    font-family: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+    font-size: 17px;
+    line-height: 1.62;
+    background:
+      radial-gradient(1200px 820px at 8% -12%, rgba(56, 120, 108, 0.55), transparent 55%),
+      radial-gradient(1100px 760px at 104% -4%, rgba(24, 70, 78, 0.62), transparent 52%),
+      radial-gradient(900px 900px at 50% 120%, rgba(216, 169, 79, 0.10), transparent 60%),
+      linear-gradient(158deg, var(--bg-0) 0%, var(--bg-1) 46%, var(--bg-2) 100%);
+    background-attachment: fixed;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  /* faint grain / constellation overlay */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+      radial-gradient(1.2px 1.2px at 20% 30%, rgba(240,207,142,0.35), transparent),
+      radial-gradient(1px 1px at 70% 20%, rgba(79,214,184,0.30), transparent),
+      radial-gradient(1.4px 1.4px at 40% 70%, rgba(234,244,239,0.20), transparent),
+      radial-gradient(1px 1px at 85% 60%, rgba(240,207,142,0.22), transparent),
+      radial-gradient(1px 1px at 12% 80%, rgba(234,244,239,0.16), transparent);
+    opacity: 0.6;
+    z-index: 0;
+  }
+  .wrap { position: relative; z-index: 1; max-width: 1080px; margin: 0 auto; padding: 0 clamp(1.2rem, 5vw, 2.4rem); }
+
+  /* ---------- top bar ---------- */
+  header.top {
+    position: sticky; top: 0; z-index: 20;
+    backdrop-filter: blur(10px);
+    background: linear-gradient(180deg, rgba(4,20,26,0.82), rgba(4,20,26,0.28));
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .top .bar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.85rem 0; }
+  .mark { display: flex; align-items: baseline; gap: 0.55rem; font-family: 'Fraunces', serif; font-weight: 900; letter-spacing: -0.01em; }
+  .mark b { font-size: 1.15rem; background: linear-gradient(180deg, var(--gold), var(--gold-deep)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .mark span { font-family: 'IBM Plex Mono', monospace; font-weight: 400; font-size: 0.7rem; letter-spacing: 0.28em; text-transform: uppercase; color: var(--ink-faint); }
+  nav.top-nav { display: flex; gap: 1.4rem; align-items: center; }
+  nav.top-nav a { color: var(--ink-soft); text-decoration: none; font-size: 0.82rem; letter-spacing: 0.06em; }
+  nav.top-nav a:hover { color: var(--gold); }
+  .gh {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    border: 1px solid var(--line); border-radius: 999px; padding: 0.4rem 0.9rem;
+    color: var(--gold); text-decoration: none; font-size: 0.8rem; letter-spacing: 0.05em;
+    transition: border-color 0.3s, transform 0.3s;
+  }
+  .gh:hover { border-color: rgba(240,207,142,0.6); transform: translateY(-1px); }
+  @media (max-width: 720px){ nav.top-nav a:not(.gh){ display:none; } }
+
+  /* ---------- hero ---------- */
+  .hero { padding: clamp(3.5rem, 11vw, 8rem) 0 clamp(2rem, 6vw, 4rem); }
+  .eyebrow { font-family: 'IBM Plex Mono', monospace; font-size: 0.74rem; letter-spacing: 0.42em; text-transform: uppercase; color: var(--ink-faint); margin: 0 0 1.1rem; }
+  .eyebrow .dot { color: var(--teal); }
+  h1.brand {
+    font-family: 'Fraunces', Georgia, serif; font-weight: 900;
+    font-size: clamp(4.8rem, 24vw, 13rem); line-height: 0.82; letter-spacing: -0.03em; margin: 0;
+    background: linear-gradient(178deg, var(--gold) 0%, var(--gold-deep) 62%, #b98a3c 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    animation: breathe 7.5s ease-in-out infinite; transform-origin: left center;
+  }
+  .brand-full { font-family: 'Fraunces', serif; font-weight: 340; font-style: italic; font-size: clamp(1.05rem, 3vw, 1.5rem); color: var(--ink); margin: 0.6rem 0 0; }
+  .lede { max-width: 60ch; color: var(--ink-soft); font-size: clamp(1.05rem, 2.2vw, 1.28rem); margin: 1.5rem 0 0; }
+  .lede b { color: var(--ink); font-weight: 500; }
+  .cta-row { display: flex; gap: 0.8rem; flex-wrap: wrap; margin-top: 2.2rem; }
+  .btn { display: inline-flex; align-items: center; gap: 0.5rem; text-decoration: none; font-size: 0.86rem; letter-spacing: 0.05em; padding: 0.72rem 1.35rem; border-radius: 999px; transition: transform .25s, box-shadow .25s, border-color .25s; }
+  .btn-primary { color: #05201d; background: linear-gradient(180deg, var(--gold), var(--gold-deep)); border: 1px solid transparent; box-shadow: 0 10px 30px -12px rgba(240,207,142,0.6); }
+  .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 16px 38px -12px rgba(240,207,142,0.7); }
+  .btn-ghost { color: var(--ink); border: 1px solid var(--line); }
+  .btn-ghost:hover { border-color: rgba(240,207,142,0.55); transform: translateY(-2px); }
+
+  /* ---------- metric strip ---------- */
+  .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line-soft); border: 1px solid var(--line-soft); border-radius: 16px; overflow: hidden; margin-top: clamp(2.5rem, 6vw, 4rem); }
+  .metric { background: var(--panel); padding: 1.4rem 1.2rem; }
+  .metric .n { font-family: 'Fraunces', serif; font-weight: 600; font-size: clamp(1.5rem, 3.6vw, 2.3rem); color: var(--gold); line-height: 1; }
+  .metric .l { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint); margin-top: 0.55rem; }
+  @media (max-width: 760px){ .metrics { grid-template-columns: repeat(2, 1fr); } }
+
+  /* ---------- sections ---------- */
+  section { padding: clamp(3.5rem, 9vw, 6.5rem) 0; }
+  .kicker { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.34em; text-transform: uppercase; color: var(--teal); margin: 0 0 0.9rem; }
+  h2 { font-family: 'Fraunces', serif; font-weight: 600; font-size: clamp(2rem, 5vw, 3.1rem); line-height: 1.04; letter-spacing: -0.02em; margin: 0 0 0.7rem; }
+  .section-lede { max-width: 62ch; color: var(--ink-soft); margin: 0 0 2.4rem; }
+
+  /* ---------- big5 cards ---------- */
+  .grid5 { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1rem; }
+  .card {
+    position: relative; background: var(--panel); border: 1px solid var(--line-soft); border-radius: 18px;
+    padding: 1.6rem 1.5rem; overflow: hidden; transition: transform .3s, border-color .3s, background .3s;
+  }
+  .card:hover { transform: translateY(-4px); border-color: var(--line); background: rgba(8,32,34,0.7); }
+  .card::after { content:""; position:absolute; inset:0 0 auto 0; height:3px; background: var(--accent, var(--gold)); opacity: 0.8; }
+  .card .role { font-family:'Fraunces', serif; font-weight: 900; font-size: 1.5rem; letter-spacing: -0.01em; color: var(--accent, var(--gold)); }
+  .card .full { font-family:'IBM Plex Mono', monospace; font-size: 0.66rem; letter-spacing: 0.08em; color: var(--ink-faint); margin: 0.3rem 0 0.9rem; text-transform: uppercase; }
+  .card .job { color: var(--ink); font-size: 0.96rem; margin: 0 0 0.9rem; }
+  .card .tags { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+  .tag { font-family:'IBM Plex Mono', monospace; font-size: 0.62rem; letter-spacing: 0.06em; padding: 0.24em 0.6em; border-radius: 6px; border: 1px solid var(--line-soft); color: var(--ink-soft); }
+  .tag.on { color: var(--teal); border-color: rgba(79,214,184,0.35); }
+  .tag.eph { color: var(--gold); border-color: rgba(240,207,142,0.35); }
+  .tag.no { color: rgba(232,135,122,0.9); border-color: rgba(232,135,122,0.3); }
+
+  /* ---------- diagram panel ---------- */
+  .diagram-panel { background: var(--panel); border: 1px solid var(--line-soft); border-radius: 20px; padding: clamp(1.2rem, 4vw, 2.4rem); }
+  .mermaid { display: flex; justify-content: center; }
+  .diagram-note { font-family:'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--ink-faint); margin-top: 1.2rem; text-align: center; letter-spacing: 0.04em; }
+  .diagram-fallback { display:none; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.4rem; }
+  @media (max-width: 820px){ .two-col { grid-template-columns: 1fr; } }
+
+  /* ---------- flow rail (pure CSS, always renders) ---------- */
+  .rail { display: flex; align-items: stretch; gap: 0; flex-wrap: wrap; margin: 0 0 1.4rem; }
+  .node-chip { flex: 1 1 auto; min-width: 90px; text-align: center; background: var(--panel-2); border: 1px solid var(--line-soft); border-radius: 12px; padding: 0.9rem 0.6rem; font-family:'IBM Plex Mono', monospace; font-size: 0.78rem; letter-spacing: 0.05em; }
+  .node-chip.gate { border-color: rgba(232,135,122,0.4); color: #f2b7ad; }
+  .node-chip.router { border-color: rgba(240,207,142,0.4); color: var(--gold); }
+  .arrow { display: flex; align-items: center; color: var(--teal); font-size: 1.1rem; padding: 0 0.5rem; }
+
+  /* ---------- honesty callout ---------- */
+  .callout { border: 1px solid var(--line); border-left: 3px solid var(--gold); background: linear-gradient(100deg, rgba(240,207,142,0.06), rgba(240,207,142,0)); border-radius: 12px; padding: 1.4rem 1.6rem; }
+  .callout h3 { font-family:'Fraunces', serif; font-weight: 600; margin: 0 0 0.5rem; font-size: 1.2rem; color: var(--gold); }
+  .callout code { font-family:'IBM Plex Mono', monospace; font-size: 0.85em; color: var(--teal); }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1.2rem; }
+  @media (max-width: 720px){ .split { grid-template-columns: 1fr; } }
+  .split > div { background: var(--panel-2); border: 1px solid var(--line-soft); border-radius: 12px; padding: 1.1rem 1.2rem; }
+  .split .h { font-family:'IBM Plex Mono', monospace; font-size: 0.68rem; letter-spacing: 0.16em; text-transform: uppercase; margin: 0 0 0.5rem; }
+  .split .real .h { color: var(--teal); }
+  .split .concept .h { color: var(--gold); }
+
+  /* ---------- docs links ---------- */
+  .doclist { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px,1fr)); gap: 1rem; }
+  .doc { display: block; text-decoration: none; background: var(--panel); border: 1px solid var(--line-soft); border-radius: 16px; padding: 1.3rem 1.4rem; transition: transform .28s, border-color .28s; }
+  .doc:hover { transform: translateY(-3px); border-color: var(--line); }
+  .doc .t { font-family:'Fraunces', serif; font-weight: 600; font-size: 1.15rem; color: var(--ink); }
+  .doc .p { color: var(--ink-soft); font-size: 0.9rem; margin-top: 0.35rem; }
+  .doc .go { font-family:'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--teal); margin-top: 0.8rem; letter-spacing: 0.08em; }
+
+  /* code block */
+  pre.code { background: rgba(3,15,18,0.7); border: 1px solid var(--line-soft); border-radius: 12px; padding: 1.1rem 1.3rem; overflow-x: auto; font-family:'IBM Plex Mono', monospace; font-size: 0.82rem; color: var(--ink-soft); line-height: 1.7; }
+  pre.code .c { color: var(--ink-faint); }
+  pre.code .g { color: var(--gold); }
+  pre.code .t { color: var(--teal); }
+
+  footer.site { border-top: 1px solid var(--line-soft); padding: 2.6rem 0 3.5rem; color: var(--ink-faint); }
+  footer.site .row { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; align-items: center; }
+  footer.site a { color: var(--ink-soft); text-decoration: none; }
+  footer.site a:hover { color: var(--gold); }
+  .disclaimer { font-size: 0.78rem; max-width: 70ch; margin-top: 1rem; line-height: 1.6; }
+
+  @keyframes breathe { 0%,100% { transform: scale(1); filter: brightness(1); } 50% { transform: scale(1.008); filter: brightness(1.07); } }
+  .reveal { opacity: 0; transform: translateY(18px); transition: opacity .8s ease, transform .8s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce){ *{ animation: none !important; } .reveal{ opacity:1; transform:none; } html{ scroll-behavior:auto; } }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap bar">
+    <div class="mark"><b>HDV</b><span>Foundation</span></div>
+    <nav class="top-nav">
+      <a href="#big5">The Big&nbsp;5</a>
+      <a href="#flow">Architecture</a>
+      <a href="#matrix">The Matrix</a>
+      <a href="#honest">Honest Math</a>
+      <a class="gh" href="https://github.com/joeholloway445-maker/HDV_Foundation" target="_blank" rel="noopener">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- HERO -->
+  <section class="hero" style="padding-top: clamp(3rem,9vw,6rem)">
+    <p class="eyebrow">HDV Foundation <span class="dot">◆</span> The Governed Matrix</p>
+    <h1 class="brand">HOPE</h1>
+    <p class="brand-full">Holloway's Own Providential Enterprise — the forward-facing voice of a five-role agent hierarchy.</p>
+    <p class="lede">Everyone else is building a bigger brain. HDV is building a bigger <b>government</b>: five specialized "Big AI" that cooperate under a strict constitution but <b>never talk to each other directly</b>. Every exchange is routed by <b>APEX</b>, gated by <b>KNOLL</b>, and carried by one tamper-evident contract — the <code style="font-family:'IBM Plex Mono',monospace;color:var(--teal)">RoutingPacket</code>.</p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://github.com/joeholloway445-maker/HDV_Foundation" target="_blank" rel="noopener">Explore the repository →</a>
+      <a class="btn btn-ghost" href="#flow">See the architecture</a>
+    </div>
+
+    <div class="metrics reveal">
+      <div class="metric"><div class="n">5</div><div class="l">Big AI · one job each</div></div>
+      <div class="metric"><div class="n">20,480</div><div class="l">nodes in the fleet</div></div>
+      <div class="metric"><div class="n">~14.3Q</div><div class="l">conceptual capacity*</div></div>
+      <div class="metric"><div class="n">0</div><div class="l">failing tests · type errors</div></div>
+    </div>
+  </section>
+
+  <!-- BIG 5 -->
+  <section id="big5">
+    <p class="kicker">Separation of concerns, enforced in code</p>
+    <h2>The Big&nbsp;5</h2>
+    <p class="section-lede">Each agent has exactly one job and a set of things it can <em>never</em> do. No agent may absorb another's responsibilities — not "temporarily," not "for convenience." The constraints below are enforced by the router and the guard, not by a system prompt.</p>
+    <div class="grid5">
+      <div class="card reveal" style="--accent: var(--gold)">
+        <div class="role">HOPE</div>
+        <div class="full">Holloway's Own Providential Enterprise</div>
+        <p class="job">Parses intent; the UI/UX voice. The master interpreter.</p>
+        <div class="tags"><span class="tag">Interface</span><span class="tag on">always-on</span><span class="tag no">can't execute</span><span class="tag no">can't create</span></div>
+      </div>
+      <div class="card reveal" style="--accent: var(--teal)">
+        <div class="role">DREAM</div>
+        <div class="full">Dynamic Renderer of Ephemeral Art Model</div>
+        <p class="job">Generates all possible outcomes and scenarios. Simulation only.</p>
+        <div class="tags"><span class="tag">Simulation</span><span class="tag eph">ephemeral</span><span class="tag no">can't govern</span><span class="tag no">can't execute</span></div>
+      </div>
+      <div class="card reveal" style="--accent: var(--teal)">
+        <div class="role">VISION</div>
+        <div class="full">Vectorized Infrastructure &amp; Systems Ionic Operational Node</div>
+        <p class="job">Tool use and real task implementation inside sandboxes.</p>
+        <div class="tags"><span class="tag">Action</span><span class="tag eph">ephemeral</span><span class="tag no">can't create</span><span class="tag no">can't govern</span></div>
+      </div>
+      <div class="card reveal" style="--accent: #e8877a">
+        <div class="role">KNOLL</div>
+        <div class="full">Kinetic Node of Operational Locks &amp; Limiters</div>
+        <p class="job">Watches all traffic; enforces the virtual laws; protects privacy. Master auditor.</p>
+        <div class="tags"><span class="tag">Security</span><span class="tag on">always-on</span><span class="tag no">monitor-only</span></div>
+      </div>
+      <div class="card reveal" style="--accent: var(--gold)">
+        <div class="role">APEX</div>
+        <div class="full">Automated Processor of Ephemeral eXchanges</div>
+        <p class="job">Routes every task between agents. The single legal road. Master router.</p>
+        <div class="tags"><span class="tag">Orchestration</span><span class="tag on">always-on</span><span class="tag no">KNOLL before every route</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FLOW -->
+  <section id="flow">
+    <p class="kicker">One contract, one gate, one road</p>
+    <h2>How a packet travels</h2>
+    <p class="section-lede">No agent talks to another directly. Every exchange flows <b>SOURCE → APEX → KNOLL → destination</b>. APEX must call <code style="font-family:'IBM Plex Mono',monospace;color:var(--teal)">KNOLL.intercept()</code> before routing; a denial drops the packet and writes a tamper-evident audit + a <code style="font-family:'IBM Plex Mono',monospace;color:var(--teal)">BLOCKED</code> ledger row. DREAM and VISION can <em>never</em> communicate directly, in either direction.</p>
+
+    <div class="diagram-panel reveal">
+      <!-- Always-visible CSS rail (renders even if mermaid/CDN fails) -->
+      <div class="rail">
+        <div class="node-chip">SOURCE</div>
+        <div class="arrow">→</div>
+        <div class="node-chip router">APEX<br><small style="opacity:.7">router</small></div>
+        <div class="arrow">→</div>
+        <div class="node-chip gate">KNOLL<br><small style="opacity:.7">gate</small></div>
+        <div class="arrow">→</div>
+        <div class="node-chip">DESTINATION</div>
+      </div>
+
+      <div class="mermaid">
+flowchart LR
+    SRC([SOURCE agent]):::agent -->|RoutingPacket| APEX{APEX router}:::router
+    APEX -->|intercept before every route| KNOLL{{KNOLL gate}}:::gate
+    KNOLL -->|allowed| DEST([DESTINATION]):::agent
+    KNOLL -->|denied| DROP[/dropped + BLOCKED/]:::drop
+    DEST -.->|result via APEX only| APEX
+    APEX -->|SUCCESS · cost_usd| LEDGER[(APEX ledger)]:::store
+    KNOLL -->|ALLOWED / BLOCKED| AUDIT[(SecurityAudit)]:::store
+    DREAMX([DREAM]):::eph -. NO_DIRECT_DREAM_VISION .-x VISIONX([VISION]):::eph
+    classDef agent fill:#0b3a34,stroke:#2b8f86,color:#eaf4ef;
+    classDef eph fill:#123a34,stroke:#d8a94f,color:#f0cf8e;
+    classDef router fill:#1a2b1e,stroke:#d8a94f,color:#f0cf8e;
+    classDef gate fill:#2a1614,stroke:#e8877a,color:#f2b7ad;
+    classDef drop fill:#20100e,stroke:#e8877a,color:#f2b7ad;
+    classDef store fill:#07242a,stroke:#4fd6b8,color:#bfeee2;
+      </div>
+      <p class="diagram-note">Every routed packet is hashed (SHA-256 over header + payload), gated by KNOLL, then billed in the APEX ledger. The DREAM ⇎ VISION edge is a hard law — always BLOCKED.</p>
+    </div>
+  </section>
+
+  <!-- MATRIX -->
+  <section id="matrix">
+    <p class="kicker">Idle-cheap by construction</p>
+    <h2>Always-on core, ephemeral fleet</h2>
+    <p class="section-lede">Only three roles keep standby presence — the interface, the guard, and the router. DREAM and VISION (and their node matrices) are spun up on demand, claim a slice, run a persona batch, report back <b>through APEX</b>, and self-terminate. You pay for active personas only.</p>
+
+    <div class="two-col">
+      <div class="diagram-panel reveal">
+        <div class="mermaid">
+flowchart TB
+    subgraph AO[Always-on standby · 3 of 5]
+      HOPE[HOPE — voice]:::ao
+      KNOLL[KNOLL — gate]:::gate
+      APEX[APEX — router]:::router
+    end
+    subgraph EPH[Ephemeral · spun up, self-terminate · 2 of 5]
+      DREAM[DREAM — simulation]:::eph
+      VISION[VISION — action]:::eph
+    end
+    HOPE -->|submit| APEX
+    APEX -->|after KNOLL| DREAM
+    APEX -->|after KNOLL| VISION
+    DREAM -->|via APEX| APEX
+    VISION -->|via APEX| APEX
+    APEX -->|result| HOPE
+    APEX -.calls.-> KNOLL
+    classDef ao fill:#0b3a34,stroke:#4fd6b8,color:#eaf4ef;
+    classDef eph fill:#123a34,stroke:#d8a94f,color:#f0cf8e;
+    classDef router fill:#1a2b1e,stroke:#d8a94f,color:#f0cf8e;
+    classDef gate fill:#2a1614,stroke:#e8877a,color:#f2b7ad;
+        </div>
+        <p class="diagram-note">Always-on: HOPE · KNOLL · APEX. Ephemeral: DREAM · VISION.</p>
+      </div>
+
+      <div class="diagram-panel reveal">
+        <p class="kicker" style="margin-top:0">The topology math</p>
+        <pre class="code"><span class="c"># each Big AI owns an identical matrix</span>
+MANAGERS_PER_AGENT = <span class="g">64</span>
+NODES_PER_MANAGER  = <span class="g">64</span>
+NODES_PER_AGENT    = <span class="g">4,096</span>   <span class="c"># 64 × 64</span>
+TOTAL_NODES        = <span class="g">20,480</span>  <span class="c"># × 5 Big AI</span>
+PERSONAS_PER_NODE  = <span class="g">100</span>
+MODEL_PARAMS       = <span class="g">7,000,000,000</span>  <span class="c"># 7B, conceptual</span>
+
+TOTAL_PERSONAS     = <span class="t">2,048,000</span>
+CONCEPTUAL_PARAMS  = <span class="t">1.4336e16</span>   <span class="c"># ~14.3 quadrillion*</span>
+ACTIVE_PARAMS      = live_personas × 7B  <span class="c"># idle ≈ 0 compute</span></pre>
+        <p class="diagram-note" style="text-align:left">Computed in <code style="color:var(--teal)">nodes/parameters.ts</code>, not asserted. Each Big AI represents exactly 20% of the conceptual total.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- HONEST MATH -->
+  <section id="honest">
+    <p class="kicker">Credibility is the foundation of the moat</p>
+    <h2>Honest by design</h2>
+    <p class="section-lede">The headline number is a <b>conceptual capacity</b>, not a downloadable set of trained weights. We say so plainly — because a claim that survives an engineer's first question is worth more than one that doesn't.</p>
+    <div class="callout reveal">
+      <h3>What "~14.3 quadrillion parameters" actually means</h3>
+      <p style="color:var(--ink-soft); margin:0">It is <code>20,480 nodes × 100 personas × 7B</code> — a measure of how much addressable persona-capacity the topology can express. It is <b>not</b> 14.3Q trained weights. The honest, economical realization (see the roadmap) is <b>shared base weights + cheap per-persona deltas</b>, and only the <b>active</b> personas ever cost GPU.</p>
+      <div class="split">
+        <div class="real">
+          <p class="h">Real today — tested</p>
+          <p style="margin:0;color:var(--ink-soft);font-size:0.92rem">Tamper-evident RoutingPacket · APEX router · KNOLL gate (6 laws + behavioral score) · billing ledger · 20,480-node topology &amp; persona lifecycle · HTTP gateway · Kafka-shaped queue · Prisma/Postgres seam · GPU/7B model seam.</p>
+        </div>
+        <div class="concept">
+          <p class="h">Conceptual — on the roadmap</p>
+          <p style="margin:0;color:var(--ink-soft);font-size:0.92rem">Real 7B inference on GPU workers · real Kafka &amp; container sandboxes · learned KNOLL · persona specialization &amp; routing · multi-tenancy &amp; marketplace. Each slots behind an interface that already exists.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DOCS -->
+  <section id="docs">
+    <p class="kicker">Read the whole story</p>
+    <h2>The documents</h2>
+    <p class="section-lede">The system ships with its own constitution, plan, diagnostics, forward path, and strategy. Everything below lives in the repository.</p>
+    <div class="doclist">
+      <a class="doc reveal" href="https://github.com/joeholloway445-maker/HDV_Foundation/blob/main/big5-matrix/.cursorrules" target="_blank" rel="noopener">
+        <div class="t">The Constitution</div>
+        <div class="p">The binding system manifest — the six hard laws and the prime directive.</div>
+        <div class="go">.cursorrules →</div>
+      </a>
+      <a class="doc reveal" href="https://github.com/joeholloway445-maker/HDV_Foundation/blob/main/big5-matrix/docs/GAME_PLAN.md" target="_blank" rel="noopener">
+        <div class="t">Game Plan</div>
+        <div class="p">The authoritative north-star: what is built vs. what is next, phase by phase.</div>
+        <div class="go">docs/GAME_PLAN.md →</div>
+      </a>
+      <a class="doc reveal" href="https://github.com/joeholloway445-maker/HDV_Foundation/blob/main/big5-matrix/docs/ARCHITECTURE.md" target="_blank" rel="noopener">
+        <div class="t">Architecture</div>
+        <div class="p">Mermaid diagrams for packet flow, always-on vs ephemeral, and the node matrix.</div>
+        <div class="go">docs/ARCHITECTURE.md →</div>
+      </a>
+      <a class="doc reveal" href="https://github.com/joeholloway445-maker/HDV_Foundation/blob/main/big5-matrix/docs/ROADMAP.md" target="_blank" rel="noopener">
+        <div class="t">Roadmap · Phases 5–8</div>
+        <div class="p">The exact engineering path from a tested backbone to a world-class platform.</div>
+        <div class="go">docs/ROADMAP.md →</div>
+      </a>
+      <a class="doc reveal" href="https://github.com/joeholloway445-maker/HDV_Foundation/blob/main/big5-matrix/docs/MOAT.md" target="_blank" rel="noopener">
+        <div class="t">The Moat</div>
+        <div class="p">Why a governed matrix wins — honest about conceptual vs. real, and go-to-market.</div>
+        <div class="go">docs/MOAT.md →</div>
+      </a>
+      <a class="doc reveal" href="https://github.com/joeholloway445-maker/HDV_Foundation/blob/main/big5-matrix/docs/DIAGNOSTICS.md" target="_blank" rel="noopener">
+        <div class="t">Diagnostics</div>
+        <div class="p">The full health template and the captured known-good baseline.</div>
+        <div class="go">docs/DIAGNOSTICS.md →</div>
+      </a>
+    </div>
+  </section>
+
+</div>
+
+<footer class="site">
+  <div class="wrap">
+    <div class="row">
+      <div class="mark"><b>HDV</b><span>Foundation</span></div>
+      <div>
+        <a href="https://github.com/joeholloway445-maker/HDV_Foundation" target="_blank" rel="noopener">GitHub</a>
+        &nbsp;·&nbsp; <a href="#big5">The Big 5</a>
+        &nbsp;·&nbsp; <a href="#flow">Architecture</a>
+        &nbsp;·&nbsp; MIT Licensed
+      </div>
+    </div>
+    <p class="disclaimer">*The ~14.3-quadrillion figure is a <b>conceptual capacity</b> computed from the topology (20,480 nodes × 100 personas × 7B), not a count of trained weights. Only active personas consume compute. HOPE interprets and documents — it does not execute or create. This page is a static, self-contained architecture showcase; no build step, no tracking.</p>
+  </div>
+</footer>
+
+<script type="module">
+  // Progressive reveal on scroll
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+  }, { threshold: 0.12 });
+  document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+
+  // Mermaid via CDN — themed to match. Fails gracefully (CSS rail + code blocks already render).
+  try {
+    const mod = await import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs');
+    const mermaid = mod.default;
+    mermaid.initialize({
+      startOnLoad: true,
+      securityLevel: 'strict',
+      theme: 'base',
+      themeVariables: {
+        background: 'transparent',
+        primaryColor: '#0b3a34',
+        primaryTextColor: '#eaf4ef',
+        primaryBorderColor: '#2b8f86',
+        lineColor: '#4fd6b8',
+        fontFamily: 'IBM Plex Mono, monospace',
+        fontSize: '14px'
+      }
+    });
+    await mermaid.run({ querySelector: '.mermaid' });
+  } catch (err) {
+    // CDN blocked/offline: hide raw mermaid source so only the CSS rail + code blocks show.
+    document.querySelectorAll('.mermaid').forEach((el) => { el.style.display = 'none'; });
+    console.warn('Mermaid unavailable; showing static fallbacks.', err);
+  }
+</script>
+</body>
+</html>

@@ -114,7 +114,8 @@ workers (see [`../colab/05_horizontal_worker.py`](../colab/05_horizontal_worker.
 5. Full documentation (this file + `ARCHITECTURE.md`) and a Phase 4 composition demo.
 
 **Deliberately still next (not built):** real Kafka, real GPU workers, real container
-sandboxes, and a Prisma/Postgres-backed persistence swap. See §10.
+sandboxes, and a Prisma/Postgres-backed persistence swap. See §10, and the full phased path
+(Phases 5–8, with exact engineering steps) in [`ROADMAP.md`](./ROADMAP.md).
 
 ---
 
@@ -180,6 +181,10 @@ gateway's `GET /v1/ledger` is a read-only projection of this ledger.
 ---
 
 ## 10. Scaling roadmap
+
+> The full, phased path to a world-class platform (Phases 5–8) — with file-level engineering
+> steps, acceptance tests, and sequencing — lives in [`ROADMAP.md`](./ROADMAP.md). The list
+> below is the near-term dependency order that feeds it.
 
 Ordered by dependency, each item slots behind an existing interface so callers don't change:
 

@@ -18,7 +18,7 @@ import {
 } from '../config/routing_schema.js';
 import { Knoll } from '../knoll/index.js';
 import { InMemoryLedger, type BillingLedger } from './ledger.js';
-import { ApexRouter, type AgentHandler, type DispatchResult } from './router.js';
+import { ApexRouter, type AgentHandler, type DispatchResult, type DispatchObserver } from './router.js';
 import { createPacket, type CreatePacketInput } from './packet.js';
 import { runPersonaPipeline, type PipelineResult } from '../nodes/index.js';
 import type {
@@ -47,6 +47,12 @@ export interface ApexOrchestratorOptions {
    * path is unchanged and used when no queue is configured.
    */
   queue?: TaskQueue;
+  /**
+   * Optional read-only dispatch observer (Phase 5 observability). Forwarded verbatim to the
+   * ApexRouter so every gated dispatch — including APEX's internal DREAM/VISION forwards — is
+   * metered. Purely additive; when omitted the orchestrator behaves exactly as before.
+   */
+  observer?: DispatchObserver;
 }
 
 export interface QueueConsumerOptions {
@@ -92,6 +98,7 @@ export class ApexOrchestrator {
       knoll: this.knoll,
       ledger,
       defaultCostUsd: options.defaultCostUsd ?? 0.02,
+      observer: options.observer,
     });
 
     this.sendViaApex = (input: CreatePacketInput): DispatchResult => this.router.dispatch(createPacket(input));

@@ -16,6 +16,14 @@ export type { IntentDocument, HopeDocumenterOptions } from './documenter.js';
 
 export { HopeVoice } from './voice.js';
 
+// Optional, dependency-injected LLM enrichment of the intent summary (heuristic by default).
+export { IntentEnricher, heuristicSummary } from './enricher.js';
+export type {
+  EnrichedSummary,
+  SummarySource,
+  IntentEnricherOptions,
+} from './enricher.js';
+
 // Forward-facing console (interpretation/documentation/voice only; routes only if injected).
 export {
   HopeConsole,

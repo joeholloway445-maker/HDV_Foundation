@@ -30,7 +30,9 @@
     "nodes/**/*.ts",
     "config/**/*.ts",
     "persistence/**/*.ts",
+    "observability/**/*.ts",
     "gateway/**/*.ts",
+    "providers/**/*.ts",
     "demo/**/*.ts",
     "tests/**/*.ts"
   ],

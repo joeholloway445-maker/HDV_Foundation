@@ -10,6 +10,7 @@ import {
   AgentRole,
   type KnollValidationResponse,
   type RoutingPacket,
+  type RoutingStatus,
 } from '../config/routing_schema.js';
 import { Knoll } from '../knoll/index.js';
 import { InMemoryLedger, type BillingLedger } from './ledger.js';
@@ -27,11 +28,38 @@ export interface DispatchResult {
   cost_usd: number;
 }
 
+/**
+ * A single observable dispatch outcome, emitted AFTER a route completes. This is a purely
+ * read-only projection (source/destination/verdict/latency/cost) with no ability to alter
+ * routing — it exists so an out-of-band observer (see `observability/`) can meter APEX
+ * traffic without APEX depending on any observability module.
+ */
+export interface DispatchEvent {
+  packetId: string;
+  source: AgentRole;
+  destination: AgentRole;
+  status: RoutingStatus;
+  /** Wall-clock time for the whole gated dispatch (KNOLL + handler), in milliseconds. */
+  durationMs: number;
+  cost_usd: number;
+  knoll: KnollValidationResponse;
+}
+
+/** Side-effect-only sink for dispatch events. MUST NOT throw; APEX ignores its return. */
+export type DispatchObserver = (event: DispatchEvent) => void;
+
 export interface ApexRouterOptions {
   knoll?: Knoll;
   ledger?: BillingLedger;
   /** Cost billed per successfully routed packet (an ephemeral execution). */
   defaultCostUsd?: number;
+  /**
+   * Optional read-only dispatch observer (Phase 5 observability). Invoked after every
+   * `dispatch` with a projection of the outcome. It can never alter routing or the verdict,
+   * and any error it throws is swallowed so metering can never break the transport.
+   * Omitted by default — behavior is byte-for-byte unchanged when unset.
+   */
+  observer?: DispatchObserver;
 }
 
 export class ApexRouter {
@@ -39,6 +67,7 @@ export class ApexRouter {
   readonly ledger: BillingLedger;
   private readonly handlers = new Map<AgentRole, AgentHandler>();
   private readonly defaultCostUsd: number;
+  private readonly observer?: DispatchObserver;
 
   constructor(options: ApexRouterOptions = {}) {
     // KNOLL is always-on: if none is injected, APEX stands one up. APEX cannot run
@@ -46,11 +75,45 @@ export class ApexRouter {
     this.knoll = options.knoll ?? new Knoll();
     this.ledger = options.ledger ?? new InMemoryLedger();
     this.defaultCostUsd = options.defaultCostUsd ?? 0.01;
+    this.observer = options.observer;
   }
 
   /** Register (or replace) the inbound handler for a destination agent. */
   register(role: AgentRole, handler: AgentHandler): void {
     this.handlers.set(role, handler);
+  }
+
+  /**
+   * Dispatch a packet through the KNOLL-gated transport, then emit a read-only observation.
+   * The gating logic lives untouched in `gatedDispatch`; this wrapper only times the call
+   * and (optionally) notifies the observer. Observation happens AFTER the verdict and can
+   * never influence it.
+   */
+  dispatch(packet: RoutingPacket, costUsd?: number): DispatchResult {
+    if (!this.observer) return this.gatedDispatch(packet, costUsd);
+    const start = performance.now();
+    const result = this.gatedDispatch(packet, costUsd);
+    this.emit(packet, result, performance.now() - start);
+    return result;
+  }
+
+  /** Emit a dispatch observation. Never throws into the caller — metering is best-effort. */
+  private emit(packet: RoutingPacket, result: DispatchResult, durationMs: number): void {
+    if (!this.observer) return;
+    const valid = isRoutingPacket(packet);
+    try {
+      this.observer({
+        packetId: result.packetId,
+        source: valid ? packet.header.source : AgentRole.APEX,
+        destination: valid ? packet.header.destination : AgentRole.APEX,
+        status: result.status,
+        durationMs,
+        cost_usd: result.cost_usd,
+        knoll: result.knoll,
+      });
+    } catch {
+      // An observer failure must never break routing; swallow it.
+    }
   }
 
   /**
@@ -60,7 +123,7 @@ export class ApexRouter {
    *   3. only if allowed: deliver to the destination handler,
    *   4. always: write a ledger entry (SUCCESS / BLOCKED / FAILED) with cost_usd.
    */
-  dispatch(packet: RoutingPacket, costUsd?: number): DispatchResult {
+  private gatedDispatch(packet: RoutingPacket, costUsd?: number): DispatchResult {
     const packetId = isRoutingPacket(packet) ? packet.header.packetId : 'unknown-packet';
 
     // Step 1: defensive structural guard (KNOLL will also check authoritatively).

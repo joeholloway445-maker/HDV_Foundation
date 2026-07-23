@@ -31,6 +31,7 @@ import {
   type GatewayLogger,
 } from './middleware.js';
 import { ApexOrchestrator } from '../apex/index.js';
+import { MetricsCollector, PacketTracer, combineObservers } from '../observability/index.js';
 import { IntentInterpreter, HopeDocumenter, HopeVoice } from '../hope/index.js';
 import { SimulationEngine } from '../dream/index.js';
 import { ExecutionEngine } from '../vision/index.js';
@@ -50,6 +51,12 @@ import {
 export interface GatewayResponse {
   status: number;
   body: Record<string, unknown>;
+  /**
+   * Optional raw text body (e.g. Prometheus exposition). When set, `body` is ignored and the
+   * response is written verbatim with `contentType`. Used by GET /v1/metrics?format=prometheus.
+   */
+  text?: string;
+  contentType?: string;
 }
 
 export interface HopeGatewayOptions {
@@ -70,6 +77,15 @@ export interface HopeGatewayOptions {
    * no-op) to silence logging (handy in tests). Secrets are never passed to the logger.
    */
   logger?: GatewayLogger | false;
+  /**
+   * Phase 5 observability. Injected read-only meters exposed via GET /v1/metrics. When the
+   * gateway builds its own orchestrator (the default), these are wired to its dispatch
+   * observer so all APEX traffic — including internal DREAM/VISION forwards — is metered. If
+   * you inject your own `orchestrator`, wire the same collector's `observer()` into it so the
+   * gateway's /v1/metrics reflects real traffic. Defaults are created when omitted.
+   */
+  metrics?: MetricsCollector;
+  tracer?: PacketTracer;
 }
 
 interface HopeResultRecord {
@@ -88,6 +104,9 @@ export class HopeGateway {
   readonly voice: HopeVoice;
   /** Front-door guard chain (CORS, auth, rate limiting). Public for tests/introspection. */
   readonly middleware: GatewayMiddleware;
+  /** Read-only observability meters surfaced at GET /v1/metrics. */
+  readonly metrics: MetricsCollector;
+  readonly tracer: PacketTracer;
   private readonly readLimit: number;
   private readonly logger: GatewayLogger;
 
@@ -97,7 +116,14 @@ export class HopeGateway {
   private readonly hopeResults: HopeResultRecord[] = [];
 
   constructor(options: HopeGatewayOptions = {}) {
-    this.orchestrator = options.orchestrator ?? new ApexOrchestrator({ defaultCostUsd: 0.02 });
+    // Observability meters (read-only). Wired into the orchestrator's dispatch observer when
+    // the gateway builds its own — so every gated route, including APEX's internal forwards,
+    // is metered without the gateway ever touching routing or KNOLL.
+    this.metrics = options.metrics ?? new MetricsCollector();
+    this.tracer = options.tracer ?? new PacketTracer();
+    const observer = combineObservers(this.metrics.observer(), this.tracer.observer());
+    this.orchestrator =
+      options.orchestrator ?? new ApexOrchestrator({ defaultCostUsd: 0.02, observer });
     this.interpreter = options.interpreter ?? new IntentInterpreter();
     this.documenter = options.documenter ?? new HopeDocumenter();
     this.voice = options.voice ?? new HopeVoice();
@@ -276,6 +302,26 @@ export class HopeGateway {
   }
 
   /**
+   * GET /v1/metrics — observability snapshot. Defaults to a JSON snapshot; pass
+   * `?format=prometheus` (or `text`) for a Prometheus-ish exposition. Read-only: it only
+   * reflects APEX traffic the gateway already routed via APEX + KNOLL.
+   */
+  handleMetrics(format?: string): GatewayResponse {
+    if (format === 'prometheus' || format === 'text') {
+      return {
+        status: 200,
+        body: {},
+        text: this.metrics.toPrometheus(),
+        contentType: 'text/plain; version=0.0.4; charset=utf-8',
+      };
+    }
+    return {
+      status: 200,
+      body: { ...this.metrics.snapshot(), recentTrace: this.tracer.recent(20) },
+    };
+  }
+
+  /**
    * Route a parsed request to a handler. Async so a real body read can be awaited by the
    * server wrapper; handlers themselves are synchronous. This is the single mapping table.
    */
@@ -286,6 +332,7 @@ export class HopeGateway {
     if (m === 'GET' && pathname === '/v1/ledger') return this.handleLedger(numParam(query.get('limit')));
     if (m === 'GET' && pathname === '/v1/audit') return this.handleAudit(numParam(query.get('limit')));
     if (m === 'GET' && pathname === '/v1/matrix/stats') return this.handleMatrixStats();
+    if (m === 'GET' && pathname === '/v1/metrics') return this.handleMetrics(query.get('format') ?? undefined);
     return { status: 404, body: { error: `no route for ${m} ${pathname}` } };
   }
 
@@ -337,7 +384,11 @@ export class HopeGateway {
 
       const body = method === 'POST' || method === 'PUT' ? await readJsonBody(req) : undefined;
       const result = await this.route(method, url.pathname, url.searchParams, body);
-      writeJson(res, result.status, result.body, guard.headers);
+      if (typeof result.text === 'string') {
+        writeText(res, result.status, result.text, result.contentType ?? 'text/plain; charset=utf-8', guard.headers);
+      } else {
+        writeJson(res, result.status, result.body, guard.headers);
+      }
       log(result.status);
     } catch (err) {
       writeJson(res, 500, { error: err instanceof Error ? err.message : String(err) }, this.middleware.corsHeaders());
@@ -432,4 +483,16 @@ function writeJson(
   const payload = JSON.stringify(body, null, 2);
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', ...extraHeaders });
   res.end(payload);
+}
+
+/** Write a raw text response (e.g. Prometheus exposition) with the given content type. */
+function writeText(
+  res: http.ServerResponse,
+  status: number,
+  text: string,
+  contentType: string,
+  extraHeaders: Record<string, string> = {},
+): void {
+  res.writeHead(status, { 'content-type': contentType, ...extraHeaders });
+  res.end(text);
 }
