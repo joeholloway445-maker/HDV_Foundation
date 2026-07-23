@@ -52,3 +52,4 @@ pids/
 .cache/
 .parcel-cache/
 .vite/
+.github/
