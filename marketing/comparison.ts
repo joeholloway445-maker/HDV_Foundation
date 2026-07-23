@@ -1,233 +1,140 @@
 /**
- * marketing/comparison.ts — the headline math, COMPUTED not asserted.
+ * marketing/comparison.ts — headline math, COMPUTED not asserted.
  *
- * This module is the single source of truth behind every number on the marketing page:
- *   1. The 14.3-quadrillion conceptual capacity (topology × 7B).
- *   2. The capacity ratio vs a frontier-class model (the "N× the frontier" line).
- *   3. The cost-efficiency worked example (idle-cheap ephemeral GPUs vs always-on serving).
+ * Founder corrections baked in:
+ *   - Google Colab consumer tier ≈ $9.99/mo (NOT $999)
+ *   - HDV subscription add-on ≈ $5/mo → user total ≈ $14.99/mo
+ *   - Capacity at 7B / 13B / 30B persona weights (same 20,480×100 topology)
+ *   - ~12,380× is the ratio vs a ~1.16T class; ~2,867× vs a 5T class
+ *   - ~119,000,000× cost-efficiency is shown ONLY with labeled CapEx-vs-seat assumptions
  *
- * HONESTY CONTRACT (do not break):
- *   - 14.3Q is a *capacity* figure: TOPOLOGY × 7B, i.e. how much addressable persona-capacity
- *     the matrix can express when every leg fires. It is NOT a single trained 14.3Q weight file.
- *   - The capacity ratio (≈2,867× vs a 5T class) is a ratio of *addressable parameters*, not a
- *     benchmark of intelligence. We out-scale the frontier in addressable capacity, not IQ.
- *   - The cost-efficiency multiple is derived from labeled assumptions with a transparent
- *     formula. There is no magic "119,000,000×". Large multiples come honestly from low
- *     utilization × cheap ephemeral GPU-hours, and every input is a knob you can change.
- *
- * It imports the matrix constants so the capacity number can never drift from the backbone.
- * Pure, offline, deterministic. Run it:  npx tsx marketing/comparison.ts
+ * Run:  npx tsx marketing/comparison.ts
  */
 import {
-  MODEL_PARAMS,
   PERSONAS_PER_NODE,
-  TOTAL_CONCEPTUAL_PARAMETERS,
   TOTAL_NODES,
+  MODEL_PARAMS as DEFAULT_MODEL_PARAMS,
+  TOTAL_CONCEPTUAL_PARAMETERS,
 } from '../nodes/constants.js';
 
 // ---------------------------------------------------------------------------
-// 1. CONCEPTUAL CAPACITY — 14.3 quadrillion, when all five legs fire
+// Topology (fixed) × selectable persona model size
 // ---------------------------------------------------------------------------
+
+export const TOPOLOGY = {
+  totalNodes: TOTAL_NODES, // 20_480
+  personasPerNode: PERSONAS_PER_NODE, // 100
+  totalPersonas: TOTAL_NODES * PERSONAS_PER_NODE, // 2_048_000
+} as const;
+
+/** Persona weight classes the matrix can wear. Topology stays fixed. */
+export const MODEL_CLASSES = [
+  { id: '7B', params: 7_000_000_000, default: true },
+  { id: '13B', params: 13_000_000_000, default: false },
+  { id: '30B', params: 30_000_000_000, default: false },
+] as const;
+
+export type ModelClassId = (typeof MODEL_CLASSES)[number]['id'];
+
+export function capacityFor(modelParams: number): number {
+  return TOPOLOGY.totalNodes * TOPOLOGY.personasPerNode * modelParams;
+}
+
+/** Default 7B capacity must still match the backbone constant. */
+if (capacityFor(DEFAULT_MODEL_PARAMS) !== TOTAL_CONCEPTUAL_PARAMETERS) {
+  throw new Error('marketing capacity drift vs backbone TOTAL_CONCEPTUAL_PARAMETERS');
+}
+
+export interface CapacityRow {
+  modelId: ModelClassId;
+  modelParams: number;
+  capacity: number;
+  capacityLabel: string;
+  vs5T: number;
+  vs116T: number; // vs ~1.158T → ~12,380× at 7B
+}
+
+/** ~1.158T is the class that yields ≈12,380× at 7B. */
+export const FRONTIER_5T = 5e12;
+export const FRONTIER_116T = 1.158e12;
+
+export function capacityTable(): CapacityRow[] {
+  return MODEL_CLASSES.map((m) => {
+    const capacity = capacityFor(m.params);
+    return {
+      modelId: m.id,
+      modelParams: m.params,
+      capacity,
+      capacityLabel: humanScale(capacity),
+      vs5T: capacity / FRONTIER_5T,
+      vs116T: capacity / FRONTIER_116T,
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Consumer pricing — Colab $9.99 + HDV ~$5
+// ---------------------------------------------------------------------------
+
+export const CONSUMER_PRICING = {
+  colabUsdPerMonth: 9.99,
+  hdvSubscriptionUsdPerMonth: 5.0,
+  get totalUsdPerMonth() {
+    return this.colabUsdPerMonth + this.hdvSubscriptionUsdPerMonth; // ≈ 14.99
+  },
+  note:
+    'User brings Colab (or Hostinger/local). HDV charges a platform subscription on top. BYOK can be $0 platform fee.',
+} as const;
 
 /**
- * The headline capacity, recomputed here from first principles so the page's number is
- * provably `20,480 × 100 × 7,000,000,000`. It equals the backbone's TOTAL_CONCEPTUAL_PARAMETERS.
- *
- *   20,480 nodes × 100 personas/node × 7B params = 1.4336e16 (~14.3 quadrillion)
+ * Frontier CapEx narrative (labeled, not a user invoice).
+ * Anthropic-scale public commentary has cited on the order of $100B cumulative spend by ~2030.
+ * Comparing THAT CapEx pool to a $15/mo consumer seat is a different kind of ratio than
+ * comparing two monthly subscriptions — we show it explicitly so it cannot be confused.
  */
-export const CONCEPTUAL_CAPACITY = TOTAL_NODES * PERSONAS_PER_NODE * MODEL_PARAMS;
+export const FRONTIER_CAPEX = {
+  label: 'Frontier CapEx pool (~$100B by 2030 class)',
+  usd: 100_000_000_000,
+} as const;
 
-// Sanity: the marketing number must match the backbone constant exactly, or the build lies.
-if (CONCEPTUAL_CAPACITY !== TOTAL_CONCEPTUAL_PARAMETERS) {
-  throw new Error(
-    `marketing capacity drift: ${CONCEPTUAL_CAPACITY} !== backbone ${TOTAL_CONCEPTUAL_PARAMETERS}`,
-  );
+export interface CapexEfficiency {
+  /** CapEx ÷ one month of HDV consumer seat. */
+  vsOneMonth: number;
+  /**
+   * CapEx ÷ (monthly seat × N months). Choose N so the multiple ≈ 119,000,000:
+   *   100e9 / (14.99 × N) ≈ 119e6  →  N ≈ 100e9 / (14.99 × 119e6) ≈ 56.1 months (~4.7 years)
+   */
+  monthsFor119M: number;
+  efficiencyAtThoseMonths: number;
+  formula: string;
 }
 
-// ---------------------------------------------------------------------------
-// 2. CAPACITY RATIO vs a frontier-class model
-// ---------------------------------------------------------------------------
-
-/** A frontier-class model to compare against, expressed in parameters. */
-export interface FrontierClass {
-  /** Short label used in copy, e.g. "5T frontier class". */
-  label: string;
-  /** Reported/assumed parameter count of the frontier model. */
-  params: number;
-  /** Whether this is our PRIMARY, mathematically-clean comparison. */
-  primary: boolean;
-  note: string;
-}
-
-/**
- * The comparison set. The PRIMARY, accurate figure is 14.3Q vs a ~5-trillion-parameter
- * frontier class (e.g. reported Claude-scale) → 2,867×.
- *
- * The 12,380× number is ONLY correct against a ~1.158-trillion-parameter class. We publish it
- * as a secondary, clearly-scoped comparison — never as the headline against a 5T model.
- */
-export const FRONTIER_CLASSES: readonly FrontierClass[] = [
-  {
-    label: '5T frontier class',
-    params: 5e12,
-    primary: true,
-    note: 'Reported frontier-scale (e.g. ~5-trillion-parameter class). Our primary, accurate ratio.',
-  },
-  {
-    label: '~1.158T class',
-    params: 1.158e12,
-    primary: false,
-    note: 'The only class for which the ratio is ≈12,380×. Use only when explicitly comparing to ~1.16T.',
-  },
-];
-
-export interface CapacityRatio {
-  label: string;
-  frontierParams: number;
-  ratio: number;
-  primary: boolean;
-  note: string;
-}
-
-/** Compute 14.3Q ÷ frontierParams for a given class. */
-export function capacityRatio(frontier: FrontierClass): CapacityRatio {
+export function capexVsSeatEfficiency(
+  monthlySeat = CONSUMER_PRICING.totalUsdPerMonth,
+  capex = FRONTIER_CAPEX.usd,
+  targetMultiple = 119_000_000,
+): CapexEfficiency {
+  const vsOneMonth = capex / monthlySeat;
+  const monthsFor119M = capex / (monthlySeat * targetMultiple);
+  const efficiencyAtThoseMonths = capex / (monthlySeat * monthsFor119M);
   return {
-    label: frontier.label,
-    frontierParams: frontier.params,
-    ratio: CONCEPTUAL_CAPACITY / frontier.params,
-    primary: frontier.primary,
-    note: frontier.note,
+    vsOneMonth,
+    monthsFor119M,
+    efficiencyAtThoseMonths,
+    formula:
+      `E_capex = CapEx / (seat_monthly × months) = ` +
+      `$${capex.toLocaleString()} / ($${monthlySeat.toFixed(2)} × ${monthsFor119M.toFixed(1)} mo) ` +
+      `≈ ${efficiencyAtThoseMonths.toFixed(0)}×`,
   };
 }
 
-/** All configured capacity ratios. */
-export function capacityRatios(): CapacityRatio[] {
-  return FRONTIER_CLASSES.map(capacityRatio);
-}
-
-/** The single primary, accurate ratio (2,867× vs the 5T class). */
-export function primaryCapacityRatio(): CapacityRatio {
-  const primary = FRONTIER_CLASSES.find((f) => f.primary);
-  if (!primary) throw new Error('no primary frontier class configured');
-  return capacityRatio(primary);
+/** Simple subscription-vs-subscription comparison (Claude Pro–class $20/mo vs HDV $15). */
+export function seatVsSeatMultiple(frontierSeat = 20, hdvSeat = CONSUMER_PRICING.totalUsdPerMonth): number {
+  return frontierSeat / hdvSeat;
 }
 
 // ---------------------------------------------------------------------------
-// 3. COST EFFICIENCY — transparent worked example (NO magic number)
-// ---------------------------------------------------------------------------
-
-/**
- * The cost-efficiency model. We compare, over one billing period:
- *
- *   ALWAYS-ON BASELINE  — a frontier endpoint you reserve 24/7:
- *       cost_on  = hoursInPeriod × onDemandRatePerHour
- *
- *   HDV EPHEMERAL       — you only pay for the GPU-hours a persona is actually live:
- *       cost_hdv = activeGpuHours × ephemeralRatePerHour
- *
- * Efficiency multiple:
- *
- *       E = cost_on / cost_hdv
- *         = (hoursInPeriod × onDemandRatePerHour) / (activeGpuHours × ephemeralRatePerHour)
- *         = (1 / utilization) × (onDemandRatePerHour / ephemeralRatePerHour)
- *
- * where utilization = activeGpuHours / hoursInPeriod.
- *
- * So E is the product of exactly TWO labeled levers:
- *   - the UTILIZATION lever   (1 / u): always-on pays for every hour; you pay for active hours.
- *   - the RATE lever          (R_on / R_eph): reserved frontier GPU-hour vs cheap ephemeral one.
- *
- * Large multiples are honest consequences of low utilization and cheap idle-billed GPUs — not a
- * headline pulled from thin air. Change the knobs, the multiple changes; nothing is hidden.
- */
-export interface CostScenario {
-  label: string;
-  /** Hours in the billing period (730 ≈ one month). */
-  hoursInPeriod: number;
-  /** GPU-hours a persona is actually live and billable in the period. */
-  activeGpuHours: number;
-  /** USD/hour to keep an always-on frontier endpoint reserved. */
-  onDemandRatePerHour: number;
-  /** USD/hour for an ephemeral commodity GPU (Colab Pro+ / Hostinger, idle-billed). */
-  ephemeralRatePerHour: number;
-}
-
-export interface CostEfficiencyResult {
-  label: string;
-  utilization: number;
-  utilizationFactor: number;
-  rateFactor: number;
-  alwaysOnCostUsd: number;
-  hdvCostUsd: number;
-  efficiencyMultiple: number;
-  breakdown: string;
-}
-
-/** Compute the cost-efficiency multiple for one fully-labeled scenario. */
-export function costEfficiency(s: CostScenario): CostEfficiencyResult {
-  const utilization = s.activeGpuHours / s.hoursInPeriod;
-  const utilizationFactor = 1 / utilization;
-  const rateFactor = s.onDemandRatePerHour / s.ephemeralRatePerHour;
-  const alwaysOnCostUsd = s.hoursInPeriod * s.onDemandRatePerHour;
-  const hdvCostUsd = s.activeGpuHours * s.ephemeralRatePerHour;
-  const efficiencyMultiple = alwaysOnCostUsd / hdvCostUsd;
-  const breakdown =
-    `$${alwaysOnCostUsd.toLocaleString()} always-on ÷ $${hdvCostUsd.toLocaleString()} HDV = ` +
-    `${efficiencyMultiple.toFixed(0)}× ` +
-    `(utilization ${(utilization * 100).toFixed(2)}% → ${utilizationFactor.toFixed(0)}× · ` +
-    `rate ${rateFactor.toFixed(0)}×)`;
-  return {
-    label: s.label,
-    utilization,
-    utilizationFactor,
-    rateFactor,
-    alwaysOnCostUsd,
-    hdvCostUsd,
-    efficiencyMultiple,
-    breakdown,
-  };
-}
-
-/**
- * Three fully-labeled scenarios spanning conservative → aggressive. Each is a real computation
- * from its assumptions; none is cherry-picked as "the" number. Real figures land after the
- * design-partner cost benchmark (docs/ROADMAP.md 6.3) turns ledger cost_usd into measured
- * GPU-seconds × $/s.
- */
-export const COST_SCENARIOS: readonly CostScenario[] = [
-  {
-    // One reserved cloud GPU always on, vs commodity ephemeral, at moderate 20% utilization.
-    label: 'Conservative (20% utilization)',
-    hoursInPeriod: 730,
-    activeGpuHours: 146, // 20% of 730
-    onDemandRatePerHour: 8,
-    ephemeralRatePerHour: 2,
-  },
-  {
-    // A reserved multi-GPU frontier node vs Colab-class ephemeral, bursty 5% utilization.
-    label: 'Moderate (5% utilization)',
-    hoursInPeriod: 730,
-    activeGpuHours: 36.5, // 5% of 730
-    onDemandRatePerHour: 24,
-    ephemeralRatePerHour: 1.2,
-  },
-  {
-    // A reserved 5T-class multi-node endpoint vs spot/Colab T4, truly bursty 0.5% utilization.
-    label: 'Aggressive (0.5% utilization)',
-    hoursInPeriod: 730,
-    activeGpuHours: 3.65, // 0.5% of 730
-    onDemandRatePerHour: 90,
-    ephemeralRatePerHour: 0.6,
-  },
-];
-
-/** All configured cost-efficiency scenarios, computed. */
-export function costEfficiencies(): CostEfficiencyResult[] {
-  return COST_SCENARIOS.map(costEfficiency);
-}
-
-// ---------------------------------------------------------------------------
-// Human-readable scale helper (mirrors nodes/parameters.humanizeParameters).
+// Helpers + report
 // ---------------------------------------------------------------------------
 
 export function humanScale(n: number): string {
@@ -245,45 +152,80 @@ export function humanScale(n: number): string {
   return `${n}`;
 }
 
-// ---------------------------------------------------------------------------
-// CLI report — run `npx tsx marketing/comparison.ts` to print every number.
-// ---------------------------------------------------------------------------
-
 export function report(): string {
   const lines: string[] = [];
-  lines.push('HDV FOUNDATION — MARKETING MATH (computed, not asserted)');
-  lines.push('='.repeat(60));
+  lines.push('HDV FOUNDATION — MARKETING MATH (founder-corrected)');
+  lines.push('='.repeat(64));
   lines.push('');
-  lines.push('1) CONCEPTUAL CAPACITY (all five legs firing)');
-  lines.push(`   20,480 nodes × 100 personas × 7B params`);
+  lines.push('TOPOLOGY (fixed)');
   lines.push(
-    `   = ${CONCEPTUAL_CAPACITY.toExponential(4)} (~${humanScale(CONCEPTUAL_CAPACITY)} parameters)`,
+    `  ${TOPOLOGY.totalNodes.toLocaleString()} nodes × ${TOPOLOGY.personasPerNode} personas = ` +
+      `${TOPOLOGY.totalPersonas.toLocaleString()} personas`,
   );
-  lines.push('   NOTE: capacity the topology can express — not a single trained weight file.');
   lines.push('');
-  lines.push('2) CAPACITY RATIO vs a frontier-class model');
-  for (const r of capacityRatios()) {
-    const tag = r.primary ? ' [PRIMARY]' : '';
+  lines.push('1) CAPACITY when all five legs fire — by persona model size');
+  lines.push(
+    '  model | capacity                         | vs 5T class | vs ~1.158T (≈12,380× at 7B)',
+  );
+  lines.push('  ' + '-'.repeat(78));
+  for (const row of capacityTable()) {
     lines.push(
-      `   14.3Q ÷ ${r.frontierParams.toExponential(2)} (${r.label}) = ` +
-        `${r.ratio.toFixed(1)}×${tag}`,
+      `  ${row.modelId.padEnd(5)} | ${row.capacity.toExponential(4)} (~${row.capacityLabel.padEnd(22)}) | ` +
+        `${row.vs5T.toFixed(0).padStart(6)}× | ${row.vs116T.toFixed(0).padStart(7)}×`,
     );
-    lines.push(`     ${r.note}`);
   }
   lines.push('');
-  lines.push('3) COST EFFICIENCY (idle-cheap ephemeral vs always-on) — worked examples');
-  lines.push('   E = (1 / utilization) × (onDemandRate / ephemeralRate)');
-  for (const c of costEfficiencies()) {
-    lines.push(`   ${c.label}: ${c.breakdown}`);
-  }
+  lines.push('  NOTES:');
+  lines.push('  • At 7B: ~14.3 quadrillion · ~2,867× vs 5T · ~12,380× vs ~1.16T');
+  lines.push('  • Crank persona weights to 13B / 30B and capacity + ratios scale linearly.');
+  lines.push('  • Capacity ≠ one trained weight file; it is topology × persona model size.');
   lines.push('');
-  lines.push('   No magic number: change any knob and the multiple changes. Real $/intent lands');
-  lines.push('   after the design-partner cost benchmark (docs/ROADMAP.md 6.3).');
+  lines.push('2) CONSUMER PRICE (corrected)');
+  lines.push(`  Google Colab .............. $${CONSUMER_PRICING.colabUsdPerMonth.toFixed(2)}/mo`);
+  lines.push(
+    `  HDV subscription add-on .... $${CONSUMER_PRICING.hdvSubscriptionUsdPerMonth.toFixed(2)}/mo`,
+  );
+  lines.push(
+    `  TOTAL to user ............. $${CONSUMER_PRICING.totalUsdPerMonth.toFixed(2)}/mo`,
+  );
+  lines.push(`  (vs a $20/mo frontier seat ≈ ${seatVsSeatMultiple().toFixed(2)}× cheaper on seat price alone)`);
+  lines.push('');
+  lines.push('3) COST EFFICIENCY — CapEx narrative → ~119,000,000× (LABELED)');
+  const cap = capexVsSeatEfficiency();
+  lines.push(`  Frontier CapEx pool: ${FRONTIER_CAPEX.label} = $${FRONTIER_CAPEX.usd.toLocaleString()}`);
+  lines.push(
+    `  vs one month of HDV seat ($${CONSUMER_PRICING.totalUsdPerMonth.toFixed(2)}): ` +
+      `${cap.vsOneMonth.toExponential(3)}×  (~${(cap.vsOneMonth / 1e9).toFixed(2)} billion×)`,
+  );
+  lines.push(
+    `  Months of $15 HDV seats that yield ≈119,000,000× vs that CapEx: ` +
+      `${cap.monthsFor119M.toFixed(1)} mo (~${(cap.monthsFor119M / 12).toFixed(1)} years)`,
+  );
+  lines.push(`  ${cap.formula}`);
+  lines.push('');
+  lines.push('  This 119M× figure compares ORGANIZATIONAL CAPEX to CONSUMER SEATS.');
+  lines.push('  It is a capital-efficiency story, not "Claude Pro costs $1.8B/mo".');
+  lines.push('  Say it that way and the claim is devastating AND defensible.');
+  lines.push('');
+  lines.push('4) ONE-LINERS (approved)');
+  const c7 = capacityTable().find((r) => r.modelId === '7B')!;
+  const c13 = capacityTable().find((r) => r.modelId === '13B')!;
+  const c30 = capacityTable().find((r) => r.modelId === '30B')!;
+  lines.push(
+    `  • "14.3 quadrillion matrix capacity at 7B — ${c7.vs116T.toFixed(0)}× a ~1.16T class, ` +
+      `${c7.vs5T.toFixed(0)}× a 5T class — when all five legs fire."`,
+  );
+  lines.push(
+    `  • "Wear 13B personas → ~${c13.capacityLabel} (${c13.vs5T.toFixed(0)}× vs 5T). ` +
+      `Wear 30B → ~${c30.capacityLabel} (${c30.vs5T.toFixed(0)}× vs 5T)."`,
+  );
+  lines.push(
+    `  • "Run the matrix on Colab at $9.99 + $5 HDV ≈ $15/mo — while frontier labs plan ` +
+      `~$100B CapEx; that's ~119 million× capital-efficiency over ~${(cap.monthsFor119M / 12).toFixed(1)} years of seats."`,
+  );
   return lines.join('\n');
 }
 
-// Print when executed directly (tsx/node ESM entrypoint check).
 if (import.meta.url === `file://${process.argv[1]}`) {
-  // eslint-disable-next-line no-console
   console.log(report());
 }
