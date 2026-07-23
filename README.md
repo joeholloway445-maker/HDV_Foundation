@@ -345,4 +345,4 @@ Run `npm run demo:dream-energy`; tests live in `tests/dream_energy.test.ts`
 
 ## License
 
-UNLICENSED — internal Phase 4 scaffold.
+MIT — see [LICENSE](./LICENSE).

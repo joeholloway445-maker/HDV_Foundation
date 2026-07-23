@@ -2,7 +2,7 @@
   "name": "big5-matrix",
   "version": "0.4.0",
   "private": true,
-  "description": "Big 5 Agent Hierarchy (HDV Foundation) — Hope/Dream/Vision/KNOLL/APEX matrix. Strict separation of concerns.",
+  "description": "Big 5 Agent Hierarchy (HDV Foundation) \u2014 Hope/Dream/Vision/KNOLL/APEX matrix. Strict separation of concerns.",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -37,7 +37,7 @@
     "knoll",
     "routing"
   ],
-  "license": "UNLICENSED",
+  "license": "MIT",
   "prisma": {
     "schema": "config/schema.prisma"
   },
