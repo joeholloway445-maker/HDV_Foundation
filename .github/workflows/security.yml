@@ -1,0 +1,54 @@
+name: Security
+
+# Lightweight, mostly-advisory security checks.
+# - dependency-review: blocks PRs that introduce known-vulnerable deps (PR-only).
+# - npm audit: informational; noisy transitive advisories must not block merges.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-review:
+    name: Dependency review (PR)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+
+  npm-audit:
+    name: npm audit (advisory)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Non-blocking: transitive advisories should surface, not gate merges.
+      - name: npm audit
+        continue-on-error: true
+        run: npm audit --audit-level=high

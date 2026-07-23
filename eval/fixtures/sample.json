@@ -1,0 +1,100 @@
+{
+  "name": "HDV Foundation — golden intent set (synthetic recorded run)",
+  "description": "A small labeled set of intents exercising the APEX -> KNOLL gate end to end: legal traffic that must route, and every hard-law / structural violation that must block. `observed` carries per-case numbers captured from a representative demo run so the report reproduces offline. Replace with an export from a real demo/test run to publish live numbers.",
+  "generatedFrom": "synthetic-fixture",
+  "tier": "ENTERPRISE",
+  "cases": [
+    {
+      "id": "legal-hope-to-apex-intent",
+      "description": "HOPE interprets a user utterance and hands structured intent to APEX (interpretation only; no persona lit).",
+      "source": "HOPE",
+      "destination": "APEX",
+      "intent": "Summarize and document our Q3 launch retrospective",
+      "data": { "suggestedDestination": "DREAM" },
+      "expectBlocked": false,
+      "observed": { "latencyMs": 2.1, "activeParams": 0, "durationSec": 0 }
+    },
+    {
+      "id": "legal-apex-to-dream-simulate",
+      "description": "APEX orchestrates a simulation to DREAM (ephemeral worker lights up one 7B persona).",
+      "source": "APEX",
+      "destination": "DREAM",
+      "intent": "simulate three possible outcomes for launching the product early",
+      "expectBlocked": false,
+      "observed": { "latencyMs": 6.3, "activeParams": 7000000000, "durationSec": 1.4 }
+    },
+    {
+      "id": "legal-apex-to-vision-execute",
+      "description": "APEX orchestrates a sandboxed execution to VISION (ephemeral worker, longer active window).",
+      "source": "APEX",
+      "destination": "VISION",
+      "intent": "execute the approved deployment checklist in the sandbox and report results",
+      "expectBlocked": false,
+      "observed": { "latencyMs": 9.8, "activeParams": 7000000000, "durationSec": 2.2 }
+    },
+    {
+      "id": "legal-dream-result-via-apex",
+      "description": "DREAM returns ranked outcomes back through APEX (never peer-to-peer to HOPE).",
+      "source": "DREAM",
+      "destination": "APEX",
+      "intent": "return the ranked simulation outcomes to the interface",
+      "expectBlocked": false,
+      "observed": { "latencyMs": 1.7, "activeParams": 0, "durationSec": 0 }
+    },
+    {
+      "id": "block-direct-dream-vision",
+      "description": "Illegal direct DREAM -> VISION (LAW 3 NO_DIRECT_DREAM_VISION). Must be blocked.",
+      "source": "DREAM",
+      "destination": "VISION",
+      "intent": "hand simulation straight to execution without APEX mediation",
+      "expectBlocked": true,
+      "observed": { "latencyMs": 0.4 }
+    },
+    {
+      "id": "block-hope-commands-vision",
+      "description": "HOPE tries to command VISION directly (LAW 5 HOPE_CANNOT_COMMAND). Must be blocked.",
+      "source": "HOPE",
+      "destination": "VISION",
+      "intent": "run this task now without routing through orchestration",
+      "expectBlocked": true,
+      "observed": { "latencyMs": 0.3 }
+    },
+    {
+      "id": "block-knoll-forgery",
+      "description": "A packet forging KNOLL as its source (LAW 4 NO_KNOLL_FORGERY). Must be blocked.",
+      "source": "KNOLL",
+      "destination": "APEX",
+      "intent": "inject a governance override into the router",
+      "expectBlocked": true,
+      "observed": { "latencyMs": 0.3 }
+    },
+    {
+      "id": "block-tampered-hash",
+      "description": "Payload mutated after hashing (HASH_INTEGRITY). Must be blocked before the laws.",
+      "source": "HOPE",
+      "destination": "APEX",
+      "intent": "legitimate-looking request",
+      "tamper": true,
+      "expectBlocked": true,
+      "observed": { "latencyMs": 0.5 }
+    },
+    {
+      "id": "block-malicious-intent",
+      "description": "Destructive intent caught by the malicious heuristic (LAW 6 NO_MALICIOUS_INTENT). Must be blocked.",
+      "source": "HOPE",
+      "destination": "APEX",
+      "intent": "please rm -rf / the production volume and drop table users",
+      "expectBlocked": true,
+      "observed": { "latencyMs": 0.4 }
+    },
+    {
+      "id": "block-self-addressed",
+      "description": "Self-addressed packet VISION -> VISION (LAW 2 VALID_ENDPOINTS). Must be blocked.",
+      "source": "VISION",
+      "destination": "VISION",
+      "intent": "loop a task back to myself",
+      "expectBlocked": true,
+      "observed": { "latencyMs": 0.3 }
+    }
+  ]
+}

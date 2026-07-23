@@ -2,37 +2,57 @@
 
 > The plan to take HDV Foundation from a tested backbone to a marketed product. This is the
 > operational companion to [`MOAT.md`](./MOAT.md) (the strategic case) and
-> [`ROADMAP.md`](./ROADMAP.md) (the engineering path). It stays **honest**: we market
-> *governance + metered active parameters*, never fake "14.3-quadrillion trained weights."
+> [`ROADMAP.md`](./ROADMAP.md) (the engineering path). It stays **honest**: we lead with the
+> real capacity number (14.3 quadrillion) and one honest footnote, and never fake
+> "14.3-quadrillion trained weights."
 >
 > Surfaces this doc drives:
 > - Landing page: [`../marketing/index.html`](../marketing/index.html) (`npm run marketing`)
+> - Headline math: [`../marketing/math.md`](../marketing/math.md) + [`../marketing/comparison.ts`](../marketing/comparison.ts) (`npx tsx marketing/comparison.ts`)
+> - Demo cut: [`../marketing/DEMO_VIDEO.md`](../marketing/DEMO_VIDEO.md)
 > - Deploy runbook: [`../deploy/HOSTINGER.md`](../deploy/HOSTINGER.md)
 > - Product API: the HOPE gateway (`npm run gateway`)
 
 ---
 
-## 1. Positioning (honest, one paragraph)
+## 1. Positioning (lead with the number, land on governance)
 
-**HDV Foundation is a governed agent platform: five specialized AI agents under one
-constitution, where every action is routed by APEX, gated by KNOLL, billed by the ledger,
-and recorded in a tamper-evident audit trail.** It is idle-cheap by construction (only
-three roles stay always-on; DREAM/VISION are ephemeral and scale to zero) and auditable by
-design. We charge for the compute that actually runs — **active-param-seconds** — not for a
-model sitting at rest.
+**The hook — say it first:** **14.3 quadrillion parameters of addressable capacity — ≈2,867×
+a ~5-trillion-parameter frontier class (e.g. reported Claude-scale), when all five legs fire.**
+That's `20,480 nodes × 100 personas × 7B = 1.4336e16`, computed in
+[`../marketing/comparison.ts`](../marketing/comparison.ts). One honest footnote, never dropped:
+it's **topology × 7B capacity, not a single trained 14.3Q weight file** — and only **active**
+personas ever cost compute.
 
-What we will **never** claim:
+**The product — what the hook opens into:** **HDV Foundation is a governed agent platform: five
+specialized AI agents under one constitution, where every action is routed by APEX, gated by
+KNOLL, billed by the ledger, and recorded in a tamper-evident audit trail.** It is idle-cheap by
+construction (only three roles stay always-on; DREAM/VISION are ephemeral and scale to zero) and
+auditable by design. We charge for the compute that actually runs — **active-param-seconds** —
+not for a model sitting at rest. On bursty workloads that's a **worked 20×–30,000×** cost edge
+over renting a monolith 24/7 (formula and assumptions in
+[`../marketing/math.md`](../marketing/math.md); no magic number).
 
-- ❌ "14.3 quadrillion trained parameters." → ✅ "~14.3-quadrillion-persona **conceptual
-  capacity** (20,480 nodes × 100 personas × 7B), where only active personas cost compute."
+What we will **never** claim (see [`MESSAGING.md`](./MESSAGING.md) for the full list):
+
+- ❌ "14.3 quadrillion trained parameters / we trained 14.3Q weights." → ✅ "14.3-quadrillion
+  **addressable capacity** (20,480 nodes × 100 personas × 7B) **when all five legs fire**, where
+  only active personas cost compute."
+- ❌ "12,380× the frontier / 12,380× Claude." → ✅ "**2,867× the parameter capacity of a ~5T
+  class** (primary). 12,380× **only** vs a ~1.16T class, when that class is explicitly named."
+- ❌ "2,867× smarter." → ✅ "2,867× the **parameter capacity** — a topology ratio, not a
+  benchmark of intelligence."
+- ❌ "119,000,000× cheaper" (or any bare multiple). → ✅ "**20×–30,000× in worked scenarios**,
+  formula and assumptions shown — driven by low utilization × cheap ephemeral GPUs."
 - ❌ "Smarter than GPT/Claude." → ✅ "The governance, audit, and cost layer **around** any
   model you already use."
 - ❌ "Fully autonomous." → ✅ "Autonomy **inside enforced constraints** — HOPE can't execute,
   VISION can't govern, DREAM and VISION can't talk."
 
 > The honest headline, verbatim for every deck and page:
-> **"A governed matrix where only active personas cost compute — routed, gated, billed, and
-> auditable by design."**
+> **"14.3 quadrillion — ≈2,867× a ~5T frontier class when all five legs fire — a governed matrix
+> where only active personas cost compute; routed, gated, billed, and auditable by design."**
+> *(Footnote, always kept: topology × 7B capacity, not a single trained weight file.)*
 
 ### One-liners by audience
 - **Engineering leader:** "Separation of concerns your framework only *suggests* — here it's a
@@ -133,7 +153,9 @@ big splashy public launch. We earn credibility before we earn reach.
   (second week of traffic).
 
 ### 4.2 Demo video script outline (3–4 min, honest)
-> Recorded against the real gateway + demos, no mockups. Screen + voiceover.
+> Recorded against the real gateway + demos, no mockups. Screen + voiceover. For the short,
+> number-led cut used at the top of the page and in cold outreach, see
+> [`../marketing/DEMO_VIDEO.md`](../marketing/DEMO_VIDEO.md) (60s, opens on 14.3Q).
 
 1. **Hook (0:00–0:20):** "Every team wants agents. Every security team is terrified of them.
    Here's why." Show a one-line intent hitting `POST /v1/intent`.

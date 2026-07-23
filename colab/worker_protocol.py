@@ -31,6 +31,13 @@ EPHEMERAL_WORKER_ROLES = ("DREAM", "VISION")
 # All five roles, for validation of report destinations.
 ALL_ROLES = ("HOPE", "DREAM", "VISION", "KNOLL", "APEX")
 
+# The `data.kind` discriminator every worker result carries. Kept as a named constant so the
+# Python worker and the TypeScript gateway agree on one wire literal.
+WORKER_RESULT_KIND = "WORKER_RESULT"
+# The HOPE gateway route that re-ingests a WorkerReport through APEX (gateway/server.ts).
+# Documented here so `to_apex_payload()` / `to_gateway_request()` and the gateway stay aligned.
+GATEWAY_REPORT_PATH = "/v1/worker/report"
+
 # Matrix invariants (mirror nodes/constants.ts). A worker claims a *slice* of these.
 MANAGERS_PER_AGENT = 64
 NODES_PER_MANAGER = 64
@@ -130,14 +137,22 @@ class WorkerReport:
             )
 
     def to_apex_payload(self) -> Dict[str, Any]:
-        """The re-ingestion envelope. `source` is the worker's role; APEX + KNOLL mediate."""
+        """The re-ingestion envelope. `source` is the worker's role; APEX + KNOLL mediate.
+
+        The returned dict is EXACTLY the JSON body the HOPE gateway's POST
+        ``/v1/worker/report`` (gateway/server.ts ``handleWorkerReport``) expects:
+        ``{ source, destination, intent, data }``. The gateway re-mints it as a RoutingPacket
+        via ``sendViaApex`` (→ KNOLL → HOPE); it never bypasses APEX.
+        """
         self.validate()
+        # intent must be a non-empty string (createPacket + the gateway both require it).
+        intent = f"worker-result:{self.manifest.task or self.manifest.agent_role.lower()}"
         return {
             "source": self.manifest.agent_role,
             "destination": self.destination,
-            "intent": f"worker-result:{self.manifest.task or self.manifest.agent_role.lower()}",
+            "intent": intent,
             "data": {
-                "kind": "WORKER_RESULT",
+                "kind": WORKER_RESULT_KIND,
                 "workerId": self.manifest.worker_id,
                 "agentRole": self.manifest.agent_role,
                 "gpuHint": self.manifest.gpu_hint,
@@ -150,6 +165,14 @@ class WorkerReport:
                 "selfTerminated": True,
             },
         }
+
+    def to_gateway_request(self) -> Dict[str, Any]:
+        """Alias for :meth:`to_apex_payload`, named for the HTTP re-ingestion path.
+
+        Additive convenience so caller code reads clearly at the POST ``/v1/worker/report``
+        boundary (``GATEWAY_REPORT_PATH``). Byte-for-byte identical to ``to_apex_payload()``.
+        """
+        return self.to_apex_payload()
 
 
 def new_worker_id(prefix: str = "worker") -> str:

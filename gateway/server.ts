@@ -36,6 +36,7 @@ import { BillingService, isPlanTier, type PlanTier } from '../billing/index.js';
 import { IntentInterpreter, HopeDocumenter, HopeVoice } from '../hope/index.js';
 import { SimulationEngine } from '../dream/index.js';
 import { ExecutionEngine } from '../vision/index.js';
+import { WaitlistStore, handleWaitlistSignup, handleWaitlistStats } from '../market/index.js';
 import {
   MANAGERS_PER_AGENT,
   NODES_PER_MANAGER,
@@ -96,6 +97,13 @@ export interface HopeGatewayOptions {
    * a BillingService loading config/pricing.json with the offline `demo` tenant seeded.
    */
   billing?: BillingService;
+  /**
+   * Launch GTM waitlist store (market/). Backs POST /v1/waitlist (public — auth-exempt but
+   * rate-limited) and GET /v1/waitlist/stats (protected). It is a standalone data surface that
+   * never routes, gates, or executes — it only captures inbound interest. Defaults to a new
+   * in-memory store.
+   */
+  waitlist?: WaitlistStore;
 }
 
 interface HopeResultRecord {
@@ -119,6 +127,8 @@ export class HopeGateway {
   readonly tracer: PacketTracer;
   /** PRODUCT metering layer surfaced under GET/POST /v1/billing/*. */
   readonly billing: BillingService;
+  /** Launch GTM waitlist surfaced under POST /v1/waitlist and GET /v1/waitlist/stats. */
+  readonly waitlist: WaitlistStore;
   private readonly readLimit: number;
   private readonly logger: GatewayLogger;
 
@@ -136,6 +146,8 @@ export class HopeGateway {
     // PRODUCT metering plugs into the SAME read-only observer seam as metrics/tracing, so every
     // gated dispatch is attributed to a tenant allowance without ever touching routing or KNOLL.
     this.billing = options.billing ?? new BillingService();
+    // Launch waitlist: a standalone GTM capture surface, wholly independent of routing/KNOLL.
+    this.waitlist = options.waitlist ?? new WaitlistStore();
     const observer = combineObservers(
       this.metrics.observer(),
       this.tracer.observer(),
@@ -215,6 +227,94 @@ export class HopeGateway {
         voice: result ? this.voice.status(result) : this.voice.acknowledge(intent),
         intent: publicIntent(intent),
         documentId: doc.id,
+      },
+    };
+  }
+
+  /**
+   * POST /v1/worker/report — RE-INGEST a horizontal worker's result through APEX only.
+   *
+   * Ephemeral DREAM/VISION Colab workers (see colab/worker_protocol.py) do one batch of work
+   * and hand results back through APEX — never peer-to-peer, never DREAM↔VISION direct. This
+   * endpoint accepts a `WorkerReport.to_apex_payload()`-shaped body
+   * `{ source, destination?, intent?, data? }` and re-mints it as a RoutingPacket dispatched
+   * via `sendViaApex` (→ KNOLL → HOPE). It NEVER bypasses APEX or KNOLL.
+   *
+   * Gateway-level worker-protocol invariants (enforced before dispatch, mirroring the Python
+   * WorkerReport.validate()):
+   *   - `source` MUST be an EPHEMERAL role (DREAM or VISION). HOPE/KNOLL/APEX are always-on
+   *     and are never disposable workers, so they may not report via this endpoint.
+   *   - A direct DREAM↔VISION hand-off is rejected outright (it is also blocked by KNOLL, but
+   *     we fail fast with a clear 400 here).
+   * Everything else remains KNOLL's authority: a BLOCKED verdict surfaces as HTTP 403.
+   */
+  handleWorkerReport(body: unknown): GatewayResponse {
+    if (body === null || typeof body !== 'object') {
+      return {
+        status: 400,
+        body: { error: 'body must be JSON: { source: "DREAM"|"VISION", destination?, intent?, data? }' },
+      };
+    }
+    const b = body as Record<string, unknown>;
+
+    const source = parseRole(b.source);
+    if (source === undefined) {
+      return { status: 400, body: { error: 'source must be a valid AgentRole (e.g. "DREAM" or "VISION")' } };
+    }
+    if (source !== AgentRole.DREAM && source !== AgentRole.VISION) {
+      return {
+        status: 400,
+        body: {
+          error: `source ${source} is not an ephemeral worker role; only DREAM and VISION report via APEX`,
+        },
+      };
+    }
+
+    // Destination defaults to HOPE — workers report their results back to HOPE via APEX.
+    const destination = b.destination === undefined ? AgentRole.HOPE : parseRole(b.destination);
+    if (destination === undefined) {
+      return { status: 400, body: { error: 'destination must be a valid AgentRole (defaults to "HOPE")' } };
+    }
+    // Fail fast on the forbidden direct DREAM↔VISION hand-off (KNOLL also blocks this).
+    if (
+      (source === AgentRole.DREAM && destination === AgentRole.VISION) ||
+      (source === AgentRole.VISION && destination === AgentRole.DREAM)
+    ) {
+      return {
+        status: 400,
+        body: {
+          error: 'illegal report route: DREAM ↔ VISION direct is forbidden; report via APEX to HOPE',
+        },
+      };
+    }
+
+    const intent =
+      typeof b.intent === 'string' && b.intent.trim().length > 0
+        ? b.intent.trim()
+        : `worker-result:${source.toLowerCase()}`;
+    const data =
+      b.data !== null && typeof b.data === 'object' ? (b.data as Record<string, unknown>) : {};
+    const priority = parsePriority(b.priority);
+
+    // Re-ingest through APEX. sendViaApex mints a legal, hashed, tokenized packet and dispatch
+    // calls KNOLL first — the worker result is gated exactly like any other traffic.
+    const result = this.orchestrator.sendViaApex({ source, destination, intent, data, priority });
+    const workerId = typeof data.workerId === 'string' ? data.workerId : null;
+
+    const httpStatus = result.status === 'SUCCESS' ? 200 : result.status === 'BLOCKED' ? 403 : 502;
+    return {
+      status: httpStatus,
+      body: {
+        accepted: true,
+        ingested: result.status === 'SUCCESS',
+        routingStatus: result.status,
+        knoll: result.knoll,
+        source,
+        destination,
+        intent,
+        workerId,
+        packetId: result.packetId,
+        error: result.error,
       },
     };
   }
@@ -463,6 +563,22 @@ export class HopeGateway {
     };
   }
 
+  // -------------------------------------------------------------------------
+  // Launch GTM waitlist (market/). POST /v1/waitlist is auth-exempt (public form) but
+  // rate-limited; GET /v1/waitlist/stats is protected. Neither routes, gates, or executes —
+  // they only capture inbound interest and report privacy-safe aggregate stats.
+  // -------------------------------------------------------------------------
+
+  /** POST /v1/waitlist — record a (public) waitlist signup. Idempotent by email. */
+  handleWaitlistSignup(body: unknown, ip?: string): GatewayResponse {
+    return handleWaitlistSignup(this.waitlist, body, { ip, defaultSource: 'api' });
+  }
+
+  /** GET /v1/waitlist/stats — privacy-safe aggregate signup stats (protected; counts only). */
+  handleWaitlistStats(): GatewayResponse {
+    return handleWaitlistStats(this.waitlist);
+  }
+
   /**
    * Route a parsed request to a handler. Async so a real body read can be awaited by the
    * server wrapper; handlers themselves are synchronous. This is the single mapping table.
@@ -478,6 +594,7 @@ export class HopeGateway {
   ): Promise<GatewayResponse> {
     const m = method.toUpperCase();
     if (m === 'POST' && pathname === '/v1/intent') return this.handleIntent(body);
+    if (m === 'POST' && pathname === '/v1/worker/report') return this.handleWorkerReport(body);
     if (m === 'GET' && pathname === '/v1/health') return this.handleHealth();
     if (m === 'GET' && pathname === '/v1/ledger') return this.handleLedger(numParam(query.get('limit')));
     if (m === 'GET' && pathname === '/v1/audit') return this.handleAudit(numParam(query.get('limit')));
@@ -488,6 +605,9 @@ export class HopeGateway {
     if (m === 'GET' && pathname === '/v1/billing/usage') return this.handleBillingUsage(tenantFromHeaders(headers), numParam(query.get('limit')));
     if (m === 'GET' && pathname === '/v1/billing/estimate') return this.handleBillingEstimate(tenantFromHeaders(headers), query, body);
     if (m === 'POST' && pathname === '/v1/billing/allowance') return this.handleBillingAllowance(tenantFromHeaders(headers), body);
+    // --- Launch GTM waitlist. POST is public (auth-exempt, rate-limited); stats is protected.
+    if (m === 'POST' && pathname === '/v1/waitlist') return this.handleWaitlistSignup(body, ipFromHeaders(headers));
+    if (m === 'GET' && pathname === '/v1/waitlist/stats') return this.handleWaitlistStats();
     return { status: 404, body: { error: `no route for ${m} ${pathname}` } };
   }
 
@@ -588,6 +708,17 @@ function publicIntent(intent: {
   };
 }
 
+/** Narrow an unknown value to a valid AgentRole, or undefined. */
+function parseRole(value: unknown): AgentRole | undefined {
+  if (typeof value !== 'string') return undefined;
+  return (Object.values(AgentRole) as string[]).includes(value) ? (value as AgentRole) : undefined;
+}
+
+/** Narrow an unknown value to a PacketPriority, or undefined (STANDARD is applied downstream). */
+function parsePriority(value: unknown): 'CRITICAL' | 'STANDARD' | 'BACKGROUND' | undefined {
+  return value === 'CRITICAL' || value === 'STANDARD' || value === 'BACKGROUND' ? value : undefined;
+}
+
 function clampLimit(limit: number | undefined, fallback: number): number {
   if (typeof limit !== 'number' || !Number.isFinite(limit) || limit <= 0) return fallback;
   return Math.min(Math.floor(limit), 500);
@@ -629,6 +760,13 @@ function firstString(bodyValue: unknown, queryValue: string | null): string | un
   if (typeof bodyValue === 'string' && bodyValue.trim().length > 0) return bodyValue.trim();
   if (queryValue !== null && queryValue.trim().length > 0) return queryValue.trim();
   return undefined;
+}
+
+/** Best-effort client IP from request headers (x-forwarded-for), for waitlist abuse triage. */
+function ipFromHeaders(headers?: Record<string, string | string[] | undefined>): string | undefined {
+  if (!headers) return undefined;
+  const ip = clientIp(headers, undefined);
+  return ip === 'unknown' ? undefined : ip;
 }
 
 /** Resolve the billing tenant from the X-HDV-Tenant header (default "demo"). */

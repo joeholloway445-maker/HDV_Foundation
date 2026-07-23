@@ -45,6 +45,49 @@ services:
       timeout: 5s
       retries: 10
 
+  # Kafka — OPTIONAL, Phase 5 real-slice task queue (persistence/kafka_real.ts).
+  #
+  # Only needed when running the durable queue backend (HDV_QUEUE=kafka). The backbone
+  # defaults to the in-memory queue (HDV_QUEUE=memory), so this service is off the hot path
+  # for the offline default and can be ignored unless you opt into Kafka.
+  #
+  # Single-node KRaft broker (no ZooKeeper). Topics auto-create on first publish, matching the
+  # per-AgentRole topics KafkaTaskQueue produces (hdv.routing.HOPE/DREAM/VISION/KNOLL/APEX).
+  #
+  # Usage:
+  #   docker compose up -d kafka        # start just the broker
+  #   npm install kafkajs               # install the optional client (not a default dep)
+  #   HDV_QUEUE=kafka KAFKA_BROKERS=localhost:9092 npm run test:phase5-queue
+  kafka:
+    image: apache/kafka:3.8.0
+    container_name: big5-kafka
+    restart: unless-stopped
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      CLUSTER_ID: "5L6g3nShT-eMCtK--X86sw"
+    volumes:
+      - big5_kafkadata:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+
 volumes:
   big5_pgdata:
   big5_redisdata:
+  big5_kafkadata:

@@ -30,6 +30,14 @@ export const DEFAULT_CORS_ORIGIN = '*';
  */
 const ALWAYS_PUBLIC_PATHS = new Set<string>(['/v1/health', '/v1/billing/pricing']);
 
+/**
+ * Paths that skip AUTH but are still RATE-LIMITED. Public write surfaces that anonymous visitors
+ * must reach (the marketing waitlist signup) live here: no key is required so the form works with
+ * auth enabled, but the per-IP limiter still applies so the open endpoint can't be flooded.
+ * GET /v1/waitlist/stats is deliberately NOT listed — it stays protected by the API key.
+ */
+const AUTH_EXEMPT_PATHS = new Set<string>(['/v1/waitlist']);
+
 export interface GatewaySecurityConfig {
   /** API key required on protected routes. Empty/undefined ⇒ dev mode (auth disabled). */
   apiKey?: string;
@@ -173,6 +181,11 @@ export class GatewayMiddleware {
     return ALWAYS_PUBLIC_PATHS.has(pathname);
   }
 
+  /** Whether a path bypasses AUTH but is still rate-limited (public write surfaces). */
+  isAuthExemptPath(pathname: string): boolean {
+    return ALWAYS_PUBLIC_PATHS.has(pathname) || AUTH_EXEMPT_PATHS.has(pathname);
+  }
+
   /** Base CORS headers applied to every response. */
   corsHeaders(): Record<string, string> {
     return {
@@ -219,8 +232,8 @@ export class GatewayMiddleware {
       }
     }
 
-    // ...then auth (health exempt, dev mode exempt).
-    if (!isPublic && !this.authDisabled) {
+    // ...then auth (health + auth-exempt public writes exempt, dev mode exempt).
+    if (!this.isAuthExemptPath(req.pathname) && !this.authDisabled) {
       const presented = extractKey(req.headers);
       if (!presented || !keysMatch(presented, this.config.apiKey as string)) {
         return {
@@ -241,7 +254,7 @@ export class GatewayMiddleware {
 
   /** Classify the auth state of a (non-short-circuited) request for logging. */
   authState(req: GuardRequest): LogEntry['authState'] {
-    if (this.isPublicPath(req.pathname)) return 'public';
+    if (this.isAuthExemptPath(req.pathname)) return 'public';
     if (this.authDisabled) return 'disabled';
     const presented = extractKey(req.headers);
     return presented && keysMatch(presented, this.config.apiKey as string) ? 'authorized' : 'rejected';

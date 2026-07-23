@@ -1,0 +1,35 @@
+{
+  "name": "@big5-matrix/constitution",
+  "version": "0.1.0",
+  "description": "The public constitution surface of the Big 5 Matrix (HDV Foundation): the RoutingPacket contract, AgentRole vocabulary, KNOLL law names, ledger field list, and always-on/ephemeral lifecycle map. The open-core seam — build a compliant client without touching the engine.",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "big5",
+    "hdv",
+    "routing-packet",
+    "agent-hierarchy",
+    "open-core",
+    "constitution",
+    "governance"
+  ],
+  "types": "./index.ts",
+  "exports": {
+    ".": {
+      "types": "./index.ts",
+      "import": "./index.ts"
+    }
+  },
+  "files": [
+    "index.ts",
+    "routing_schema.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

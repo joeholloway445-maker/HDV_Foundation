@@ -35,6 +35,8 @@
     "providers/**/*.ts",
     "mcp/**/*.ts",
     "demo/**/*.ts",
+    "eval/**/*.ts",
+    "packages/**/*.ts",
     "tests/**/*.ts"
   ],
   "exclude": ["node_modules", "dist"]

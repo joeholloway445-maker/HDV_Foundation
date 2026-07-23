@@ -35,9 +35,14 @@ Credibility is the moat's foundation, so the hard truths go first.
 - **127 passing tests, zero type errors** (see [`DIAGNOSTICS.md`](./DIAGNOSTICS.md)).
 
 ### What is CONCEPTUAL today (and the ROADMAP that makes it real)
-- **"14.3 quadrillion parameters."** This is a *capacity number*, **computed** from
-  `20,480 nodes × 100 personas × 7B` — **not** 14.3Q trained weights. It describes how much
-  addressable persona-capacity the topology can express, not a model you can download.
+- **"14.3 quadrillion — when all five legs fire."** This is the matrix's **addressable
+  capacity**, **computed** from `20,480 nodes × 100 personas × 7B = 1.4336e16` — that's
+  **≈2,867× the parameter capacity of a ~5-trillion-parameter frontier class** (e.g. reported
+  Claude-scale). *Footnote, kept not buried:* it is **topology × 7B capacity, not a single
+  trained 14.3Q weight file** you can download. It measures how much persona-capacity the
+  topology can express when every leg fires — the number is real as a capacity fact, and the
+  honesty note is what makes it survive scrutiny. (Full math: [`../marketing/math.md`](../marketing/math.md);
+  computed in [`../marketing/comparison.ts`](../marketing/comparison.ts).)
 - **The persona model.** Today personas are lifecycle objects over a deterministic stub. The
   honest real version (ROADMAP 6.2 / 7.2) is **shared base weights + cheap per-persona deltas**
   (LoRA/prompt profiles) served by vLLM — *not* 2,048,000 independent 7B models. That is the
@@ -47,10 +52,18 @@ Credibility is the moat's foundation, so the hard truths go first.
   compute. `nodes/parameters.ts` already computes both; ROADMAP 6.2 splits base-resident vs
   delta params so the number stays truthful as compute becomes real.
 
-> **The honest headline:** *"A governed matrix architecture with ~14.3-quadrillion-persona
-> conceptual capacity, where only active personas cost compute."* Say that, and every claim is
-> defensible. Drop the qualifiers and the moat becomes a liability the first time an engineer
-> asks to see the weights.
+> **The marketing headline (lead with it):** *"14.3 quadrillion — ≈2,867× a ~5-trillion
+> frontier class, when all five legs fire — a governed matrix where only active personas cost
+> compute."* Lead with the number; it's the hook and it's true as a capacity fact. Keep the
+> **one** honest footnote — *topology × 7B capacity, not a single trained weight file* — because
+> that footnote is what makes an engineer nod instead of walk. Don't bury the punchline under
+> qualifiers, and don't drop the footnote either: the moat is a **big, defensible** number, not
+> a fragile one.
+
+> **On the 12,380× figure:** it is mathematically correct **only** against a ~1.158-trillion
+> class (`1.4336e16 / 1.158e12 ≈ 12,380`). Against the 5T frontier class the honest ratio is
+> **2,867×**. Publish 12,380× only when the ~1.16T comparison is explicitly named — never as
+> "vs frontier/Claude." (Both are computed in [`../marketing/comparison.ts`](../marketing/comparison.ts).)
 
 ---
 
@@ -172,7 +185,7 @@ governance layer is trusted. Land-and-expand along the five roles.
 
 | Risk / objection | Honest response |
 |------------------|-----------------|
-| "14.3Q is marketing." | Agreed if unqualified. We state it as *conceptual capacity* and show ACTIVE cost. Credibility > hype (§2). |
+| "14.3Q is marketing." | It's a **true capacity fact** (`20,480 × 100 × 7B = 1.4336e16`, ≈2,867× a 5T class) — we lead with it *and* keep the one honest footnote (topology × 7B, not a trained weight file) and show ACTIVE cost. A big number that survives scrutiny beats a timid one (§2). |
 | "Frameworks already orchestrate agents." | They *advise*; we *enforce*. Structural impossibility ≠ a system prompt. (§5) |
 | "The moat is just governance — models will add it." | Governance + the **data flywheel + ecosystem + contract lock-in** is the moat, not governance alone. (§4) |
 | "Five fixed roles is rigid." | Rigidity is the feature buyers pay for; extensibility lives in personas/tools *within* roles, not by dissolving them. |

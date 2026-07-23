@@ -52,4 +52,7 @@ pids/
 .cache/
 .parcel-cache/
 .vite/
-.github/
+
+# Eval board generated reports (keep the directory, ignore its output)
+eval/out/*
+!eval/out/.gitkeep

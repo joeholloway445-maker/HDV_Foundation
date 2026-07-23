@@ -7,10 +7,14 @@
  *
  * Endpoints (all JSON):
  *   POST /v1/intent        { "utterance": "..." }  → HOPE interpret+document+submit (via APEX+KNOLL)
+ *   POST /v1/worker/report { source, destination?, intent?, data? } → re-ingest a DREAM/VISION
+ *                          worker result via APEX (→ KNOLL → HOPE); rejects DREAM↔VISION direct
  *   GET  /v1/health        always-on + ephemeral idle flags
  *   GET  /v1/ledger        recent APEX billing entries (read-only)
  *   GET  /v1/audit         recent KNOLL verdicts (read-only)
  *   GET  /v1/matrix/stats  node/persona topology + parameter accounting
+ *   POST /v1/waitlist      { "email": "..." }  → launch waitlist signup (public, rate-limited)
+ *   GET  /v1/waitlist/stats aggregate signup stats (protected)
  *
  * KNOLL gates every routed packet; the gateway never bypasses APEX.
  *
@@ -34,6 +38,7 @@ async function main(): Promise<void> {
 
   const routes = [
     'POST /v1/intent',
+    'POST /v1/worker/report    (DREAM|VISION worker result → APEX → HOPE)',
     'GET  /v1/health',
     'GET  /v1/ledger',
     'GET  /v1/audit',
@@ -43,6 +48,8 @@ async function main(): Promise<void> {
     'GET  /v1/billing/usage     (X-HDV-Tenant, default "demo")',
     'GET  /v1/billing/estimate  ({ activeParams, durationSec, model? } or query)',
     'POST /v1/billing/allowance ({ tier?, includedAllowanceUsd?, hardCapUsd? })',
+    'POST /v1/waitlist          (public — { email, name?, company?, interestedTier?, useCase? })',
+    'GET  /v1/waitlist/stats    (protected — privacy-safe aggregate signup stats)',
   ];
   const { config } = gateway.middleware;
   const authMode = config.apiKey ? 'ENABLED (X-HDV-Key / Bearer)' : 'DISABLED (dev mode — set HDV_API_KEY)';

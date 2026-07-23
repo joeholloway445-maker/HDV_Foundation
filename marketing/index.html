@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>HDV Foundation — Governed AI agents, safe to ship</title>
-<meta name="description" content="HDV Foundation: five specialized AI agents under one constitution. Every action routed by APEX, gated by KNOLL, and billed by the ledger — idle-cheap by construction, auditable by design. Start free, bring your own keys, or self-host." />
+<title>HDV Foundation — 14.3 quadrillion. A governed matrix that scales.</title>
+<meta name="description" content="14.3-quadrillion parameters of addressable capacity — 2,867× a ~5-trillion frontier class when all five legs fire. Five specialized AI agents under one constitution: routed by APEX, gated by KNOLL, billed by the ledger. Idle-cheap by construction — only active personas cost compute. Conceptual capacity, not a trained weight file." />
 <meta name="color-scheme" content="dark" />
-<meta property="og:title" content="HDV Foundation — Governed AI agents, safe to ship" />
-<meta property="og:description" content="Five specialized agents under one constitution. Routed, gated, billed, auditable. Idle-cheap by construction." />
+<meta property="og:title" content="HDV Foundation — 14.3 quadrillion, governed" />
+<meta property="og:description" content="14.3Q addressable capacity — 2,867× a ~5T frontier class when all five legs fire. Governed, auditable, idle-cheap. Only active personas cost compute." />
 <meta property="og:type" content="website" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -110,10 +110,12 @@
     padding: clamp(2.5rem, 8vh, 6rem) 0 clamp(2rem, 6vh, 4rem); }
   .hero-in > * { opacity: 0; transform: translateY(22px); animation: rise 1s cubic-bezier(.2,.7,.2,1) forwards; }
   .hero-in > *:nth-child(1){ animation-delay: .05s; }
-  .hero-in > *:nth-child(2){ animation-delay: .18s; }
-  .hero-in > *:nth-child(3){ animation-delay: .32s; }
-  .hero-in > *:nth-child(4){ animation-delay: .46s; }
-  .hero-in > *:nth-child(5){ animation-delay: .60s; }
+  .hero-in > *:nth-child(2){ animation-delay: .16s; }
+  .hero-in > *:nth-child(3){ animation-delay: .28s; }
+  .hero-in > *:nth-child(4){ animation-delay: .40s; }
+  .hero-in > *:nth-child(5){ animation-delay: .52s; }
+  .hero-in > *:nth-child(6){ animation-delay: .64s; }
+  .hero-in > *:nth-child(7){ animation-delay: .76s; }
   @keyframes rise { to { opacity: 1; transform: none; } }
 
   /* brand signal — hero-level, not just nav */
@@ -159,6 +161,58 @@
   .btn-quiet { color: var(--ink-soft); border: 1px solid transparent; padding-left: 0.6rem; padding-right: 0.6rem; }
   .btn-quiet:hover { color: var(--aqua); }
   .cta-note { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.04em; color: var(--ink-faint); margin: 1.1rem 0 0; }
+
+  /* ---------- HERO megafigure: 14.3 QUADRILLION is the dominant object ---------- */
+  .eyebrow { font-family: 'IBM Plex Mono', monospace; font-size: clamp(0.72rem, 1.6vw, 0.86rem);
+    letter-spacing: 0.22em; text-transform: uppercase; color: var(--aqua); margin: 0.4rem 0 0.2rem; }
+  .mega { margin: 0.1rem 0 0; line-height: 0.82; display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 0.06em; }
+  .mega .num {
+    font-family: 'Fraunces', Georgia, serif; font-weight: 900; letter-spacing: -0.045em;
+    font-size: clamp(4.4rem, 20vw, 15rem); line-height: 0.78;
+    background: linear-gradient(158deg, var(--amber) 0%, var(--amber-deep) 52%, var(--aqua-deep) 128%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    /* the number breathes with the brand — reuses motion #2, no new perpetual motion added */
+    animation: breathe 8s ease-in-out infinite; transform-origin: left center;
+    text-shadow: 0 0 80px rgba(255, 206, 122, 0.10);
+  }
+  .mega .word {
+    font-family: 'Fraunces', serif; font-weight: 600; font-style: italic;
+    font-size: clamp(1.7rem, 6.2vw, 4.2rem); letter-spacing: -0.01em; line-height: 0.9;
+    color: var(--ink);
+  }
+  .mega-sub { margin: 1.1rem 0 0; color: var(--ink-soft); font-size: clamp(0.95rem, 2vw, 1.18rem); max-width: 52ch; }
+  .mega-sub b { color: var(--ink); font-weight: 500; font-family: 'IBM Plex Mono', monospace; font-size: 0.92em; letter-spacing: -0.01em; }
+  .ratio-line { margin: 1.4rem 0 0; font-size: clamp(1.05rem, 2.4vw, 1.5rem); color: var(--ink);
+    font-family: 'Fraunces', serif; font-weight: 400; line-height: 1.3; max-width: 30ch; }
+  .ratio-line .rx { font-weight: 900; font-style: italic;
+    background: linear-gradient(120deg, var(--aqua), var(--amber)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .ratio-line .ratio-alt { display: block; font-family: 'IBM Plex Mono', monospace; font-size: 0.62em;
+    letter-spacing: 0.02em; color: var(--ink-faint); margin-top: 0.35rem; }
+
+  /* ---------- capacity section (leads the below-fold with the punchline) ---------- */
+  .capband { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 0 0 1.8rem; }
+  .capfig { background: var(--panel); border: 1px solid var(--line-soft); border-radius: 18px; padding: 1.8rem 1.7rem;
+    transition: transform .3s, border-color .3s; }
+  .capfig:hover { transform: translateY(-4px); border-color: var(--line); }
+  .capfig .lab { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--aqua); margin: 0 0 0.5rem; }
+  .capfig .big { font-family: 'Fraunces', serif; font-weight: 900; font-size: clamp(2.6rem, 7vw, 4rem); line-height: 0.95; letter-spacing: -0.03em;
+    background: linear-gradient(160deg, var(--amber), var(--amber-deep) 70%, var(--aqua-deep)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .capfig .big small { font-family: 'Sora', sans-serif; -webkit-text-fill-color: var(--ink-soft); color: var(--ink-soft); font-weight: 400; font-size: 0.28em; letter-spacing: 0; display: block; margin-top: 0.5rem; }
+  .capfig p { color: var(--ink-soft); font-size: 0.9rem; margin: 0.9rem 0 0; }
+  .capfig p b { color: var(--ink); font-weight: 500; }
+  @media (max-width: 780px){ .capband { grid-template-columns: 1fr; } }
+
+  .formula { font-family: 'IBM Plex Mono', monospace; font-size: 0.82rem; color: var(--aqua); background: var(--panel-2);
+    border: 1px solid var(--line-soft); border-radius: 12px; padding: 1rem 1.1rem; margin: 0 0 1.2rem; overflow-x: auto; line-height: 1.7; }
+  .formula .c { color: var(--ink-faint); }
+  .eff-table { width: 100%; border-collapse: collapse; font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; }
+  .eff-table th, .eff-table td { text-align: left; padding: 0.6rem 0.7rem; border-bottom: 1px solid var(--line-soft); white-space: nowrap; }
+  .eff-table th { color: var(--aqua); text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.62rem; }
+  .eff-table td { color: var(--ink-soft); }
+  .eff-table .mult { color: var(--amber); font-weight: 500; }
+  .eff-note { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--ink-faint); margin: 1.1rem 0 0; line-height: 1.6; max-width: 82ch; }
+  .eff-note code { color: var(--aqua); }
+  @media (max-width: 620px){ .eff-table { font-size: 0.68rem; } .eff-table th, .eff-table td { padding: 0.45rem 0.4rem; } }
 
   /* ---------- section scaffolding ---------- */
   section { padding: clamp(3.5rem, 9vw, 7rem) 0; position: relative; }
@@ -269,6 +323,7 @@
   <div class="wrap bar">
     <a class="brandmark" href="#top"><b>HDV</b><span>Foundation</span></a>
     <nav class="nav-links">
+      <a href="#capacity">The math</a>
       <a href="#how">How it works</a>
       <a href="#pricing">Pricing</a>
       <a href="#deploy">Deploy</a>
@@ -282,7 +337,7 @@
 
 <div class="wrap" id="top">
 
-  <!-- ============ HERO: one composition, first viewport ============ -->
+  <!-- ============ HERO: one composition — the number is the object ============ -->
   <section class="hero">
     <div class="hero-in">
       <!-- brand signal, hero-level -->
@@ -294,19 +349,23 @@
         </div>
       </div>
 
-      <!-- one headline -->
-      <h1 class="headline">Governed AI agents, <em>safe to ship</em>.</h1>
+      <!-- the punchline, as a dominant number -->
+      <p class="eyebrow">When all five legs fire, the matrix addresses</p>
+      <h1 class="mega">
+        <span class="num">14.3</span>&nbsp;<span class="word">quadrillion</span>
+      </h1>
+      <p class="mega-sub">parameters of addressable capacity — <b>20,480&nbsp;nodes × 100&nbsp;personas × 7B</b>.</p>
 
-      <!-- one supporting sentence -->
-      <p class="support">Five specialized agents under one constitution — every action <b>routed by&nbsp;APEX</b>, <b>gated by&nbsp;KNOLL</b>, and written to a tamper-evident ledger. Idle-cheap by construction, auditable by design.</p>
+      <!-- one ratio line (primary figure is the accurate 2,867× vs a ~5T class) -->
+      <p class="ratio-line"><span class="rx">2,867×</span> the parameter capacity of a ~5-trillion frontier class — when all five legs fire.<span class="ratio-alt">12,380× against a ~1.16-trillion class · capacity ratio, not a benchmark of intelligence</span></p>
 
       <!-- one CTA group -->
       <div class="cta-group">
         <a class="btn btn-primary" href="https://github.com/joeholloway445-maker/HDV_Foundation" target="_blank" rel="noopener">Start free →</a>
-        <a class="btn btn-ghost" href="#pricing">Bring your own keys</a>
+        <a class="btn btn-ghost" href="#capacity">See the math</a>
         <a class="btn btn-quiet" href="#contact">Talk to sales</a>
       </div>
-      <p class="cta-note">Open-core · MIT backbone · self-host on Hostinger, your VPS, or fully local</p>
+      <p class="cta-note">Idle-cheap by construction · only active personas cost compute · conceptual capacity (topology × 7B), not a single trained weight file</p>
     </div>
   </section>
 
@@ -315,6 +374,48 @@
 <hr class="divider" />
 
 <div class="wrap">
+
+  <!-- ============ THE NUMBER, HONESTLY (leads the below-fold) ============ -->
+  <section id="capacity">
+    <p class="kicker reveal">The punchline, with the receipts</p>
+    <h2 class="reveal">14.3 quadrillion — when all five legs fire</h2>
+    <p class="lede reveal">The matrix is a fixed topology: <b style="color:var(--ink)">20,480 nodes × 100 personas × 7B</b> = <b style="color:var(--ink)">1.4336 × 10¹⁶</b> parameters of addressable capacity. Below is exactly what that buys you against the frontier, and exactly what it costs to run — every figure computed in <code style="font-family:'IBM Plex Mono',monospace;color:var(--aqua)">marketing/comparison.ts</code>, none of it hand-waved.</p>
+
+    <div class="capband">
+      <div class="capfig reveal">
+        <p class="lab">Capacity ratio vs frontier</p>
+        <div class="big">2,867×<small>14.3Q ÷ 5T frontier class (1.4336e16 / 5e12) — our primary, accurate figure.</small></div>
+        <p>Against a <b>~1.16-trillion</b> class the ratio is <b>12,380×</b>. This is a ratio of <b>addressable parameters</b> — how much more capacity the topology can express than one monolith — <b>not</b> a claim to be “2,867× smarter.”</p>
+      </div>
+      <div class="capfig reveal">
+        <p class="lab">Cost efficiency at low utilization</p>
+        <div class="big">20×–30,000×<small>Worked range below — driven by utilization × ephemeral GPU rate, formula shown.</small></div>
+        <p>Idle-cheap by construction: only <b>active personas</b> bill, on <b>ephemeral Colab / Hostinger GPUs</b> paid by the hour — versus an always-on frontier endpoint you rent 24/7. No magic number; every knob is labeled.</p>
+      </div>
+    </div>
+
+    <p class="kicker reveal" style="margin-top:0.4rem">The cost formula (nothing hidden)</p>
+    <div class="formula reveal">E&nbsp;=&nbsp;cost_on&nbsp;/&nbsp;cost_hdv&nbsp;=&nbsp;(hours&nbsp;×&nbsp;R_on)&nbsp;/&nbsp;(activeGpuHours&nbsp;×&nbsp;R_eph)<br />&nbsp;&nbsp;=&nbsp;(1&nbsp;/&nbsp;utilization)&nbsp;×&nbsp;(R_on&nbsp;/&nbsp;R_eph)&nbsp;&nbsp;<span class="c"># two labeled levers: utilization &amp; GPU rate</span></div>
+
+    <table class="eff-table reveal">
+      <thead>
+        <tr><th>Scenario</th><th>Utilization</th><th>Always-on / mo</th><th>HDV / mo</th><th>Efficiency</th><th>Levers</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Conservative</td><td>20%</td><td>$5,840</td><td>$292</td><td class="mult">20×</td><td>5× util · 4× rate</td></tr>
+        <tr><td>Moderate</td><td>5%</td><td>$17,520</td><td>$43.80</td><td class="mult">400×</td><td>20× util · 20× rate</td></tr>
+        <tr><td>Aggressive</td><td>0.5%</td><td>$65,700</td><td>$2.19</td><td class="mult">30,000×</td><td>200× util · 150× rate</td></tr>
+      </tbody>
+    </table>
+    <p class="eff-note reveal">Assumptions per scenario are labeled in <code>marketing/math.md</code> (period 730&nbsp;h; reserved GPU $8–$90/h; ephemeral $0.60–$2/h). Large multiples are the honest consequence of <b style="color:var(--ink)">low utilization × cheap idle-billed GPUs</b> — change a knob, the multiple changes. Real measured <code>$/intent</code> lands after the design-partner cost benchmark (<code>docs/ROADMAP.md</code> 6.3).</p>
+
+    <div class="callout reveal" style="margin-top:1.6rem">
+      <h3>One honest footnote — kept, not buried</h3>
+      <p>14.3Q is <b style="color:var(--ink)">topology × 7B capacity</b>, i.e. how much addressable persona-capacity the matrix can express when every leg fires — <b style="color:var(--ink)">not</b> a single trained 14.3-quadrillion-weight file. The economical realization is <code>shared base weights + cheap per-persona deltas</code>, and only the <b style="color:var(--ink)">active</b> personas ever cost GPU. That is precisely why the bill tracks active-param-seconds and an idle matrix costs almost nothing.</p>
+    </div>
+  </section>
+
+  <hr class="divider" />
 
   <!-- ============ HOW IT WORKS ============ -->
   <section id="how">
@@ -466,14 +567,14 @@
 
   <hr class="divider" />
 
-  <!-- ============ HONEST MATH ============ -->
+  <!-- ============ HONEST BY DESIGN ============ -->
   <section id="honest">
     <p class="kicker reveal">Credibility is the moat</p>
-    <h2 class="reveal">Honest by design</h2>
-    <p class="lede reveal">We sell the architecture, not a fantasy weight count. Every claim on this page is meant to survive an engineer's first question.</p>
+    <h2 class="reveal">Big number, bigger receipts</h2>
+    <p class="lede reveal">We lead with 14.3 quadrillion because it's the true capacity of the topology — and we hand you the math, the formula, and the source file so it survives an engineer's first question. The number is the hook; the governance is the product.</p>
     <div class="callout reveal">
-      <h3>What "~14.3 quadrillion parameters" actually means</h3>
-      <p>It's <code>20,480 nodes × 100 personas × 7B</code> — a measure of addressable persona-capacity the topology can express, <b style="color:var(--ink)">not</b> 14.3Q trained weights you can download. The honest, economical realization is <b style="color:var(--ink)">shared base weights + cheap per-persona deltas</b>, and only the <b style="color:var(--ink)">active</b> personas ever cost GPU. That's why your bill tracks active-param-seconds, and why an idle matrix costs almost nothing.</p>
+      <h3>Enforced, not advised</h3>
+      <p>The capacity is only interesting because every parameter that lights up runs under a constitution: <code>HOPE → APEX → KNOLL → DREAM/VISION</code>, hashed per packet, gated by six hard laws, and billed on a tamper-evident ledger. <b style="color:var(--ink)">HOPE literally cannot execute, VISION cannot govern, DREAM and VISION cannot talk.</b> That's the difference between a headline and a system your compliance team will actually approve — and it's why the 14.3Q is a governed matrix, not a marketing slogan.</p>
     </div>
   </section>
 
