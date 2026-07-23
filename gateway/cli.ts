@@ -13,6 +13,12 @@
  *   GET  /v1/matrix/stats  node/persona topology + parameter accounting
  *
  * KNOLL gates every routed packet; the gateway never bypasses APEX.
+ *
+ * Phase 4.1 hardening (env-configurable):
+ *   HDV_API_KEY      require X-HDV-Key or Authorization: Bearer <key> (unset ⇒ dev mode, auth off)
+ *   HDV_RATE_LIMIT   per-IP requests/min (default 60) → 429 when exceeded
+ *   HDV_CORS_ORIGIN  Access-Control-Allow-Origin (default *)
+ *   /v1/health is always public (auth- and rate-limit-exempt) for probes.
  */
 import { HopeGateway } from './server.js';
 
@@ -33,9 +39,13 @@ async function main(): Promise<void> {
     'GET  /v1/audit',
     'GET  /v1/matrix/stats',
   ];
+  const { config } = gateway.middleware;
+  const authMode = config.apiKey ? 'ENABLED (X-HDV-Key / Bearer)' : 'DISABLED (dev mode — set HDV_API_KEY)';
   console.log('='.repeat(72));
   console.log(`BIG 5 MATRIX — HOPE GATEWAY listening on http://localhost:${port}`);
   console.log('KNOLL gate: enforced · APEX: sole router · no endpoint bypasses APEX');
+  console.log(`Auth: ${authMode} · Rate limit: ${config.rateLimit}/min per IP · CORS: ${config.corsOrigin}`);
+  console.log('/v1/health is always public (auth- and rate-limit-exempt) for probes');
   console.log('-'.repeat(72));
   for (const r of routes) console.log(`  ${r}`);
   console.log('='.repeat(72));

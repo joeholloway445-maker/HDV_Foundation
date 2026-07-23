@@ -22,6 +22,14 @@
  */
 import http from 'node:http';
 import { AgentRole } from '../config/routing_schema.js';
+import {
+  GatewayMiddleware,
+  resolveSecurityConfig,
+  clientIp,
+  defaultLogger,
+  type SecurityOverrides,
+  type GatewayLogger,
+} from './middleware.js';
 import { ApexOrchestrator } from '../apex/index.js';
 import { IntentInterpreter, HopeDocumenter, HopeVoice } from '../hope/index.js';
 import { SimulationEngine } from '../dream/index.js';
@@ -52,6 +60,16 @@ export interface HopeGatewayOptions {
   voice?: HopeVoice;
   /** Max entries returned by the read endpoints. Default 50. */
   readLimit?: number;
+  /**
+   * Phase 4.1 hardening overrides (auth key, rate limit, CORS origin). Anything omitted
+   * falls back to env (HDV_API_KEY / HDV_RATE_LIMIT / HDV_CORS_ORIGIN) then to defaults.
+   */
+  security?: SecurityOverrides;
+  /**
+   * Structured request logger. Defaults to a single-line JSON logger; pass `false` (or a
+   * no-op) to silence logging (handy in tests). Secrets are never passed to the logger.
+   */
+  logger?: GatewayLogger | false;
 }
 
 interface HopeResultRecord {
@@ -68,7 +86,10 @@ export class HopeGateway {
   readonly interpreter: IntentInterpreter;
   readonly documenter: HopeDocumenter;
   readonly voice: HopeVoice;
+  /** Front-door guard chain (CORS, auth, rate limiting). Public for tests/introspection. */
+  readonly middleware: GatewayMiddleware;
   private readonly readLimit: number;
+  private readonly logger: GatewayLogger;
 
   /** Timestamps of the last time each ephemeral agent produced a result (for idle flags). */
   private readonly lastActive: Partial<Record<AgentRole, number>> = {};
@@ -81,6 +102,8 @@ export class HopeGateway {
     this.documenter = options.documenter ?? new HopeDocumenter();
     this.voice = options.voice ?? new HopeVoice();
     this.readLimit = options.readLimit ?? 50;
+    this.middleware = new GatewayMiddleware(resolveSecurityConfig(options.security ?? {}));
+    this.logger = options.logger === false ? () => {} : options.logger ?? defaultLogger;
 
     // Wire the ephemeral engines via DI (composition root — no peer imports between peers).
     const dream = new SimulationEngine(this.orchestrator.sendViaApex, { breadth: 2, depth: 1 });
@@ -282,13 +305,43 @@ export class HopeGateway {
   }
 
   private async serve(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    const start = Date.now();
+    const method = req.method ?? 'GET';
+    const url = new URL(req.url ?? '/', 'http://localhost');
+    const guardReq = {
+      method,
+      pathname: url.pathname,
+      headers: req.headers,
+      ip: clientIp(req.headers, req.socket?.remoteAddress ?? undefined),
+    };
+
+    const log = (status: number): void => {
+      this.logger({
+        method: method.toUpperCase(),
+        path: url.pathname,
+        status,
+        durationMs: Date.now() - start,
+        ip: guardReq.ip,
+        authState: this.middleware.authState(guardReq),
+      });
+    };
+
     try {
-      const url = new URL(req.url ?? '/', 'http://localhost');
-      const body = req.method === 'POST' || req.method === 'PUT' ? await readJsonBody(req) : undefined;
-      const result = await this.route(req.method ?? 'GET', url.pathname, url.searchParams, body);
-      writeJson(res, result.status, result.body);
+      // Front-door guards: CORS + auth + rate limiting. May short-circuit (204/401/429).
+      const guard = this.middleware.guard(guardReq, start);
+      if (guard.response) {
+        writeJson(res, guard.response.status, guard.response.body, guard.headers);
+        log(guard.response.status);
+        return;
+      }
+
+      const body = method === 'POST' || method === 'PUT' ? await readJsonBody(req) : undefined;
+      const result = await this.route(method, url.pathname, url.searchParams, body);
+      writeJson(res, result.status, result.body, guard.headers);
+      log(result.status);
     } catch (err) {
-      writeJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
+      writeJson(res, 500, { error: err instanceof Error ? err.message : String(err) }, this.middleware.corsHeaders());
+      log(500);
     }
   }
 }
@@ -364,8 +417,19 @@ function readJsonBody(req: http.IncomingMessage): Promise<unknown> {
   });
 }
 
-function writeJson(res: http.ServerResponse, status: number, body: Record<string, unknown>): void {
+function writeJson(
+  res: http.ServerResponse,
+  status: number,
+  body: Record<string, unknown>,
+  extraHeaders: Record<string, string> = {},
+): void {
+  // 204 (e.g. CORS preflight) carries no message body per HTTP semantics.
+  if (status === 204) {
+    res.writeHead(status, extraHeaders);
+    res.end();
+    return;
+  }
   const payload = JSON.stringify(body, null, 2);
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
+  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', ...extraHeaders });
   res.end(payload);
 }

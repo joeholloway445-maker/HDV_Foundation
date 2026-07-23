@@ -5,3 +5,11 @@
 # Optional, for the Colab tuning notebooks only (colab/02, colab/04); the scripts fall
 # back to a plain CLI sweep when ipywidgets is absent:
 # ipywidgets>=8.0
+#
+# Optional, ONLY for the real 7B model path (personamatrix/model_backend.py
+# TransformersBackend + colab/06_gpu_model_hooks.py). The default StubBackend needs none of
+# these; without them the transformers path skips gracefully. Install in a Colab GPU runtime:
+#   !pip install transformers accelerate torch
+# transformers>=4.40
+# accelerate>=0.30
+# torch>=2.2

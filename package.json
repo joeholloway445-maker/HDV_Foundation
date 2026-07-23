@@ -1,8 +1,8 @@
 {
   "name": "big5-matrix",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
-  "description": "Big 5 Agent Hierarchy — Phase 4 foundations. Strict separation of concerns across HOPE, DREAM, VISION, KNOLL, APEX.",
+  "description": "Big 5 Agent Hierarchy (HDV Foundation) — Hope/Dream/Vision/KNOLL/APEX matrix. Strict separation of concerns.",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -13,11 +13,18 @@
     "demo": "tsx demo/run_demo.ts",
     "demo:phase2": "tsx demo/run_phase2_demo.ts",
     "demo:phase4": "tsx demo/run_phase4_demo.ts",
+    "demo:hope-ui": "tsx demo/run_hope_ui_demo.ts",
     "gateway": "tsx gateway/cli.ts",
-    "test": "node --import tsx --test tests/backbone.test.ts tests/phase2.test.ts tests/phase3.test.ts tests/phase4.test.ts",
+    "demo:gateway-auth": "tsx demo/run_gateway_auth_demo.ts",
+    "test:gateway-auth": "node --import tsx --test tests/gateway_auth.test.ts",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "test": "node --import tsx --test tests/backbone.test.ts tests/phase2.test.ts tests/phase3.test.ts tests/phase4.test.ts tests/persistence_prisma.test.ts tests/gateway_auth.test.ts tests/hope_ui.test.ts",
     "python:demo": "python3 personamatrix/demo.py",
     "python:scoring": "python3 colab/03_behavioral_scoring.py",
-    "python:worker": "python3 colab/05_horizontal_worker.py"
+    "python:worker": "python3 colab/05_horizontal_worker.py",
+    "python:gpu-hook": "python3 colab/06_gpu_model_hooks.py",
+    "python:test-backend": "python3 personamatrix/test_model_backend.py"
   },
   "keywords": [
     "big5",
@@ -27,9 +34,16 @@
     "routing"
   ],
   "license": "UNLICENSED",
+  "prisma": {
+    "schema": "config/schema.prisma"
+  },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "prisma": "^6.19.3",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.3"
   }
 }

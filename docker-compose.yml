@@ -1,0 +1,50 @@
+# docker-compose.yml — local infrastructure for the Big 5 Matrix persistence layer.
+#
+# Postgres backs the Prisma repositories (createRepositories('prisma')); Redis backs the
+# router/task-queue stub. The running backbone defaults to in-memory stores, so these
+# services are only needed when exercising the durable/Prisma paths.
+#
+# Usage:
+#   cp .env.example .env         # then adjust credentials if desired
+#   docker compose up -d         # start postgres (+redis)
+#   npm run db:push              # create tables from config/schema.prisma
+#   npm test                     # persistence_prisma tests run when DATABASE_URL is set
+#
+# The default DATABASE_URL in .env.example matches the Postgres credentials below.
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: big5-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: big5
+      POSTGRES_PASSWORD: big5
+      POSTGRES_DB: big5_matrix
+    ports:
+      - "5432:5432"
+    volumes:
+      - big5_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U big5 -d big5_matrix"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    container_name: big5-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - big5_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  big5_pgdata:
+  big5_redisdata:

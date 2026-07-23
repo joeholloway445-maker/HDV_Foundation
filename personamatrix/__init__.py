@@ -44,6 +44,21 @@ from .parameters import (
     humanize_parameters,
     parameter_report,
 )
+from .model_backend import (
+    DEFAULT_MODEL_ID,
+    BACKEND_STUB,
+    BACKEND_TRANSFORMERS,
+    ModelBackend,
+    StubBackend,
+    TransformersBackend,
+    GenerationRequest,
+    GenerationResult,
+    ModelBackendUnavailableError,
+    UnknownBackendError,
+    get_backend,
+    default_backend,
+    deterministic_seed,
+)
 
 __all__ = [
     "Persona",
@@ -76,6 +91,20 @@ __all__ = [
     "compute_active_parameters",
     "humanize_parameters",
     "parameter_report",
+    # Colab GPU / 7B model integration hooks
+    "DEFAULT_MODEL_ID",
+    "BACKEND_STUB",
+    "BACKEND_TRANSFORMERS",
+    "ModelBackend",
+    "StubBackend",
+    "TransformersBackend",
+    "GenerationRequest",
+    "GenerationResult",
+    "ModelBackendUnavailableError",
+    "UnknownBackendError",
+    "get_backend",
+    "default_backend",
+    "deterministic_seed",
 ]
 
 __version__ = "0.3.0"

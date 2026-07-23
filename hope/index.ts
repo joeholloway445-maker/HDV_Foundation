@@ -15,3 +15,19 @@ export { HopeDocumenter } from './documenter.js';
 export type { IntentDocument, HopeDocumenterOptions } from './documenter.js';
 
 export { HopeVoice } from './voice.js';
+
+// Forward-facing console (interpretation/documentation/voice only; routes only if injected).
+export {
+  HopeConsole,
+  renderTranscriptToHtml,
+  escapeHtml,
+  writeConsoleHtml,
+  DEFAULT_OUTPUT_PATH,
+} from './ui/index.js';
+export type {
+  HopeConsoleOptions,
+  Turn,
+  TurnRole,
+  ConsoleTurn,
+  RenderOptions,
+} from './ui/index.js';

@@ -66,7 +66,7 @@ big5-matrix/
 ├── knoll/          Security guardrails: 6 virtual laws + behavioral scoring (scoring/features)
 ├── nodes/          20,480-node topology + lifecycle + persona pipeline + parameter accounting
 ├── gateway/        Phase 4 HOPE HTTP API (node:http): server + CLI (no framework)
-├── persistence/    Repository interfaces + in-memory impls + Redis stub + Kafka-like queue
+├── persistence/    Repository interfaces + in-memory impls + Prisma impls + factory + Redis stub + Kafka-like queue
 ├── colab/          Notebooks for GPU processing & persona spawning (ML lab only) + worker protocol
 ├── config/         routing_schema.ts, matrix.json, filters.json, schema.prisma
 ├── personamatrix/  Python: persona loop + billing ledger + scoring twin + parameter twin
@@ -104,7 +104,7 @@ authoritative plan.
 | Colab lab                         | ✅ 01/02       | ✅ + 03 (scoring) + 04 (ipywidgets)                          | ✅ + **05 horizontal worker** + `worker_protocol.py`     |
 | Real-time queue                   | —              | ⚠️ In-memory Redis-like stub                                | ✅ **Kafka-like partitioned queue + consumer groups**    |
 | Docker/gVisor sandbox internals   | ⚠️ Stubbed     | ⚠️ Realistic stub                                           | ⚠️ Still stubbed                                         |
-| Prisma runtime persistence        | ⚠️ In-memory   | ⚠️ DB-ready via repository interfaces                       | ⚠️ In-memory default; Prisma/Postgres still next         |
+| Prisma runtime persistence        | ⚠️ In-memory   | ⚠️ DB-ready via repository interfaces                       | ✅ **Prisma/Postgres backend** via `createRepositories('prisma')` (in-memory still default) |
 | Real 7B inference / real GPU      | ⚠️ Conceptual  | ⚠️ Conceptual                                               | ⚠️ Conceptual (worker payloads simulated)                |
 
 ---
@@ -128,12 +128,40 @@ npm run typecheck     # tsc --noEmit — MUST be zero errors
 npm run demo          # Phase 1: routing + KNOLL block + tampered-hash demo
 npm run demo:phase2   # Phase 2/3: HOPE docs, DREAM trees, VISION tools, KNOLL scoring
 npm run demo:phase4   # Phase 4: queue intake · worker re-ingestion · params · health
+npm run demo:hope-ui  # HOPE console: interpret + document + voice, renders standalone HTML
 npm run gateway       # start HOPE HTTP gateway on PORT (default 8787)
 npm test              # all tests (backbone + phase2 + phase3 + phase4)
-npm run python:demo   # persona loop + billing ledger (python3)
-npm run python:scoring# behavioral scoring twin validation (python3)
-npm run python:worker # ephemeral DREAM/VISION Colab worker simulation (python3)
+npm run python:demo        # persona loop + billing ledger (python3)
+npm run python:scoring     # behavioral scoring twin validation (python3)
+npm run python:worker      # ephemeral DREAM/VISION Colab worker simulation (python3)
+npm run python:gpu-hook    # detect GPU + run stub, attempt real 7B if installed (python3)
+npm run python:test-backend# model backend seam tests (stub always; transformers if present)
+npm run db:generate   # prisma generate (client from config/schema.prisma)
+npm run db:push       # create/sync Postgres tables from config/schema.prisma
 ```
+
+### Database (Postgres) setup — optional
+
+The backbone runs fully **in-memory by default** (`createRepositories('memory')`), so no
+database is required for `npm test`, the demos, or the gateway. A durable **Prisma/Postgres**
+backend is available behind the same repository interfaces via `createRepositories('prisma')`
+(write-through cache: synchronous reads from an in-memory projection, async persistence to
+Postgres — call `hydrate()`/`flush()`/`close()` to control the lifecycle).
+
+To use it locally:
+
+```bash
+cp .env.example .env            # sets DATABASE_URL + REDIS_URL
+docker compose up -d            # starts postgres:16 (+ redis:7) with healthchecks
+npm run db:generate             # generate the Prisma client
+npm run db:push                 # create tables from config/schema.prisma
+npm test                        # persistence_prisma tests now run against Postgres
+```
+
+Without `DATABASE_URL`, the Prisma-backed tests in `tests/persistence_prisma.test.ts`
+**skip gracefully** while the in-memory tests still run. Prisma files live only in the
+persistence layer: `persistence/prisma_repos.ts` (implementations), `persistence/factory.ts`
+(`createRepositories`), and `config/schema.prisma` (source of truth).
 
 ### Phase 4 highlights & how to start the gateway
 
@@ -163,11 +191,95 @@ curl -s localhost:8787/v1/intent -H 'content-type: application/json' \
 curl -s localhost:8787/v1/health
 ```
 
+#### Gateway hardening (Phase 4.1)
+
+The gateway front door adds optional auth, per-IP rate limiting, CORS, and request logging
+**without** touching HOPE/APEX/KNOLL — every routed packet is still KNOLL-gated. All of it is
+env-configurable:
+
+| Env var           | Default | Effect                                                                    |
+|-------------------|---------|---------------------------------------------------------------------------|
+| `HDV_API_KEY`     | _unset_ | Require `X-HDV-Key: <key>` or `Authorization: Bearer <key>`. Unset ⇒ dev mode (auth off). |
+| `HDV_RATE_LIMIT`  | `60`    | Max requests per minute **per client IP** before `429`.                   |
+| `HDV_CORS_ORIGIN` | `*`     | Value for `Access-Control-Allow-Origin` (preflight `OPTIONS` → `204`).     |
+
+`/v1/health` is **always public** (auth- and rate-limit-exempt) so liveness/readiness probes
+keep working regardless of key config or traffic bursts. Rate-limited responses include
+`Retry-After` and `X-RateLimit-*` headers; the request logger records method/path/status/
+duration/IP and **never** logs the key.
+
+```bash
+# Enabled auth + tighter limit; health still open, protected routes need the key:
+HDV_API_KEY=s3cret HDV_RATE_LIMIT=120 npm run gateway
+curl -s localhost:8787/v1/health                                   # 200 (public)
+curl -s localhost:8787/v1/matrix/stats                             # 401 (no key)
+curl -s localhost:8787/v1/matrix/stats -H 'X-HDV-Key: s3cret'      # 200
+
+npm run demo:gateway-auth   # scripted 401 → 200 → 429 + public-health walkthrough
+npm run test:gateway-auth   # gateway hardening tests
+```
+
 Other Phase 4 pieces: a **Kafka-like partitioned task queue** (`persistence/kafka_stub.ts`,
 optional async intake in `ApexOrchestrator`), **parameter accounting** (`nodes/parameters.ts`
 + `personamatrix/parameters.py`), and the **horizontal Colab worker protocol**
 (`colab/worker_protocol.py` + `colab/05_horizontal_worker.py`). Only HOPE/KNOLL/APEX need
 standby; DREAM/VISION workers are ephemeral and self-terminating.
+
+### HOPE console (`hope/ui/`)
+
+A small forward-facing console that presents HOPE as the system's voice. It wraps HOPE's
+existing stack — `IntentInterpreter` (parse), `HopeDocumenter` (record), `HopeVoice` (speak) —
+and keeps a turn-by-turn transcript.
+
+- `HopeConsole.say(utterance)` interprets, documents, and replies in HOPE's voice.
+- **Interpretation-only by default.** With no transport injected the console routes nothing.
+  Pass a `sendViaApex` callback to let confident intents be submitted **HOPE → APEX** (APEX,
+  after KNOLL, still decides). HOPE never executes or creates, and never addresses a peer.
+- `renderTranscriptToHtml(transcript)` emits one self-contained, brand-forward HTML page
+  (inline CSS, Google-Fonts typography, atmospheric gradient, subtle brand-breathe + fade-in
+  motions). User content is HTML-escaped.
+
+```bash
+npm run demo:hope-ui                          # writes /tmp/hope-console.html
+HOPE_CONSOLE_OUT=demo/out/hope-console.html npm run demo:hope-ui   # custom output path
+```
+
+Then open the written HTML file in a browser. Tests: `node --import tsx --test tests/hope_ui.test.ts`.
+
+### Colab GPU / real 7B model hooks (v0.3.0)
+
+The persona loop is backend-agnostic via a pluggable inference seam
+(`personamatrix/model_backend.py`). By default every persona runs the deterministic,
+dependency-free **StubBackend** (unchanged historical behavior). On a GPU Colab runtime you
+can flip one env var and the *same* loop drives a real **7B-class model** through
+`transformers` — routing, security, ledger, and topology are untouched.
+
+```bash
+python3 colab/06_gpu_model_hooks.py   # or: npm run python:gpu-hook
+python3 personamatrix/test_model_backend.py   # or: npm run python:test-backend
+```
+
+Backend selection (factory reads these, defaults shown):
+
+| Env var                  | Values                 | Default                             |
+|--------------------------|------------------------|-------------------------------------|
+| `PERSONAMATRIX_BACKEND`  | `stub` \| `transformers` | `stub`                              |
+| `PERSONAMATRIX_MODEL_ID` | any Hugging Face id    | `mistralai/Mistral-7B-Instruct-v0.2` |
+
+Enable the real path in a Colab GPU runtime (Runtime → Change runtime type → GPU):
+
+```python
+!pip install transformers accelerate torch
+import os
+os.environ["PERSONAMATRIX_BACKEND"]  = "transformers"
+os.environ["PERSONAMATRIX_MODEL_ID"] = "mistralai/Mistral-7B-Instruct-v0.2"
+```
+
+Off-GPU (or without the deps installed) the transformers path **skips gracefully** with
+install instructions and only the StubBackend runs, so all Python demos and tests still
+pass with the standard library alone. `colab/06_gpu_model_hooks.py` detects CUDA, prints
+device info, always runs the stub, and attempts the real 7B model only when both the deps
+and a GPU are present.
 
 ### What the Phase 1 demo shows
 

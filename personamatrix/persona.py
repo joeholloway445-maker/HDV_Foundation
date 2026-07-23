@@ -9,7 +9,6 @@ Standard library only (Phase 1).
 """
 from __future__ import annotations
 
-import math
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -17,6 +16,12 @@ from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from .config_loader import filter_params, load_matrix
+from .model_backend import (
+    GenerationRequest,
+    ModelBackend,
+    default_backend,
+    deterministic_seed,
+)
 
 
 class PersonaState(str, Enum):
@@ -50,27 +55,40 @@ def spawn(owner: str, node_id: str) -> Persona:
     return Persona(owner=owner, node_id=node_id, model_size=model_size)
 
 
-def execute(persona: Persona, payload: Dict[str, Any], filters: Optional[Dict[str, float]] = None) -> PersonaExecution:
-    """EXECUTE -- run the persona's single job through the filter transform."""
+def execute(
+    persona: Persona,
+    payload: Dict[str, Any],
+    filters: Optional[Dict[str, float]] = None,
+    backend: Optional[ModelBackend] = None,
+) -> PersonaExecution:
+    """EXECUTE -- run the persona's single job through the model backend + filter transform.
+
+    ``backend`` is the pluggable inference seam (see ``model_backend``). When omitted, the
+    process-wide deterministic ``StubBackend`` is used, so behavior is byte-for-byte
+    backward compatible with the historical persona loop. Pass a ``TransformersBackend`` to
+    drive a real 7B-class model on GPU.
+    """
     if persona.state == PersonaState.TERMINATED:
         raise RuntimeError(f"persona {persona.id} already terminated -- cannot execute")
     persona.state = PersonaState.EXECUTING
     f = filters if filters is not None else filter_params()
+    active_backend = backend if backend is not None else default_backend()
 
-    # Deterministic filter transform: a damped wave shaped by the tuning params.
-    seed = _seed(f"{persona.id}:{payload}")
-    intensity = float(f.get("intensity", 0.75))
-    wave_speed = float(f.get("waveSpeed", 1.2))
-    shift = float(f.get("shift", 0.05))
-    decay = float(f.get("decay", 0.9))
-    raw = intensity * math.sin(wave_speed * seed + shift) * (decay ** (seed % 3))
-    score = round((raw + 1.0) / 2.0, 6)  # normalize to 0..1
-
-    return PersonaExecution(
-        persona_id=persona.id,
-        score=score,
-        output={"owner": persona.owner, "node_id": persona.node_id, "applied_filters": f},
+    result = active_backend.generate(
+        GenerationRequest(persona_id=persona.id, payload=payload, filters=f)
     )
+
+    output: Dict[str, Any] = {
+        "owner": persona.owner,
+        "node_id": persona.node_id,
+        "applied_filters": f,
+        "backend": result.backend,
+        "model_id": result.model_id,
+    }
+    if result.text:
+        output["text"] = result.text
+
+    return PersonaExecution(persona_id=persona.id, score=result.score, output=output)
 
 
 def terminate(persona: Persona) -> Persona:
@@ -85,24 +103,26 @@ def filter_director(
     node_id: str,
     payloads: List[Dict[str, Any]],
     filters: Optional[Dict[str, float]] = None,
+    backend: Optional[ModelBackend] = None,
 ) -> List[PersonaExecution]:
     """Direct a full persona loop for a batch of payloads.
 
-    For each payload: spawn -> execute (through filters) -> terminate. Returns one
-    execution record per payload. This is the canonical persona loop for the matrix.
+    For each payload: spawn -> execute (through the backend + filters) -> terminate. Returns
+    one execution record per payload. This is the canonical persona loop for the matrix.
+    ``backend`` defaults to the deterministic StubBackend (see ``execute``); pass a real
+    backend once and it is shared across the whole batch (loaded once, reused per persona).
     """
     results: List[PersonaExecution] = []
     for payload in payloads:
         p = spawn(owner, node_id)
-        results.append(execute(p, payload, filters))
+        results.append(execute(p, payload, filters, backend=backend))
         terminate(p)
     return results
 
 
 def _seed(text: str) -> float:
-    """Deterministic 0..~10 float seed from text (FNV-1a normalized)."""
-    h = 0x811C9DC5
-    for ch in text:
-        h ^= ord(ch)
-        h = (h * 0x01000193) & 0xFFFFFFFF
-    return (h % 100000) / 10000.0
+    """Deterministic 0..~10 float seed from text (FNV-1a normalized).
+
+    Retained for backward compatibility; delegates to ``model_backend.deterministic_seed``.
+    """
+    return deterministic_seed(text)

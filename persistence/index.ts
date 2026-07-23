@@ -24,6 +24,22 @@ export {
   newRowId,
 } from './repositories.js';
 
+// Prisma-backed repositories (Phase 4 durability). These satisfy the same repository
+// interfaces via a write-through cache; the in-memory implementations above remain the
+// default backend. See prisma_repos.ts for the design rationale.
+export {
+  PrismaRequestLogRepository,
+  PrismaNodeIdentityRepository,
+  PrismaSecurityAuditRepository,
+  PrismaIntentArchiveRepository,
+  createPrismaRepositories,
+} from './prisma_repos.js';
+export type { PrismaRepositoryBundle, PrismaBundleOptions } from './prisma_repos.js';
+
+// Backend selector: createRepositories('memory' | 'prisma').
+export { createRepositories } from './factory.js';
+export type { RepositoryMode, RepositoryBundle } from './factory.js';
+
 export type { TaskQueue as RedisTaskQueue, QueuedTask, DeliveredTask } from './redis_router_stub.js';
 export { InMemoryRedisRouterStub } from './redis_router_stub.js';
 
