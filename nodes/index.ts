@@ -40,3 +40,21 @@ export type { NodeFleetOptions } from './lifecycle.js';
 
 export { runPersonaPipeline } from './pipeline.js';
 export type { PipelineRole, PipelineStageResult, PipelineResult } from './pipeline.js';
+
+export {
+  PERSONAS_PER_AGENT,
+  PARAMETERS_PER_AGENT,
+  TOTAL_PERSONAS,
+  ALWAYS_ON_AGENTS,
+  EPHEMERAL_AGENTS,
+  computeParameterAccounting,
+  computeActiveParameters,
+  humanizeParameters,
+  parameterReport,
+} from './parameters.js';
+export type {
+  AgentParameterBreakdown,
+  ParameterAccounting,
+  ActiveParameterInput,
+  ActiveParameterUsage,
+} from './parameters.js';

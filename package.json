@@ -1,8 +1,8 @@
 {
   "name": "big5-matrix",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
-  "description": "Big 5 Agent Hierarchy — Phase 2/3. Strict separation of concerns across HOPE, DREAM, VISION, KNOLL, APEX.",
+  "description": "Big 5 Agent Hierarchy — Phase 4 foundations. Strict separation of concerns across HOPE, DREAM, VISION, KNOLL, APEX.",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -12,9 +12,12 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "demo": "tsx demo/run_demo.ts",
     "demo:phase2": "tsx demo/run_phase2_demo.ts",
-    "test": "node --import tsx --test tests/backbone.test.ts tests/phase2.test.ts tests/phase3.test.ts",
+    "demo:phase4": "tsx demo/run_phase4_demo.ts",
+    "gateway": "tsx gateway/cli.ts",
+    "test": "node --import tsx --test tests/backbone.test.ts tests/phase2.test.ts tests/phase3.test.ts tests/phase4.test.ts",
     "python:demo": "python3 personamatrix/demo.py",
-    "python:scoring": "python3 colab/03_behavioral_scoring.py"
+    "python:scoring": "python3 colab/03_behavioral_scoring.py",
+    "python:worker": "python3 colab/05_horizontal_worker.py"
   },
   "keywords": [
     "big5",

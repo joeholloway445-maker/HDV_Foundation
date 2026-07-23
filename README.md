@@ -8,6 +8,10 @@ by **KNOLL** using a single, tamper-evident `RoutingPacket` contract.
 > rule: *"Strictly enforce the RoutingPacket interface. If any data is passed between
 > agents that does not strictly adhere to this interface, the system is considered
 > compromised."*
+>
+> **Game plan & architecture:** see [`docs/GAME_PLAN.md`](./docs/GAME_PLAN.md) (the
+> authoritative full plan) and [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) (mermaid
+> diagrams for packet flow, always-on vs ephemeral, the node matrix, and the HOPE voice loop).
 
 ---
 
@@ -60,13 +64,15 @@ big5-matrix/
 ├── dream/          Multi-branch simulation engine (outcome trees, ranking) + scheduler
 ├── vision/         Sandboxed tool library (tools registry + sandbox sessions + reports)
 ├── knoll/          Security guardrails: 6 virtual laws + behavioral scoring (scoring/features)
-├── nodes/          20,480-node topology: SubManager orchestration, lifecycle, persona pipeline
-├── persistence/    Repository interfaces + in-memory impls + Redis-like task queue stub
-├── colab/          Notebooks for GPU processing & persona spawning (ML lab only)
+├── nodes/          20,480-node topology + lifecycle + persona pipeline + parameter accounting
+├── gateway/        Phase 4 HOPE HTTP API (node:http): server + CLI (no framework)
+├── persistence/    Repository interfaces + in-memory impls + Redis stub + Kafka-like queue
+├── colab/          Notebooks for GPU processing & persona spawning (ML lab only) + worker protocol
 ├── config/         routing_schema.ts, matrix.json, filters.json, schema.prisma
-├── personamatrix/  Python: persona loop (filter_director) + billing ledger + scoring twin
-├── demo/           TypeScript end-to-end demos (Phase 1 + Phase 2/3)
-├── tests/          Automated tests (backbone + phase2 + phase3)
+├── personamatrix/  Python: persona loop + billing ledger + scoring twin + parameter twin
+├── demo/           TypeScript end-to-end demos (Phase 1 + Phase 2/3 + Phase 4)
+├── docs/           GAME_PLAN.md + ARCHITECTURE.md (mermaid diagrams)
+├── tests/          Automated tests (backbone + phase2 + phase3 + phase4)
 ├── package.json
 ├── tsconfig.json
 ├── README.md
@@ -78,29 +84,28 @@ big5-matrix/
 
 ## Phase status
 
-Current release: **v0.2.0 (Phase 2/3)**. The backbone from Phase 1 is unchanged and still
-enforced; Phase 2/3 layer richer capabilities on top without breaking any invariant.
+Current release: **v0.3.0 (Phase 4 foundations)**. The backbone from Phase 1 and the Phase
+2/3 capabilities are unchanged and still enforced; Phase 4 layers forward-facing presence
+and scaling foundations on top **without breaking any invariant** (typecheck + all existing
+tests still pass; new tests added). See [`docs/GAME_PLAN.md`](./docs/GAME_PLAN.md) for the
+authoritative plan.
 
-| Area                              | Phase 1        | Phase 2/3                                                     |
-|-----------------------------------|----------------|--------------------------------------------------------------|
-| RoutingPacket contract            | ✅ Enforced    | ✅ Unchanged (SHA-256 hash + knoll_token)                    |
-| APEX router                       | ✅ `dispatch`  | ✅ `dispatchAsync` + `ApexOrchestrator` composition root     |
-| APEX billing ledger               | ✅ In-memory   | ✅ Optional repository mirror (RequestLog)                   |
-| KNOLL 6 virtual laws              | ✅             | ✅ Unchanged (laws run first, always)                        |
-| KNOLL behavioral scoring          | —              | ✅ Additive anomaly gate (`BEHAVIORAL_SCORE`) + Python twin  |
-| HOPE interpreter                  | ✅ Basic       | ✅ Entities/goals/constraints/urgency, multi-intent, clarify |
-| HOPE documentation + voice        | —              | ✅ `IntentDocument` archive + user-facing voice              |
-| DREAM simulation                  | ✅ Flat        | ✅ Multi-branch outcome trees + risk/reward/feasibility + Pareto |
-| DREAM scheduler                   | —              | ✅ Energy/event hooks (schedules via APEX only)              |
-| VISION execution                  | ✅ Stub        | ✅ Tool registry + sandbox sessions + billable `ExecutionReport` |
-| Node matrix                       | ✅ Definitions | ✅ SubManager orchestration + fleet lifecycle + persona pipeline |
-| Persistence                       | ⚠️ Schema only | ✅ Repository interfaces + in-memory impls + Redis queue stub |
-| personamatrix (Python)            | ✅ Persona loop| ✅ + behavioral scoring twin (`personamatrix.scoring`)       |
-| Colab lab                         | ✅ 01/02       | ✅ + 03 (scoring) + 04 (ipywidgets tuning w/ CLI fallback)   |
-| Docker/gVisor sandbox internals   | ⚠️ Stubbed     | ⚠️ Still stubbed (realistic session IDs/logs/exit codes)     |
-| Prisma runtime persistence        | ⚠️ In-memory   | ⚠️ In-memory default; DB-ready via repository interfaces     |
-| Real-time queue                   | —              | ⚠️ In-memory Redis-like stub (Kafka deferred to Phase 4)     |
-| Real 7B model inference           | ⚠️ Conceptual  | ⚠️ Conceptual only                                           |
+| Area                              | Phase 1        | Phase 2/3                                                     | Phase 4 (v0.3.0)                                          |
+|-----------------------------------|----------------|--------------------------------------------------------------|----------------------------------------------------------|
+| RoutingPacket contract            | ✅ Enforced    | ✅ Unchanged (SHA-256 hash + knoll_token)                    | ✅ Unchanged (only inter-agent contract)                 |
+| APEX router                       | ✅ `dispatch`  | ✅ `dispatchAsync` + `ApexOrchestrator` composition root     | ✅ + optional async **queue intake** (same KNOLL gate)   |
+| APEX billing ledger               | ✅ In-memory   | ✅ Optional repository mirror (RequestLog)                   | ✅ Unchanged; surfaced read-only via gateway `/v1/ledger` |
+| KNOLL laws + behavioral scoring   | ✅ / —         | ✅ Additive anomaly gate (`BEHAVIORAL_SCORE`)                | ✅ Unchanged (gates sync + async + gateway paths)        |
+| HOPE interpreter/document/voice   | ✅ Basic       | ✅ Entities/goals/urgency, clarify, voice                    | ✅ + **HTTP gateway** (`gateway/`) forward-facing        |
+| DREAM simulation + scheduler      | ✅ Flat        | ✅ Multi-branch trees + Pareto + scheduler                   | ✅ Unchanged; also backs ephemeral Colab workers         |
+| VISION execution                  | ✅ Stub        | ✅ Tool registry + sandbox + billable report                 | ✅ Unchanged                                             |
+| Node matrix                       | ✅ Definitions | ✅ SubManager + fleet lifecycle + pipeline                   | ✅ + **parameter accounting** (`nodes/parameters.ts`)    |
+| personamatrix (Python)            | ✅ Persona loop| ✅ + behavioral scoring twin                                 | ✅ + **parameter twin** (`personamatrix/parameters.py`)  |
+| Colab lab                         | ✅ 01/02       | ✅ + 03 (scoring) + 04 (ipywidgets)                          | ✅ + **05 horizontal worker** + `worker_protocol.py`     |
+| Real-time queue                   | —              | ⚠️ In-memory Redis-like stub                                | ✅ **Kafka-like partitioned queue + consumer groups**    |
+| Docker/gVisor sandbox internals   | ⚠️ Stubbed     | ⚠️ Realistic stub                                           | ⚠️ Still stubbed                                         |
+| Prisma runtime persistence        | ⚠️ In-memory   | ⚠️ DB-ready via repository interfaces                       | ⚠️ In-memory default; Prisma/Postgres still next         |
+| Real 7B inference / real GPU      | ⚠️ Conceptual  | ⚠️ Conceptual                                               | ⚠️ Conceptual (worker payloads simulated)                |
 
 ---
 
@@ -122,10 +127,47 @@ npm install
 npm run typecheck     # tsc --noEmit — MUST be zero errors
 npm run demo          # Phase 1: routing + KNOLL block + tampered-hash demo
 npm run demo:phase2   # Phase 2/3: HOPE docs, DREAM trees, VISION tools, KNOLL scoring
-npm test              # all tests (backbone + phase2 + phase3)
+npm run demo:phase4   # Phase 4: queue intake · worker re-ingestion · params · health
+npm run gateway       # start HOPE HTTP gateway on PORT (default 8787)
+npm test              # all tests (backbone + phase2 + phase3 + phase4)
 npm run python:demo   # persona loop + billing ledger (python3)
 npm run python:scoring# behavioral scoring twin validation (python3)
+npm run python:worker # ephemeral DREAM/VISION Colab worker simulation (python3)
 ```
+
+### Phase 4 highlights & how to start the gateway
+
+Phase 4 gives HOPE a forward-facing HTTP presence and lays the fleet-scaling foundations:
+
+```bash
+npm run gateway              # binds PORT env or 8787
+PORT=9090 npm run gateway    # custom port
+```
+
+Endpoints (all JSON; every routed packet is still gated by KNOLL — the gateway never
+bypasses APEX):
+
+| Method | Path                | Purpose                                                        |
+|--------|---------------------|---------------------------------------------------------------|
+| POST   | `/v1/intent`        | `{ "utterance" }` → HOPE interpret + document + submit via APEX |
+| GET    | `/v1/health`        | Always-on (HOPE/KNOLL/APEX) + ephemeral Dream/Vision idle flags |
+| GET    | `/v1/ledger`        | Recent APEX billing entries (read-only)                        |
+| GET    | `/v1/audit`         | Recent KNOLL verdicts (read-only)                              |
+| GET    | `/v1/matrix/stats`  | Node/persona topology + 14.3Q parameter accounting            |
+
+Example:
+
+```bash
+curl -s localhost:8787/v1/intent -H 'content-type: application/json' \
+  -d '{"utterance":"simulate three outcomes for launching the product early"}'
+curl -s localhost:8787/v1/health
+```
+
+Other Phase 4 pieces: a **Kafka-like partitioned task queue** (`persistence/kafka_stub.ts`,
+optional async intake in `ApexOrchestrator`), **parameter accounting** (`nodes/parameters.ts`
++ `personamatrix/parameters.py`), and the **horizontal Colab worker protocol**
+(`colab/worker_protocol.py` + `colab/05_horizontal_worker.py`). Only HOPE/KNOLL/APEX need
+standby; DREAM/VISION workers are ephemeral and self-terminating.
 
 ### What the Phase 1 demo shows
 
@@ -149,6 +191,16 @@ npm run python:scoring# behavioral scoring twin validation (python3)
 
 ---
 
+### What the Phase 4 demo adds
+
+1. **Parameter accounting** — the ~14.3 quadrillion figure computed (not asserted), with a
+   per-agent breakdown and an ACTIVE snapshot (idle personas draw ~zero compute).
+2. **Async intake** — an intent is *published* to a partitioned, consumer-group task queue
+   and drained by a consumer that dispatches it through the **same KNOLL gate**.
+3. **Worker re-ingestion** — a simulated ephemeral DREAM worker's result is re-ingested via
+   APEX (`DREAM → HOPE`, legal), and an illegal `DREAM → VISION` route is **BLOCKED**.
+4. **Health snapshot** — always-on (HOPE/KNOLL/APEX) vs ephemeral (DREAM/VISION) status.
+
 ## License
 
-UNLICENSED — internal Phase 2/3 scaffold.
+UNLICENSED — internal Phase 4 scaffold.

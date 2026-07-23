@@ -111,3 +111,19 @@ PERSONAS_PER_NODE  = 100
 
 - The `colab/` directory is an ML lab ONLY: GPU processing and persona spawning.
 - No webcam, microphone, or other physical-world I/O. Simulation and compute only.
+
+## 7. PHASE 4 NOTE (additive — does not weaken §0–§6)
+
+Phase 4 adds forward-facing and scaling foundations WITHOUT changing any rule above:
+- HOPE HTTP gateway (`gateway/`): submits `HOPE -> APEX` only; never addresses DREAM/VISION
+  directly; read endpoints are read-only. The gateway never bypasses APEX or KNOLL.
+- Kafka-like task queue (`persistence/kafka_stub.ts`): PURE TRANSPORT. Draining goes through
+  the same KNOLL-gated `dispatch`. The queue never inspects, mutates, or bypasses packets.
+- Horizontal Colab workers (`colab/worker_protocol.py`, `colab/05_horizontal_worker.py`):
+  only DREAM/VISION are ephemeral workers; results are re-ingested `-> APEX -> HOPE`, never
+  DREAM <-> VISION. HOPE/KNOLL/APEX are always-on and are never disposable workers.
+- Parameter accounting (`nodes/parameters.ts` + `personamatrix/parameters.py`) formalizes the
+  ~1.4336e16 (14.3 quadrillion) figure; it is computed, not asserted.
+
+The authoritative game plan and architecture diagrams: `docs/GAME_PLAN.md` and
+`docs/ARCHITECTURE.md`. This constitution remains binding and takes precedence.

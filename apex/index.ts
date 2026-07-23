@@ -12,6 +12,7 @@ export type { CreatePacketInput } from './packet.js';
 export { ApexOrchestrator } from './orchestrator.js';
 export type {
   ApexOrchestratorOptions,
+  QueueConsumerOptions,
   AgentWiring,
   SubmitResult,
   SendViaApex,

@@ -24,6 +24,10 @@ import { runPersonaPipeline, type PipelineResult } from '../nodes/index.js';
 import type {
   RequestLogRepository,
   SecurityAuditRepository,
+  TaskQueue,
+  QueueMessage,
+  DeliveredMessage,
+  Subscription,
 } from '../persistence/index.js';
 import { SecurityAuditLog } from '../knoll/audit.js';
 
@@ -36,6 +40,20 @@ export interface ApexOrchestratorOptions {
   /** Optional durable mirrors for the ledger / audit (see persistence layer). */
   requestLog?: RequestLogRepository;
   securityAudit?: SecurityAuditRepository;
+  /**
+   * Optional Phase 4 task queue for ASYNC job intake. When provided, callers can
+   * `intake()` packets onto the queue and a consumer drains them through the SAME
+   * KNOLL-gated `dispatch` path. Purely additive: the synchronous `submit`/`sendViaApex`
+   * path is unchanged and used when no queue is configured.
+   */
+  queue?: TaskQueue;
+}
+
+export interface QueueConsumerOptions {
+  /** Consumer-group name. Default 'apex-intake'. */
+  group?: string;
+  /** Invoked with the dispatch result for each drained message (observability/tests). */
+  onResult?: (result: DispatchResult, message: DeliveredMessage) => void;
 }
 
 /** Peer handlers, injected — never imported — to preserve the no-peer-import rule. */
@@ -56,8 +74,11 @@ export class ApexOrchestrator {
   readonly router: ApexRouter;
   readonly knoll: Knoll;
   readonly sendViaApex: SendViaApex;
+  /** The optional async intake queue (Phase 4). Undefined when running sync-only. */
+  readonly queue?: TaskQueue;
 
   constructor(options: ApexOrchestratorOptions = {}) {
+    this.queue = options.queue;
     // Build KNOLL (always-on). If a securityAudit repository is provided, mirror verdicts
     // into it via a repo-backed SecurityAuditLog.
     this.knoll =
@@ -124,6 +145,43 @@ export class ApexOrchestrator {
   /** Async-ready submit (wraps the sync path; future queue-backed). */
   async submitAsync(input: CreatePacketInput): Promise<SubmitResult> {
     return Promise.resolve(this.submit(input));
+  }
+
+  /**
+   * ASYNC job intake (Phase 4). Mint a legal packet and PUBLISH it to the task queue
+   * instead of dispatching inline. A queue consumer (see `startQueueConsumer`) later
+   * drains it through the same KNOLL-gated `dispatch` path. Requires a queue to have been
+   * configured; the queue is transport only and never bypasses APEX/KNOLL.
+   */
+  intake(input: CreatePacketInput): QueueMessage {
+    if (!this.queue) {
+      throw new Error('ApexOrchestrator.intake: no queue configured (pass options.queue)');
+    }
+    return this.queue.publish(createPacket(input));
+  }
+
+  /**
+   * Start a consumer that drains queued intake for the APEX partition and dispatches each
+   * message. Dispatch calls KNOLL first (unchanged), so async intake enjoys identical
+   * gating to the sync path. Returns the subscription handle (call `close()` to stop).
+   */
+  startQueueConsumer(options: QueueConsumerOptions = {}): Subscription {
+    if (!this.queue) {
+      throw new Error('ApexOrchestrator.startQueueConsumer: no queue configured (pass options.queue)');
+    }
+    const group = options.group ?? 'apex-intake';
+    const queue = this.queue;
+    return queue.subscribe(
+      group,
+      (message) => {
+        // dispatch() is self-contained (it catches its own errors and always bills the
+        // ledger), so a delivered message is always acked once handled.
+        const result = this.router.dispatch(message.packet);
+        queue.ack(group, message.messageId);
+        options.onResult?.(result, message);
+      },
+      { partitions: [AgentRole.APEX], replayFromStart: true },
+    );
   }
 
   /**

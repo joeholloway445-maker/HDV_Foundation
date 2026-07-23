@@ -32,6 +32,18 @@ from .scoring import (
     normalized_entropy,
     DEFAULT_WEIGHTS,
 )
+from .parameters import (
+    MODEL_PARAMS,
+    ALWAYS_ON_AGENTS,
+    EPHEMERAL_AGENTS,
+    AgentParameterBreakdown,
+    ParameterAccounting,
+    ActiveParameterUsage,
+    compute_parameter_accounting,
+    compute_active_parameters,
+    humanize_parameters,
+    parameter_report,
+)
 
 __all__ = [
     "Persona",
@@ -53,6 +65,17 @@ __all__ = [
     "extract_features",
     "normalized_entropy",
     "DEFAULT_WEIGHTS",
+    # Phase 4: parameter accounting twin
+    "MODEL_PARAMS",
+    "ALWAYS_ON_AGENTS",
+    "EPHEMERAL_AGENTS",
+    "AgentParameterBreakdown",
+    "ParameterAccounting",
+    "ActiveParameterUsage",
+    "compute_parameter_accounting",
+    "compute_active_parameters",
+    "humanize_parameters",
+    "parameter_report",
 ]
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

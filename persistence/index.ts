@@ -24,5 +24,17 @@ export {
   newRowId,
 } from './repositories.js';
 
-export type { TaskQueue, QueuedTask, DeliveredTask } from './redis_router_stub.js';
+export type { TaskQueue as RedisTaskQueue, QueuedTask, DeliveredTask } from './redis_router_stub.js';
 export { InMemoryRedisRouterStub } from './redis_router_stub.js';
+
+// Phase 4: partitioned, consumer-group task queue (Kafka-shaped). The Phase 2 Redis
+// stub remains for simple priority-FIFO use; the Kafka stub is the fleet-scale abstraction.
+export type {
+  TaskQueue,
+  QueueMessage,
+  DeliveredMessage,
+  QueueSubscriber,
+  Subscription,
+  SubscribeOptions,
+} from './kafka_stub.js';
+export { InMemoryKafkaStub } from './kafka_stub.js';
