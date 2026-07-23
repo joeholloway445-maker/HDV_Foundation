@@ -1,4 +1,8 @@
-# Big 5 Matrix
+# HDV_Foundation
+
+> Infrastructure for the **Big 5 Agent Matrix** (Hope, Dream, Vision, KNOLL, APEX) — a 14.3-quadrillion-parameter hierarchy over ephemeral 20,480-node matrices. Security-first, Colab-ready, strict modular governance with automated billing ledgers.
+
+Formerly titled Big 5 Matrix; this repository is the HDV Foundation.
 
 A strict-separation-of-concerns agent hierarchy. Five "Big AI" agents cooperate, but
 **never** talk to each other directly — every exchange is routed by **APEX** and audited
