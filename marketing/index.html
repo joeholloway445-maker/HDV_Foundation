@@ -4,10 +4,10 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>HDV Foundation — 14.3 quadrillion. A governed matrix that scales.</title>
-<meta name="description" content="14.3-quadrillion parameters of addressable capacity — 2,867× a ~5-trillion frontier class when all five legs fire. Five specialized AI agents under one constitution: routed by APEX, gated by KNOLL, billed by the ledger. Idle-cheap by construction — only active personas cost compute. Conceptual capacity, not a trained weight file." />
+<meta name="description" content="14.3-quadrillion parameters of addressable capacity — ~12,380× a ~1.16-trillion class (and ~2,867× a ~5-trillion frontier class) when all five legs fire. Run it yourself for ~$9.99 Colab + ~$5 HDV ≈ $15/mo. Five specialized AI agents under one constitution: routed by APEX, gated by KNOLL, billed by the ledger. Idle-cheap by construction — only active personas cost compute. Conceptual capacity, not a trained weight file." />
 <meta name="color-scheme" content="dark" />
 <meta property="og:title" content="HDV Foundation — 14.3 quadrillion, governed" />
-<meta property="og:description" content="14.3Q addressable capacity — 2,867× a ~5T frontier class when all five legs fire. Governed, auditable, idle-cheap. Only active personas cost compute." />
+<meta property="og:description" content="14.3Q addressable capacity — ~12,380× a ~1.16T class, ~2,867× a ~5T frontier class, when all five legs fire. Ride it for ~$15/mo (Colab + HDV). Governed, auditable, idle-cheap — only active personas cost compute." />
 <meta property="og:type" content="website" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -116,6 +116,7 @@
   .hero-in > *:nth-child(5){ animation-delay: .52s; }
   .hero-in > *:nth-child(6){ animation-delay: .64s; }
   .hero-in > *:nth-child(7){ animation-delay: .76s; }
+  .hero-in > *:nth-child(8){ animation-delay: .88s; }
   @keyframes rise { to { opacity: 1; transform: none; } }
 
   /* brand signal — hero-level, not just nav */
@@ -188,6 +189,10 @@
     background: linear-gradient(120deg, var(--aqua), var(--amber)); -webkit-background-clip: text; background-clip: text; color: transparent; }
   .ratio-line .ratio-alt { display: block; font-family: 'IBM Plex Mono', monospace; font-size: 0.62em;
     letter-spacing: 0.02em; color: var(--ink-faint); margin-top: 0.35rem; }
+  .price-line { margin: 1.3rem 0 0; font-family: 'IBM Plex Mono', monospace; font-size: clamp(0.86rem, 1.9vw, 1.02rem);
+    color: var(--ink-soft); letter-spacing: 0.01em; }
+  .price-line b { color: var(--ink); font-weight: 500; }
+  .price-line .approx { color: var(--amber); font-weight: 500; }
 
   /* ---------- capacity section (leads the below-fold with the punchline) ---------- */
   .capband { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 0 0 1.8rem; }
@@ -327,6 +332,7 @@
       <a href="#how">How it works</a>
       <a href="#pricing">Pricing</a>
       <a href="#deploy">Deploy</a>
+      <a href="waitlist.html">Waitlist</a>
       <a class="nav-cta" href="https://github.com/joeholloway445-maker/HDV_Foundation" target="_blank" rel="noopener">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
         GitHub
@@ -356,14 +362,17 @@
       </h1>
       <p class="mega-sub">parameters of addressable capacity — <b>20,480&nbsp;nodes × 100&nbsp;personas × 7B</b>.</p>
 
-      <!-- one ratio line (primary figure is the accurate 2,867× vs a ~5T class) -->
-      <p class="ratio-line"><span class="rx">2,867×</span> the parameter capacity of a ~5-trillion frontier class — when all five legs fire.<span class="ratio-alt">12,380× against a ~1.16-trillion class · capacity ratio, not a benchmark of intelligence</span></p>
+      <!-- ratio line — founder wants ~12,380× (vs ~1.16T) prominent; 2,867× is the 5T comparison -->
+      <p class="ratio-line"><span class="rx">~12,380×</span> the parameter capacity of a ~1.16-trillion class — when all five legs fire.<span class="ratio-alt">~2,867× against a ~5-trillion frontier class · capacity ratio, not a benchmark of intelligence</span></p>
+
+      <!-- consumer price — ride the matrix for ~$15/mo -->
+      <p class="price-line">Ride it yourself for <b>$9.99 Colab</b> + <b>~$5 HDV</b> <span class="approx">≈ $15/mo</span>.</p>
 
       <!-- one CTA group -->
       <div class="cta-group">
-        <a class="btn btn-primary" href="https://github.com/joeholloway445-maker/HDV_Foundation" target="_blank" rel="noopener">Start free →</a>
+        <a class="btn btn-primary" href="waitlist.html">Join the waitlist →</a>
         <a class="btn btn-ghost" href="#capacity">See the math</a>
-        <a class="btn btn-quiet" href="#contact">Talk to sales</a>
+        <a class="btn btn-quiet" href="https://github.com/joeholloway445-maker/HDV_Foundation" target="_blank" rel="noopener">Start free on GitHub</a>
       </div>
       <p class="cta-note">Idle-cheap by construction · only active personas cost compute · conceptual capacity (topology × 7B), not a single trained weight file</p>
     </div>
@@ -384,17 +393,48 @@
     <div class="capband">
       <div class="capfig reveal">
         <p class="lab">Capacity ratio vs frontier</p>
-        <div class="big">2,867×<small>14.3Q ÷ 5T frontier class (1.4336e16 / 5e12) — our primary, accurate figure.</small></div>
-        <p>Against a <b>~1.16-trillion</b> class the ratio is <b>12,380×</b>. This is a ratio of <b>addressable parameters</b> — how much more capacity the topology can express than one monolith — <b>not</b> a claim to be “2,867× smarter.”</p>
+        <div class="big">~12,380×<small>14.3Q ÷ ~1.16T class (1.4336e16 / 1.158e12) — the ratio the founder leads with.</small></div>
+        <p>Against a <b>~5-trillion</b> frontier class the ratio is <b>~2,867×</b> (1.4336e16 / 5e12). Both are real; each names its comparison class. This is a ratio of <b>addressable parameters</b> — how much more capacity the topology can express than one monolith — <b>not</b> a claim to be “12,380× smarter.”</p>
       </div>
       <div class="capfig reveal">
-        <p class="lab">Cost efficiency at low utilization</p>
-        <div class="big">20×–30,000×<small>Worked range below — driven by utilization × ephemeral GPU rate, formula shown.</small></div>
-        <p>Idle-cheap by construction: only <b>active personas</b> bill, on <b>ephemeral Colab / Hostinger GPUs</b> paid by the hour — versus an always-on frontier endpoint you rent 24/7. No magic number; every knob is labeled.</p>
+        <p class="lab">Capital-efficiency vs frontier CapEx</p>
+        <div class="big">~119M×<small>~$100B CapEx pool ÷ a $15/mo HDV seat over ~56 months (~4.7 yrs) — a labeled capital-efficiency ratio.</small></div>
+        <p>Frontier labs talk <b>~$100B CapEx by 2030</b>. HDV users ride Colab at <b>$9.99 + $5 HDV ≈ $15/mo</b>. Against that CapEx pool, that's on the order of <b>~119 million×</b> capital-efficiency over ~4.7 years of seats — <b>not</b> “119M× cheaper than a Claude subscription.” It compares organizational CapEx to consumer seats.</p>
       </div>
     </div>
 
-    <p class="kicker reveal" style="margin-top:0.4rem">The cost formula (nothing hidden)</p>
+    <p class="kicker reveal" style="margin-top:0.4rem">Same topology, bigger legs — 7B / 13B / 30B</p>
+    <p class="lede reveal" style="margin-bottom:1.2rem">The topology is fixed at <b style="color:var(--ink)">20,480 nodes × 100 personas</b>. Swap the persona weight class and capacity scales linearly — every row computed in <code style="font-family:'IBM Plex Mono',monospace;color:var(--aqua)">marketing/comparison.ts</code>.</p>
+    <table class="eff-table reveal">
+      <thead>
+        <tr><th>Persona model</th><th>Addressable capacity</th><th>vs ~1.16T class</th><th>vs 5T class</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><b style="color:var(--ink)">7B</b> (default)</td><td>~14.3 quadrillion</td><td class="mult">~12,380×</td><td>~2,867×</td></tr>
+        <tr><td>13B</td><td>~26.6 quadrillion</td><td class="mult">~22,990×</td><td>~5,325×</td></tr>
+        <tr><td>30B</td><td>~61.4 quadrillion</td><td class="mult">~53,057×</td><td>~12,288×</td></tr>
+      </tbody>
+    </table>
+    <p class="eff-note reveal">Capacity = topology × persona model size — <b style="color:var(--ink)">not</b> a single trained 14.3-quadrillion-weight file. Use <b style="color:var(--ink)">~12,380×</b> when comparing 7B matrix capacity to a ~1.16T class and <b style="color:var(--ink)">~2,867×</b> against a 5T frontier class; naming the class keeps the math honest.</p>
+
+    <p class="kicker reveal" style="margin-top:2.2rem">What it costs a user (corrected)</p>
+    <table class="eff-table reveal">
+      <thead>
+        <tr><th>Line item</th><th>Monthly</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Google Colab</td><td>$9.99</td></tr>
+        <tr><td>HDV subscription add-on</td><td>~$5.00</td></tr>
+        <tr><td><b style="color:var(--ink)">Total to user</b></td><td class="mult">≈ $14.99 / mo</td></tr>
+      </tbody>
+    </table>
+    <p class="eff-note reveal">Not $999 — the consumer path is <b style="color:var(--ink)">~$15/mo</b> (bring Colab, or Hostinger/local). The <b style="color:var(--ink)">BYOK</b> path can be <b style="color:var(--ink)">$0</b> HDV platform fee — you pay only your own model provider.</p>
+
+    <p class="kicker reveal" style="margin-top:2.2rem">The capital-efficiency figure, labeled</p>
+    <div class="formula reveal">E_capex&nbsp;=&nbsp;CapEx&nbsp;/&nbsp;(seat_monthly&nbsp;×&nbsp;months)<br />&nbsp;&nbsp;=&nbsp;$100,000,000,000&nbsp;/&nbsp;($14.99&nbsp;×&nbsp;56.1&nbsp;mo)&nbsp;≈&nbsp;<span style="color:var(--amber)">119,000,000×</span>&nbsp;&nbsp;<span class="c"># ~$100B CapEx ÷ a $15/mo seat over ~4.7 yrs</span></div>
+    <p class="eff-note reveal">This <b style="color:var(--ink)">~119M×</b> figure compares an <b style="color:var(--ink)">organizational CapEx pool</b> (public ~$100B-by-2030 class) to <b style="color:var(--ink)">consumer seats</b> — it is a capital-efficiency story, not “Claude Pro costs $1.8B/mo.” Seat-vs-seat (a $20 frontier seat ÷ $15 HDV) is only ~<b style="color:var(--ink)">1.3×</b> on sticker price; the explosive multiple is CapEx-vs-seat plus idle-cheap GPUs.</p>
+
+    <p class="kicker reveal" style="margin-top:2.2rem">Idle-cheap by construction — the utilization cost formula (nothing hidden)</p>
     <div class="formula reveal">E&nbsp;=&nbsp;cost_on&nbsp;/&nbsp;cost_hdv&nbsp;=&nbsp;(hours&nbsp;×&nbsp;R_on)&nbsp;/&nbsp;(activeGpuHours&nbsp;×&nbsp;R_eph)<br />&nbsp;&nbsp;=&nbsp;(1&nbsp;/&nbsp;utilization)&nbsp;×&nbsp;(R_on&nbsp;/&nbsp;R_eph)&nbsp;&nbsp;<span class="c"># two labeled levers: utilization &amp; GPU rate</span></div>
 
     <table class="eff-table reveal">
@@ -483,7 +523,7 @@
   <section id="pricing">
     <p class="kicker reveal">Pay for what lights up</p>
     <h2 class="reveal">Pricing that matches the architecture</h2>
-    <p class="lede reveal">HDV is idle-cheap by construction, so you're metered in <b style="color:var(--ink)">active-param-seconds (APS)</b> — the active parameters (live personas × 7B) multiplied by the seconds they actually run, read straight from the APEX ledger. Idle personas cost nothing. Bring your own model keys and skip inference metering entirely.</p>
+    <p class="lede reveal">HDV is idle-cheap by construction, so you're metered in <b style="color:var(--ink)">active-param-seconds (APS)</b> — the active parameters (live personas × 7B) multiplied by the seconds they actually run, read straight from the APEX ledger. Idle personas cost nothing. The consumer path is a <b style="color:var(--ink)">~$5 HDV add-on on top of your own $9.99 Colab ≈ $15/mo</b>; bring your own model keys (BYOK) and skip inference metering entirely — self-hosted, the HDV platform fee can be <b style="color:var(--ink)">$0</b> and you pay only your own provider.</p>
 
     <div class="prices">
       <div class="price reveal">
@@ -501,15 +541,15 @@
 
       <div class="price reveal">
         <div class="tier">Starter</div>
-        <div class="amt">$49<small>&nbsp;/ mo</small></div>
-        <div class="allow"><b>25M</b> APS included, then metered</div>
+        <div class="amt">~$5<small>&nbsp;/ mo + your Colab</small></div>
+        <div class="allow">HDV add-on on top of <b>$9.99 Colab</b> ≈ <b>$15/mo</b> all-in</div>
         <ul>
-          <li>Managed HOPE gateway</li>
-          <li>Postgres persistence</li>
+          <li>Ride the matrix on your own Colab (or Hostinger/local)</li>
+          <li>Managed HOPE gateway + audit trail</li>
           <li>Rate-limit + CORS + API keys</li>
           <li>Email support</li>
         </ul>
-        <a class="pick" href="#contact">Start Starter</a>
+        <a class="pick" href="waitlist.html">Join the waitlist</a>
       </div>
 
       <div class="price feature reveal">
@@ -527,13 +567,13 @@
 
       <div class="price reveal">
         <div class="tier">BYOK</div>
-        <div class="amt">$99<small>&nbsp;/ mo + your keys</small></div>
-        <div class="allow"><b>Unlimited</b> governed calls · no APS meter on your inference*</div>
+        <div class="amt">$0–$99<small>&nbsp;/ mo + your keys</small></div>
+        <div class="allow"><b>$0</b> self-hosted platform fee · <b>Unlimited</b> governed calls, no APS meter on your inference*</div>
         <ul>
           <li>Bring OpenAI / Groq / Together keys</li>
           <li>Or local Ollama / vLLM on your box</li>
-          <li>Flat governance platform fee</li>
-          <li>Self-host or managed</li>
+          <li>Self-host free · flat fee if managed</li>
+          <li>You pay only your own provider</li>
         </ul>
         <a class="pick" href="#deploy">Set up BYOK</a>
       </div>
@@ -584,10 +624,10 @@
   <section id="contact" class="close">
     <p class="kicker reveal" style="text-align:center">Ready when you are</p>
     <h2 class="reveal">Ship agents your compliance team will approve.</h2>
-    <p class="lede reveal" style="margin-inline:auto; text-align:center">Start free on the open-core backbone, bring your own keys, or talk to us about a managed governed fleet.</p>
+    <p class="lede reveal" style="margin-inline:auto; text-align:center">Join the waitlist for early access, start free on the open-core backbone, or talk to us about a managed governed fleet. Ride the matrix for ~$15/mo — $9.99 Colab + ~$5 HDV.</p>
     <div class="cta-group reveal">
-      <a class="btn btn-primary" href="https://github.com/joeholloway445-maker/HDV_Foundation" target="_blank" rel="noopener">Start free →</a>
-      <a class="btn btn-ghost" href="#pricing">Bring your own keys</a>
+      <a class="btn btn-primary" href="waitlist.html">Join the waitlist →</a>
+      <a class="btn btn-ghost" href="https://github.com/joeholloway445-maker/HDV_Foundation" target="_blank" rel="noopener">Start free on GitHub</a>
       <a class="btn btn-quiet" href="mailto:hello@hdvfoundation.dev?subject=HDV%20Foundation%20—%20talk%20to%20sales">Talk to sales</a>
     </div>
   </section>
@@ -603,6 +643,7 @@
         &nbsp;·&nbsp; <a href="#how">How it works</a>
         &nbsp;·&nbsp; <a href="#pricing">Pricing</a>
         &nbsp;·&nbsp; <a href="#deploy">Deploy</a>
+        &nbsp;·&nbsp; <a href="waitlist.html">Waitlist</a>
         &nbsp;·&nbsp; MIT Licensed
       </div>
     </div>

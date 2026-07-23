@@ -1,9 +1,10 @@
 # HDV Foundation — 60-Second Demo (shot list + script)
 
 > A single 60-second cut for the top of the landing page and cold outreach. It **opens on
-> 14.3 quadrillion**, shows the **all-legs-firing** diagram, then proves the claim with live
-> **governance → billing → BYOK** footage. Every number on screen maps to a command or a source
-> file. No mockups; record against the real gateway/demos.
+> 14.3 quadrillion** (**~12,380×** a ~1.16T class · ~2,867× a 5T class), names the **~$15/mo**
+> consumer price (**$9.99 Colab + ~$5 HDV**), shows the **all-legs-firing** diagram, then proves
+> the claim with live **governance → billing → BYOK** footage. Every number on screen maps to a
+> command or a source file. No mockups; record against the real gateway/demos.
 >
 > Companion assets: [`math.md`](./math.md) (the numbers), [`comparison.ts`](./comparison.ts)
 > (run it on screen), [`index.html`](./index.html) (the page), [`../docs/GTM.md`](../docs/GTM.md)

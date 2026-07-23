@@ -5,6 +5,17 @@
 
 > Infrastructure for the **Big 5 Agent Matrix** (Hope, Dream, Vision, KNOLL, APEX) — a 14.3-quadrillion-parameter hierarchy over ephemeral 20,480-node matrices. Security-first, Colab-ready, strict modular governance with automated billing ledgers.
 
+> **▶ Start here:** [`docs/MASTER_PLAN.md`](./docs/MASTER_PLAN.md) — the one document (vision,
+> phases 1–8, founder actions, market-this-week). Founder quick-list (driving-friendly):
+> [`docs/FOUNDER_ACTIONS.md`](./docs/FOUNDER_ACTIONS.md) · `npm run plan`.
+>
+> **Prototype & marketing:** [`docs/PROTOTYPE.md`](./docs/PROTOTYPE.md) ·
+> landing page [`marketing/index.html`](./marketing/index.html) (`npm run marketing`) ·
+> waitlist [`marketing/waitlist.html`](./marketing/waitlist.html) (`npm run waitlist`) ·
+> [`docs/GTM.md`](./docs/GTM.md) · [`docs/LAUNCH_CHECKLIST.md`](./docs/LAUNCH_CHECKLIST.md) ·
+> [`docs/MESSAGING.md`](./docs/MESSAGING.md) · headline math [`marketing/math.md`](./marketing/math.md).
+> **Launch helpers:** `bash scripts/gh_launch.sh --status` (un-private repo · protect `main`).
+
 Formerly titled Big 5 Matrix; this repository is the HDV Foundation.
 
 A strict-separation-of-concerns agent hierarchy. Five "Big AI" agents cooperate, but
