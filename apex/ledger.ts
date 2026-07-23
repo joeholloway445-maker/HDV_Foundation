@@ -6,6 +6,7 @@
  * so the in-memory store here is a drop-in for a Phase 2 database implementation.
  */
 import type { AgentRole, RoutingStatus } from '../config/routing_schema.js';
+import type { RequestLogRepository } from '../persistence/repositories.js';
 
 export interface LedgerEntry {
   id: string;
@@ -36,9 +37,23 @@ export interface BillingLedger {
   entries(): readonly LedgerEntry[];
 }
 
+export interface InMemoryLedgerOptions {
+  /**
+   * Optional repository the ledger mirrors every row into. Lets the in-memory ledger
+   * parallel-store into a (later DB-backed) RequestLogRepository without changing call
+   * sites. Defaults to no mirror — pure in-memory behavior, unchanged from Phase 1.
+   */
+  repository?: RequestLogRepository;
+}
+
 export class InMemoryLedger implements BillingLedger {
   private readonly rows: LedgerEntry[] = [];
   private seq = 0;
+  private readonly repository?: RequestLogRepository;
+
+  constructor(options: InMemoryLedgerOptions = {}) {
+    this.repository = options.repository;
+  }
 
   logRequest(input: LogRequestInput): LedgerEntry {
     const entry: LedgerEntry = {
@@ -52,6 +67,9 @@ export class InMemoryLedger implements BillingLedger {
       knollSignature: input.knollSignature,
     };
     this.rows.push(entry);
+    // Mirror into the durable-shaped repository when one is wired (optional; the
+    // RequestLog Prisma model has identical field names).
+    this.repository?.save({ ...entry });
     return entry;
   }
 

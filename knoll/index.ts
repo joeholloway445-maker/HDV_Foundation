@@ -5,7 +5,7 @@
 export { Knoll } from './validator.js';
 export type { KnollOptions } from './validator.js';
 export { SecurityAuditLog } from './audit.js';
-export type { SecurityAuditEntry } from './audit.js';
+export type { SecurityAuditEntry, SecurityAuditLogOptions } from './audit.js';
 export {
   VIRTUAL_LAWS,
   lawTokenWellFormed,
@@ -16,3 +16,11 @@ export {
   lawNoMaliciousIntent,
 } from './laws.js';
 export type { LawVerdict } from './laws.js';
+export { BehavioralScorer } from './scoring.js';
+export type {
+  BehavioralScore,
+  BehavioralScorerOptions,
+  FeatureWeights,
+} from './scoring.js';
+export { extractFeatures } from './features.js';
+export type { BehavioralFeatures, ScoringContext } from './features.js';

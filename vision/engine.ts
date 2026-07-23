@@ -1,79 +1,158 @@
 /**
  * vision/engine.ts — VISION, the Action Layer.
  *
- * VISION performs real task implementation via sandboxed tools (Docker / gVisor). It is
- * spun up on demand and terminated after use.
+ * VISION performs real task implementation via sandboxed tools (Docker / gVisor). Phase 3
+ * routes every task through the tool registry inside a SandboxSession (start → run → stop)
+ * and returns a structured ExecutionReport that the APEX ledger can bill.
  *
  * CONSTRAINTS:
- *   - VISION CANNOT create. It executes existing plans; it does not invent scenarios.
+ *   - VISION CANNOT create. It executes existing plans; it does not invent scenarios, and
+ *     `file_plan` never writes to real disk.
  *   - VISION CANNOT govern. It makes no routing or policy decisions.
  *   - VISION never talks to DREAM (or any peer) directly. Results go back via APEX only.
  *
- * Phase 1: the sandbox internals are safe STUBS. The routing/lifecycle/billing around
- * them is fully functional; only the actual containerized tool execution is mocked.
+ * Phase 3: the container runtime is still a safe STUB. Everything around it — tool
+ * dispatch, sandbox lifecycle, resource-limit metadata, logs, exit codes, billing — is
+ * fully functional.
  */
 import { AgentRole, type RoutingPacket } from '../config/routing_schema.js';
 import type { AgentHandler, CreatePacketInput, DispatchResult } from '../apex/index.js';
-import { spawnPersona, executePersona, terminatePersona } from '../nodes/index.js';
+import { executePersona, spawnPersona, terminatePersona } from '../nodes/index.js';
+import {
+  createSandboxSession,
+  type ResourceLimits,
+  type SandboxKind,
+} from './sandbox.js';
+import { ToolRegistry } from './tools.js';
 
-export type SandboxKind = 'docker' | 'gvisor';
+export type { SandboxKind } from './sandbox.js';
 
-export interface ExecutionResult {
+/** Structured, billable report of one sandboxed execution. */
+export interface ExecutionReport {
   intent: string;
   tool: string;
   sandbox: SandboxKind;
+  sessionId: string;
   ok: boolean;
+  exitCode: number;
   output: Record<string, unknown>;
+  logs: string[];
+  durationMs: number;
+  resourceLimits: ResourceLimits;
   personaCount: number;
+  /** Accounting fields the APEX ledger can turn into cost_usd. */
+  billable: {
+    personas: number;
+    sandboxSeconds: number;
+  };
 }
 
 export type SendViaApex = (input: CreatePacketInput) => DispatchResult;
 
+export interface ExecutionEngineOptions {
+  sandbox?: SandboxKind;
+  limits?: Partial<ResourceLimits>;
+  registry?: ToolRegistry;
+}
+
 export class ExecutionEngine {
-  constructor(
-    private readonly sandbox: SandboxKind = 'gvisor',
-    private readonly sendViaApex?: SendViaApex,
-  ) {}
+  private readonly sandboxKind: SandboxKind;
+  private readonly limits?: Partial<ResourceLimits>;
+  private readonly registry: ToolRegistry;
+  private readonly sendViaApex?: SendViaApex;
+
+  constructor(sandbox: SandboxKind = 'gvisor', sendViaApex?: SendViaApex, options: ExecutionEngineOptions = {}) {
+    this.sandboxKind = options.sandbox ?? sandbox;
+    this.limits = options.limits;
+    this.registry = options.registry ?? new ToolRegistry();
+    this.sendViaApex = sendViaApex;
+  }
+
+  /** The tools available to VISION (read-only listing). */
+  availableTools(): string[] {
+    return this.registry.list();
+  }
 
   /**
-   * Execute a task in a sandbox using an ephemeral persona (spawn -> execute -> terminate).
-   * STUB: this does not launch a real container; it simulates a successful tool run so the
-   * backbone (routing, lifecycle, billing) is exercised end-to-end.
+   * Execute a task: spawn an ephemeral persona, open a sandbox session, run the requested
+   * tool inside it, then terminate + stop everything. Returns a billable ExecutionReport.
    */
-  execute(intent: string, data: Record<string, unknown> = {}): ExecutionResult {
-    const tool = typeof data.tool === 'string' ? data.tool : 'noop';
+  execute(intent: string, data: Record<string, unknown> = {}): ExecutionReport {
+    const tool = typeof data.tool === 'string' ? data.tool : 'system_info';
+    const args = isRecord(data.args) ? (data.args as Record<string, unknown>) : {};
+
     const persona = spawnPersona(AgentRole.VISION, 'vision-node-0');
-    const exec = executePersona(persona, { intent, tool, ...data });
+    executePersona(persona, { intent, tool });
+
+    const session = createSandboxSession(this.sandboxKind, this.limits);
+    session.start();
+
+    let ok = false;
+    let exitCode = 1;
+    let output: Record<string, unknown> = {};
+    if (this.registry.has(tool)) {
+      const result = this.registry.run(tool, args, { sandbox: session });
+      ok = result.ok;
+      exitCode = result.exitCode;
+      output = result.output;
+    } else {
+      output = { error: `unknown tool "${tool}"`, available: this.registry.list() };
+      exitCode = 127;
+    }
+
+    const summary = session.stop();
     terminatePersona(persona);
+
+    const logs = session.logs().map((l) => `[${l.stream}] ${l.message}`);
+    const sandboxSeconds = round4(summary.totalDurationMs / 1000);
 
     return {
       intent,
       tool,
-      sandbox: this.sandbox,
-      ok: true,
-      output: {
-        note: `[stub] executed "${tool}" in ${this.sandbox} sandbox`,
-        score: exec.score,
-      },
+      sandbox: this.sandboxKind,
+      sessionId: session.id,
+      ok,
+      exitCode,
+      output,
+      logs,
+      durationMs: summary.totalDurationMs,
+      resourceLimits: summary.limits,
       personaCount: 1,
+      billable: { personas: 1, sandboxSeconds },
     };
   }
 
   /** APEX inbound handler. VISION only ever receives packets from APEX. */
   asHandler(): AgentHandler {
     return (packet: RoutingPacket) => {
-      const result = this.execute(packet.payload.intent, packet.payload.data);
+      const report = this.execute(packet.payload.intent, packet.payload.data);
       if (this.sendViaApex) {
         // Return path mediated by APEX: VISION -> APEX -> HOPE.
         this.sendViaApex({
           source: AgentRole.VISION,
           destination: AgentRole.HOPE,
           intent: `execution-result:${packet.payload.intent}`,
-          data: { ok: result.ok, output: result.output },
+          data: { ok: report.ok, tool: report.tool, exitCode: report.exitCode, output: report.output },
           priority: packet.header.priority,
         });
       }
-      return { ok: result.ok, output: result.output, personaCount: result.personaCount };
+      return {
+        ok: report.ok,
+        tool: report.tool,
+        exitCode: report.exitCode,
+        output: report.output,
+        sessionId: report.sessionId,
+        personaCount: report.personaCount,
+        billable: report.billable,
+      };
     };
   }
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+function round4(n: number): number {
+  return Math.round((n + Number.EPSILON) * 1e4) / 1e4;
 }

@@ -1,5 +1,7 @@
-# personamatrix -- Phase 1 uses the Python standard library only.
-# No third-party runtime dependencies are required to run persona.py / ledger.py / demo.py.
+# personamatrix -- Phase 2 still uses the Python standard library only.
+# No third-party runtime dependencies are required to run persona.py / ledger.py /
+# scoring.py / demo.py, nor colab/03_behavioral_scoring.py.
 #
-# Optional, for the Colab parameter-tuning notebook only (not needed for the demo):
+# Optional, for the Colab tuning notebooks only (colab/02, colab/04); the scripts fall
+# back to a plain CLI sweep when ipywidgets is absent:
 # ipywidgets>=8.0

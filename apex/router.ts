@@ -147,6 +147,15 @@ export class ApexRouter {
     }
   }
 
+  /**
+   * Async-ready dispatch. Phase 2 wraps the synchronous path in a resolved Promise so
+   * call sites can already `await` routing; a later phase can back this with a real task
+   * queue (see persistence/redis_router_stub.ts) without changing callers.
+   */
+  async dispatchAsync(packet: RoutingPacket, costUsd?: number): Promise<DispatchResult> {
+    return Promise.resolve(this.dispatch(packet, costUsd));
+  }
+
   /** Expose the KNOLL audit trail (read path) without exposing KNOLL's write surface. */
   auditTrail() {
     return this.knoll.audit.all();

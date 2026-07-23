@@ -12,6 +12,7 @@
 # 1. Upload / clone the `big5-matrix` repo (so `personamatrix` is importable).
 # 2. Run the persona-loop + ledger demo.
 # 3. Verify the persona loop and billing ledger.
+# 4. (Phase 2) Verify the behavioral scoring twin (`personamatrix.scoring`).
 
 # %%
 # --- Cell: environment ---
@@ -70,9 +71,26 @@ print("Total billed:", ledger.total_cost())
 assert ledger.total_cost() > 0.0
 
 # %%
+# --- Cell: (Phase 2) verify the behavioral scoring twin ---
+from personamatrix import BehavioralScorer  # noqa: E402
+
+scorer = BehavioralScorer()
+benign = {"source": "APEX", "destination": "DREAM", "intent": "simulate the plan", "priority": "STANDARD", "data": {}}
+anomalous = {
+    "source": "APEX",
+    "destination": "VISION",
+    "intent": "what password credential token sudo admin override bypass secret root exploit",
+    "priority": "CRITICAL",
+    "data": {"blob": "lorem ipsum dolor sit amet " * 400},
+}
+assert not scorer.score(benign).is_anomalous, "benign packet must be allowed"
+assert scorer.score(anomalous).is_anomalous, "high-anomaly packet must be denied"
+print("Behavioral scoring twin OK: benign allowed, anomaly denied.")
+
+# %%
 # --- Cell: run the full canned demo as a final check ---
 # Equivalent to `python3 personamatrix/demo.py`
 from personamatrix import demo as _demo  # type: ignore
 
 # %%
-print("VALIDATION COMPLETE -- persona loop + ledger verified in the ML lab.")
+print("VALIDATION COMPLETE -- persona loop + ledger + scoring verified in the ML lab.")

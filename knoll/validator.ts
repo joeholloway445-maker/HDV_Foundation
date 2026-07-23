@@ -19,6 +19,7 @@ import {
 import { computePacketHash } from '../config/hash.js';
 import { VIRTUAL_LAWS } from './laws.js';
 import { SecurityAuditLog } from './audit.js';
+import { BehavioralScorer } from './scoring.js';
 
 export interface KnollOptions {
   /** Max packets allowed per source within the rate window. */
@@ -27,6 +28,13 @@ export interface KnollOptions {
   rateWindowMs?: number;
   /** Injectable clock for deterministic testing. */
   now?: () => number;
+  /**
+   * Behavioral anomaly scorer. Runs AFTER the six virtual laws as an additive gate.
+   * Enabled by default (a scorer is stood up if none is injected). Set `enableScoring`
+   * to false to run laws-only (Phase 1 behavior).
+   */
+  scorer?: BehavioralScorer;
+  enableScoring?: boolean;
 }
 
 interface RateBucket {
@@ -36,6 +44,8 @@ interface RateBucket {
 
 export class Knoll {
   readonly audit: SecurityAuditLog;
+  /** The behavioral scorer, when scoring is enabled (default). Read-only surface. */
+  readonly scorer?: BehavioralScorer;
   private readonly rateLimit: number;
   private readonly rateWindowMs: number;
   private readonly now: () => number;
@@ -46,6 +56,8 @@ export class Knoll {
     this.rateLimit = options.rateLimit ?? 100;
     this.rateWindowMs = options.rateWindowMs ?? 1000;
     this.now = options.now ?? Date.now;
+    const scoringEnabled = options.enableScoring ?? true;
+    this.scorer = scoringEnabled ? options.scorer ?? new BehavioralScorer({ now: this.now }) : undefined;
   }
 
   /**
@@ -88,6 +100,30 @@ export class Knoll {
           enforcedConstraints: [verdict.law],
         };
       }
+    }
+
+    // Behavioral anomaly scoring — the additive final gate (runs only after all six
+    // laws pass). It denies high-anomaly packets the hard rules can't express.
+    if (this.scorer) {
+      const behavioral = this.scorer.score(rp);
+      if (behavioral.isAnomalous) {
+        const reasoning = `behavioral anomaly score ${behavioral.score} >= ${behavioral.threshold}`;
+        this.audit.record(rp.header.packetId, 'BLOCKED', reasoning);
+        return {
+          isAllowed: false,
+          reasoning,
+          enforcedConstraints: ['BEHAVIORAL_SCORE'],
+        };
+      }
+      const note = behavioral.flagged
+        ? `all virtual laws satisfied; flagged (anomaly ${behavioral.score})`
+        : 'all virtual laws satisfied';
+      this.audit.record(rp.header.packetId, 'ALLOWED', note);
+      return {
+        isAllowed: true,
+        reasoning: note,
+        enforcedConstraints: [...VIRTUAL_LAWS.map((_, i) => `LAW_${i + 1}`), 'BEHAVIORAL_SCORE'],
+      };
     }
 
     this.audit.record(rp.header.packetId, 'ALLOWED', 'all virtual laws satisfied');

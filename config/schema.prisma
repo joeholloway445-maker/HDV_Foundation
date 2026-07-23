@@ -1,8 +1,11 @@
 // Prisma schema for the Big 5 Matrix persistence layer.
 //
-// Phase 1 note: the running system uses in-memory stores (APEX ledger, KNOLL audit,
-// node registry). This schema defines the durable shape those stores map onto, so the
-// in-memory implementations are "interface-ready" for a later Prisma-backed Phase 2.
+// Phase 2 note: the running system still uses in-memory stores by default (APEX ledger,
+// KNOLL audit, node registry, HOPE intent archive). The persistence/ layer now exposes
+// repository interfaces (RequestLogRepository, NodeIdentityRepository,
+// SecurityAuditRepository, IntentArchiveRepository) whose in-memory implementations
+// mirror these models field-for-field. A Phase 4 Prisma-backed implementation can satisfy
+// the same interfaces without touching call sites. This schema is the source of truth.
 
 generator client {
   provider = "prisma-client-js"
@@ -41,4 +44,19 @@ model SecurityAudit {
   outcome   String
   reasoning String?
   timestamp DateTime @default(now())
+}
+
+/// HOPE documents one IntentDocument row per interpreted user intent (its documentation
+/// layer). entities/goals/constraints are JSON-encoded string arrays in the durable store.
+model IntentDocument {
+  id                   String   @id @default(uuid())
+  utterance            String
+  kind                 String // 'SIMULATE','EXECUTE','QUERY','CLARIFY','DOCUMENT','UNKNOWN'
+  entities             Json     @default("[]")
+  goals                Json     @default("[]")
+  constraints          Json     @default("[]")
+  suggestedDestination String
+  confidence           Float    @default(0)
+  documentedAt         DateTime @default(now())
+  clarificationNeeded  Boolean  @default(false)
 }

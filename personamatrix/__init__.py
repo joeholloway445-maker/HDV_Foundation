@@ -25,6 +25,13 @@ from .persona import (
     spawn,
     terminate,
 )
+from .scoring import (
+    BehavioralScore,
+    BehavioralScorer,
+    extract_features,
+    normalized_entropy,
+    DEFAULT_WEIGHTS,
+)
 
 __all__ = [
     "Persona",
@@ -40,6 +47,12 @@ __all__ = [
     "load_matrix",
     "filter_params",
     "billing_config",
+    # Phase 2: behavioral scoring twin
+    "BehavioralScorer",
+    "BehavioralScore",
+    "extract_features",
+    "normalized_entropy",
+    "DEFAULT_WEIGHTS",
 ]
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

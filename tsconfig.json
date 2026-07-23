@@ -29,6 +29,7 @@
     "knoll/**/*.ts",
     "nodes/**/*.ts",
     "config/**/*.ts",
+    "persistence/**/*.ts",
     "demo/**/*.ts",
     "tests/**/*.ts"
   ],

@@ -5,6 +5,7 @@
  * shape is intentionally identical to the durable model for a later swap.
  */
 import { randomUUID } from 'node:crypto';
+import type { SecurityAuditRepository } from '../persistence/repositories.js';
 
 export interface SecurityAuditEntry {
   id: string;
@@ -14,8 +15,22 @@ export interface SecurityAuditEntry {
   timestamp: number;
 }
 
+export interface SecurityAuditLogOptions {
+  /**
+   * Optional repository every verdict is mirrored into. Lets KNOLL's in-memory audit
+   * parallel-store into a (later DB-backed) SecurityAuditRepository without changing
+   * KNOLL's monitor-only behavior. Defaults to no mirror (Phase 1 behavior).
+   */
+  repository?: SecurityAuditRepository;
+}
+
 export class SecurityAuditLog {
   private readonly entries: SecurityAuditEntry[] = [];
+  private readonly repository?: SecurityAuditRepository;
+
+  constructor(options: SecurityAuditLogOptions = {}) {
+    this.repository = options.repository;
+  }
 
   record(packetId: string, outcome: 'ALLOWED' | 'BLOCKED', reasoning?: string): SecurityAuditEntry {
     const entry: SecurityAuditEntry = {
@@ -26,6 +41,8 @@ export class SecurityAuditLog {
       timestamp: Date.now(),
     };
     this.entries.push(entry);
+    // Mirror into the durable-shaped repository when wired (SecurityAudit Prisma model).
+    this.repository?.save({ ...entry });
     return entry;
   }
 

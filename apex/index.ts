@@ -6,6 +6,13 @@
 export { ApexRouter } from './router.js';
 export type { ApexRouterOptions, AgentHandler, DispatchResult } from './router.js';
 export { InMemoryLedger } from './ledger.js';
-export type { BillingLedger, LedgerEntry, LogRequestInput } from './ledger.js';
+export type { BillingLedger, LedgerEntry, LogRequestInput, InMemoryLedgerOptions } from './ledger.js';
 export { createPacket, isRoutingPacket, verifyPacketHash } from './packet.js';
 export type { CreatePacketInput } from './packet.js';
+export { ApexOrchestrator } from './orchestrator.js';
+export type {
+  ApexOrchestratorOptions,
+  AgentWiring,
+  SubmitResult,
+  SendViaApex,
+} from './orchestrator.js';

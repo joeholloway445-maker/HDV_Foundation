@@ -21,8 +21,22 @@ export {
   nodeIdsForManager,
   nodesForAgent,
   totalFleetNodes,
+  SubManagerOrchestrator,
 } from './matrix.js';
-export type { AgentMatrix, SubManager, NodeIdentity, NodeStatus } from './matrix.js';
+export type {
+  AgentMatrix,
+  SubManager,
+  NodeIdentity,
+  NodeStatus,
+  ManagerStatus,
+  ManagerActivation,
+} from './matrix.js';
 
 export { spawnPersona, executePersona, terminatePersona } from './persona.js';
 export type { Persona, PersonaState, PersonaExecution } from './persona.js';
+
+export { NodeFleet } from './lifecycle.js';
+export type { NodeFleetOptions } from './lifecycle.js';
+
+export { runPersonaPipeline } from './pipeline.js';
+export type { PipelineRole, PipelineStageResult, PipelineResult } from './pipeline.js';

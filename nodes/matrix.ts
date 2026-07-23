@@ -100,3 +100,106 @@ export function nodesForAgent(): number {
 export function totalFleetNodes(): number {
   return TOTAL_NODES;
 }
+
+// ---------------------------------------------------------------------------
+// SubManager orchestration (Phase 2)
+//
+// A single Big AI owns 64 sub-managers, each coordinating up to 64 nodes. Idle cost is
+// near-zero: managers and nodes are only *materialized* on demand and released back to
+// IDLE / TERMINATED when done. The orchestrator never eagerly builds all 4,096 nodes.
+// ---------------------------------------------------------------------------
+
+export type ManagerStatus = 'IDLE' | 'ACTIVE' | 'TERMINATED';
+
+export interface ManagerActivation {
+  manager: SubManager;
+  status: ManagerStatus;
+  /** Node identities materialized under this manager (never more than 64). */
+  activeNodes: NodeIdentity[];
+}
+
+/**
+ * Coordinates the sub-manager fleet for one Big AI. Managers start IDLE (zero materialized
+ * nodes) and only spin up nodes when work arrives. `activateManagers` brings up to N of the
+ * 64 managers online; each can materialize up to `NODES_PER_MANAGER` nodes.
+ */
+export class SubManagerOrchestrator {
+  readonly matrix: AgentMatrix;
+  private readonly activations = new Map<string, ManagerActivation>();
+
+  constructor(
+    readonly role: AgentRole,
+    readonly isEphemeral: boolean,
+  ) {
+    this.matrix = createAgentMatrix(role, isEphemeral);
+  }
+
+  /**
+   * Activate up to `count` managers (clamped to the 64-per-agent invariant). Idempotent:
+   * re-activating an already-active manager returns its existing activation.
+   */
+  activateManagers(count: number): ManagerActivation[] {
+    const n = Math.max(0, Math.min(count, MANAGERS_PER_AGENT));
+    const out: ManagerActivation[] = [];
+    for (let i = 0; i < n; i++) {
+      const manager = this.matrix.managers[i];
+      let activation = this.activations.get(manager.id);
+      if (!activation || activation.status === 'TERMINATED') {
+        activation = { manager, status: 'ACTIVE', activeNodes: [] };
+        this.activations.set(manager.id, activation);
+      }
+      out.push(activation);
+    }
+    return out;
+  }
+
+  /**
+   * Materialize a node under an active manager, on demand. Refuses to exceed the
+   * 64-nodes-per-manager invariant and refuses managers that are not ACTIVE.
+   */
+  materializeNode(managerIndex: number, nodeIndex: number): NodeIdentity {
+    const manager = this.matrix.managers[managerIndex];
+    if (!manager) throw new Error(`SubManagerOrchestrator: no manager at index ${managerIndex}`);
+    const activation = this.activations.get(manager.id);
+    if (!activation || activation.status !== 'ACTIVE') {
+      throw new Error(`SubManagerOrchestrator: manager ${manager.id} is not ACTIVE`);
+    }
+    if (nodeIndex < 0 || nodeIndex >= NODES_PER_MANAGER) {
+      throw new Error(`SubManagerOrchestrator: nodeIndex ${nodeIndex} out of range (0..${NODES_PER_MANAGER - 1})`);
+    }
+    if (activation.activeNodes.length >= NODES_PER_MANAGER) {
+      throw new Error(`SubManagerOrchestrator: manager ${manager.id} at node capacity (${NODES_PER_MANAGER})`);
+    }
+    const node = createNode(this.role, managerIndex, nodeIndex, this.isEphemeral);
+    node.status = 'ACTIVE';
+    activation.activeNodes.push(node);
+    return node;
+  }
+
+  /** Release a manager: all its nodes go IDLE (always-on) or TERMINATED (ephemeral). */
+  releaseManager(managerIndex: number): ManagerActivation | undefined {
+    const manager = this.matrix.managers[managerIndex];
+    if (!manager) return undefined;
+    const activation = this.activations.get(manager.id);
+    if (!activation) return undefined;
+    const terminalNodeStatus: NodeStatus = this.isEphemeral ? 'TERMINATED' : 'IDLE';
+    for (const node of activation.activeNodes) node.status = terminalNodeStatus;
+    activation.status = this.isEphemeral ? 'TERMINATED' : 'IDLE';
+    activation.activeNodes = [];
+    return activation;
+  }
+
+  /** Count of managers currently ACTIVE (materialized), never more than 64. */
+  activeManagerCount(): number {
+    let n = 0;
+    for (const a of this.activations.values()) if (a.status === 'ACTIVE') n += 1;
+    return n;
+  }
+
+  /** Total nodes currently materialized across all active managers. */
+  activeNodeCount(): number {
+    let n = 0;
+    for (const a of this.activations.values()) n += a.activeNodes.length;
+    return n;
+  }
+}

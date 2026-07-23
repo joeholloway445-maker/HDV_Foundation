@@ -83,8 +83,12 @@ function main(): void {
   console.log(`[HOPE] parsed kind=${parsed.kind} suggestedDestination=${parsed.suggestedDestination}`);
 
   const submission = hope.submit(utterance, sendViaApex);
-  console.log(`[APEX] HOPE->APEX dispatch status: ${submission.result.status}`);
-  console.log(`[KNOLL] verdict: ${submission.result.knoll.reasoning}`);
+  if (submission.result) {
+    console.log(`[APEX] HOPE->APEX dispatch status: ${submission.result.status}`);
+    console.log(`[KNOLL] verdict: ${submission.result.knoll.reasoning}`);
+  } else {
+    console.log('[HOPE] held for clarification (confidence below threshold)');
+  }
 
   // ---------------------------------------------------------------------------
   // FLOW 2: illegal direct DREAM -> VISION (must be BLOCKED by KNOLL)
