@@ -1,0 +1,75 @@
+{
+  "$schema": "./matrix.schema.json",
+  "version": "1.0.0",
+  "description": "Big 5 node matrix topology. 5 agents x 64 managers x 64 nodes = 20,480 nodes.",
+  "topology": {
+    "managersPerAgent": 64,
+    "nodesPerManager": 64,
+    "nodesPerAgent": 4096,
+    "totalNodes": 20480,
+    "personasPerNode": 100,
+    "modelSize": "7B",
+    "conceptualParameters": "14.3 quadrillion"
+  },
+  "agents": [
+    {
+      "role": "HOPE",
+      "layer": "interface",
+      "alwaysOn": true,
+      "ephemeral": false,
+      "canExecute": false,
+      "canCreate": false,
+      "canGovern": false,
+      "canSimulate": false,
+      "description": "Intent parsing and UI/UX voice. Master interpreter."
+    },
+    {
+      "role": "DREAM",
+      "layer": "simulation",
+      "alwaysOn": false,
+      "ephemeral": true,
+      "canExecute": false,
+      "canCreate": true,
+      "canGovern": false,
+      "canSimulate": true,
+      "description": "Generate all possible outcomes. Ephemeral creation of scenarios."
+    },
+    {
+      "role": "VISION",
+      "layer": "action",
+      "alwaysOn": false,
+      "ephemeral": true,
+      "canExecute": true,
+      "canCreate": false,
+      "canGovern": false,
+      "canSimulate": false,
+      "description": "Tool usage and task implementation in sandboxes."
+    },
+    {
+      "role": "KNOLL",
+      "layer": "security",
+      "alwaysOn": true,
+      "ephemeral": false,
+      "canExecute": false,
+      "canCreate": false,
+      "canGovern": true,
+      "canSimulate": false,
+      "description": "Watches all traffic, enforces virtual laws, privacy. Monitor-only master auditor."
+    },
+    {
+      "role": "APEX",
+      "layer": "orchestration",
+      "alwaysOn": true,
+      "ephemeral": false,
+      "canExecute": false,
+      "canCreate": false,
+      "canGovern": true,
+      "canSimulate": false,
+      "description": "Routes tasks between agents. Master router. Must call KNOLL before every route."
+    }
+  ],
+  "illegalDirectPairs": [
+    ["DREAM", "VISION"],
+    ["VISION", "DREAM"]
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "name": "big5-matrix",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Big 5 Agent Hierarchy — Phase 1 Backbone. Strict separation of concerns across HOPE, DREAM, VISION, KNOLL, APEX.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "demo": "tsx demo/run_demo.ts",
+    "test": "tsx tests/backbone.test.ts",
+    "python:demo": "python3 personamatrix/demo.py"
+  },
+  "keywords": [
+    "big5",
+    "agent-hierarchy",
+    "apex",
+    "knoll",
+    "routing"
+  ],
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

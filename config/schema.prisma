@@ -1,0 +1,44 @@
+// Prisma schema for the Big 5 Matrix persistence layer.
+//
+// Phase 1 note: the running system uses in-memory stores (APEX ledger, KNOLL audit,
+// node registry). This schema defines the durable shape those stores map onto, so the
+// in-memory implementations are "interface-ready" for a later Prisma-backed Phase 2.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Every packet APEX attempts to route produces one RequestLog row (ledger).
+model RequestLog {
+  id             String   @id @default(uuid())
+  packetId       String   @unique
+  timestamp      DateTime @default(now())
+  source         String
+  destination    String
+  status         String // 'SUCCESS', 'BLOCKED', 'FAILED'
+  cost_usd       Decimal  @default(0.00)
+  knollSignature String
+}
+
+/// One row per node in the 20,480-node fleet (ephemeral rows churn frequently).
+model NodeIdentity {
+  node_id      String   @id
+  role         String
+  status       String // 'ACTIVE', 'IDLE', 'TERMINATED'
+  last_seen    DateTime @updatedAt
+  is_ephemeral Boolean  @default(true)
+}
+
+/// KNOLL emits one SecurityAudit row per interception verdict.
+model SecurityAudit {
+  id        String   @id @default(uuid())
+  packetId  String
+  outcome   String
+  reasoning String?
+  timestamp DateTime @default(now())
+}

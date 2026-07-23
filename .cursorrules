@@ -1,0 +1,113 @@
+# BIG 5 MATRIX — SYSTEM MANIFEST / CONSTITUTION
+
+This document is the constitution for all coding agents working in this repository.
+It is binding. Violations are architectural breaches, not stylistic preferences.
+
+---
+
+## 0. PRIME DIRECTIVE
+
+Strict separation of concerns is non-negotiable. Every one of the Big 5 agents has
+exactly one job and a set of hard constraints on what it may NEVER do. No agent may
+absorb the responsibilities of another, even "temporarily" or "for convenience".
+
+> Strictly enforce the RoutingPacket interface. If any data is passed between agents
+> that does not strictly adhere to this interface, the system is considered compromised.
+
+---
+
+## 1. THE BIG 5 AGENTS
+
+### HOPE — Holloway's Own Providential Enterprise (Interface Layer)
+- Role: Intent parsing and the UI/UX "voice" of the system. Master interpreter.
+- Job: Translate natural language into a structured intent payload for APEX to route.
+- CONSTRAINT: CANNOT execute. CANNOT create. Interpretation only.
+- Lifecycle: ALWAYS-ON standby.
+
+### DREAM — Dynamic Renderer of Ephemeral Art Model (Simulation Layer)
+- Role: Generate all possible outcomes / scenarios for a given request.
+- Job: Simulate; render ephemeral possibilities.
+- CONSTRAINT: CANNOT govern. CANNOT execute. Simulation only.
+- Lifecycle: EPHEMERAL (spawned on demand, terminated after use), plus its node matrix.
+
+### VISION — Vectorized Infrastructure and Systems Ionic Operational Node (Action Layer)
+- Role: Tool usage and real task implementation inside sandboxes (Docker/gVisor).
+- Job: Execute tasks; report results back through APEX.
+- CONSTRAINT: CANNOT create. CANNOT govern. Execution only.
+- Lifecycle: EPHEMERAL (spawned on demand, terminated after use), plus its node matrix.
+
+### KNOLL — Kinetic Node of Operational Locks and Limiters (Security Layer)
+- Role: Watches ALL traffic, enforces virtual laws, protects privacy. Master auditor.
+- Job: Intercept and validate every packet. Emit SecurityAudit records.
+- CONSTRAINT: ALWAYS ACTIVE. Monitor-only — it intercepts and validates, it does NOT
+  create or execute business tasks.
+- Lifecycle: ALWAYS-ON standby.
+
+### APEX — Automated Processor of Ephemeral eXchanges (Orchestration Layer)
+- Role: Routes tasks between agents. Master router.
+- Job: The single legal transport between agents.
+- CONSTRAINT: No agent may communicate with another without passing through APEX.
+  APEX MUST call KNOLL before every route.
+- Lifecycle: ALWAYS-ON standby.
+
+---
+
+## 2. OPERATIONAL RULES (HARD LAWS)
+
+1. APEX is the master router. KNOLL is the master auditor. HOPE is the master interpreter.
+2. No agent may talk to another agent directly. All traffic flows: SOURCE -> APEX -> KNOLL -> DEST.
+3. DREAM and VISION CANNOT communicate directly, in either direction. Ever.
+4. APEX MUST call `KNOLL.intercept(packet)` BEFORE routing. If KNOLL returns
+   `isAllowed: false`, the packet is dropped and logged as BLOCKED.
+5. No module may import another peer agent module directly (e.g. `vision` importing
+   `dream`). Agents receive an APEX transport (router or `sendViaApex` callback) via
+   dependency injection only.
+6. Every ephemeral execution MUST be recorded in the APEX billing ledger with
+   `cost_usd` metadata and a SUCCESS / BLOCKED / FAILED status.
+7. KNOLL may never mutate a payload to make it "pass". It only allows or denies.
+
+---
+
+## 3. THE ROUTINGPACKET CONTRACT
+
+All inter-agent data MUST be a `RoutingPacket` (see `config/routing_schema.ts`).
+A packet is only valid if:
+- `security.hash` is a correct SHA-256 over the canonical (header + payload) content.
+- `security.knoll_token` is present and well-formed.
+- `header.source` and `header.destination` form a legal pair (never DREAM<->VISION).
+- `header.source` is not forged (e.g. a non-KNOLL agent claiming to be KNOLL).
+
+Any deviation = compromised system = packet BLOCKED + SecurityAudit entry.
+
+---
+
+## 4. MATRIX ARCHITECTURE
+
+- Under each of the 5 Big AI: 4,096 nodes = 64 sub-AI managers x 64 nodes each.
+- Total across the Big 5: 20,480 nodes.
+- Each node hosts 100 ephemeral personas (spawn -> execute -> terminate).
+- Each persona is tied to a conceptual 7B model -> ~14.3 quadrillion parameters total.
+- ALWAYS-ON standby: HOPE, KNOLL, APEX.
+- EPHEMERAL: DREAM, VISION (and their node matrices).
+
+Constants (see `nodes/constants.ts`):
+MANAGERS_PER_AGENT = 64
+NODES_PER_MANAGER  = 64
+NODES_PER_AGENT    = 4096
+TOTAL_NODES        = 20480
+PERSONAS_PER_NODE  = 100
+
+---
+
+## 5. CODING STANDARDS
+
+- TypeScript strict mode. No `any` (use `Record<string, unknown>` for opaque data).
+- Comments only where an architectural constraint needs an enforcement note.
+- No dead "TODO: implement later" that break the Phase 1 backbone. Sandbox internals
+  may be stubbed, but routing / security / ledger / nodes MUST function.
+- Python `personamatrix` prefers the standard library for Phase 1.
+
+## 6. COLAB / ML LAB RESTRICTIONS
+
+- The `colab/` directory is an ML lab ONLY: GPU processing and persona spawning.
+- No webcam, microphone, or other physical-world I/O. Simulation and compute only.
