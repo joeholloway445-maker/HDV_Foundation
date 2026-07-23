@@ -1,15 +1,19 @@
 /**
- * vision/tools.ts — the VISION tool library (Phase 3).
+ * vision/tools.ts — the VISION tool library (Phase 3, expanded in Phase 4.2).
  *
  * A registry of sandboxed tools VISION can run. Every tool runs *inside* a SandboxSession
  * (start → run → stop) so execution is isolated and accountable. Tools:
- *   - code_exec   : a SAFE mock JS runner with an allowlist (never real arbitrary eval)
- *   - data_ingest : validate structured records against a schema and summarize
- *   - system_info : safe, read-only metadata stub
- *   - file_plan   : plan file ops without touching disk (sandbox-local in-memory FS only)
+ *   - code_exec     : a SAFE mock JS runner with an allowlist (never real arbitrary eval)
+ *   - data_ingest   : validate structured records against a schema and summarize
+ *   - system_info   : safe, read-only metadata stub
+ *   - file_plan     : plan file ops without touching disk (sandbox-local in-memory FS only)
+ *   - http_fetch    : allowlisted-domain HTTP STUB — no real network; returns mock responses
+ *   - json_transform: safe JSON path extract/map (pure traversal, never eval)
  *
  * CONSTRAINT: VISION executes; it does NOT create artifacts outside a sandbox report.
  * `file_plan` only plans or writes to an in-memory FS — nothing is written to real disk.
+ * `http_fetch` performs NO real network I/O by default — it returns deterministic mocks so
+ * the sandbox stays hermetic and VISION never reaches out of its box.
  */
 import type { SandboxRunResult, SandboxSession } from './sandbox.js';
 
@@ -181,6 +185,163 @@ const filePlan: Tool = {
   },
 };
 
+// ---------------------------------------------------------------------------
+// http_fetch — allowlisted-domain HTTP STUB. NO real network is performed by default;
+// requests to allowlisted hosts return deterministic mock responses, and anything off the
+// allowlist (or a non-http(s) scheme) is blocked. This keeps the sandbox hermetic.
+// ---------------------------------------------------------------------------
+
+/** Domains VISION's http_fetch may "reach". Never a real socket — mocks only. */
+export const DEFAULT_HTTP_ALLOWLIST: readonly string[] = [
+  'api.example.com',
+  'data.example.org',
+  'status.example.net',
+  'localhost',
+];
+
+const HTTP_METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']);
+
+const httpFetch: Tool = {
+  name: 'http_fetch',
+  description: 'Allowlisted-domain HTTP stub (no real network; deterministic mock responses).',
+  run(args, ctx) {
+    const url = typeof args.url === 'string' ? args.url : '';
+    const method = (typeof args.method === 'string' ? args.method : 'GET').toUpperCase();
+    // Callers may widen the allowlist per-call, but never beyond a stub — no real I/O ever.
+    const extra = Array.isArray(args.allow) ? (args.allow as unknown[]).filter((d): d is string => typeof d === 'string') : [];
+    const allowlist = new Set<string>([...DEFAULT_HTTP_ALLOWLIST, ...extra]);
+    return finalize(ctx, 'http_fetch', () => {
+      if (!url) return { exitCode: 2, stderr: 'no url provided', output: {} };
+      if (!HTTP_METHODS.has(method)) {
+        return { exitCode: 2, stderr: `unsupported method "${method}"`, output: {} };
+      }
+      let parsed: URL;
+      try {
+        parsed = new URL(url);
+      } catch {
+        return { exitCode: 22, stderr: `invalid url: ${url}`, output: {} };
+      }
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return { exitCode: 126, stderr: `blocked scheme "${parsed.protocol}"`, output: { blocked: true, reason: 'scheme' } };
+      }
+      if (!allowlist.has(parsed.hostname)) {
+        return {
+          exitCode: 126,
+          stderr: `blocked host "${parsed.hostname}" (not in allowlist)`,
+          output: { blocked: true, reason: 'host', host: parsed.hostname, allowlist: Array.from(allowlist) },
+        };
+      }
+      // Deterministic mock response. No socket is opened.
+      const mock = mockHttpResponse(parsed, method);
+      return {
+        exitCode: 0,
+        stdout: `[mock] ${method} ${parsed.href} -> ${mock.status}`,
+        output: { mock: true, request: { url: parsed.href, method, host: parsed.hostname }, response: mock },
+      };
+    });
+  },
+};
+
+function mockHttpResponse(url: URL, method: string): { status: number; headers: Record<string, string>; body: Record<string, unknown> } {
+  return {
+    status: 200,
+    headers: { 'content-type': 'application/json', 'x-mock': 'true' },
+    body: {
+      ok: true,
+      mock: true,
+      method,
+      path: url.pathname,
+      query: Object.fromEntries(url.searchParams.entries()),
+      note: 'stubbed response — VISION performs no real network I/O',
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// json_transform — safe JSON path extract/map. Pure traversal over supplied data; no eval,
+// no prototype access. Supports single-path extraction and per-element projection over arrays.
+// ---------------------------------------------------------------------------
+
+const jsonTransform: Tool = {
+  name: 'json_transform',
+  description: 'Safe JSON path extract/map (pure traversal, never eval).',
+  run(args, ctx) {
+    const data = 'data' in args ? args.data : undefined;
+    const path = typeof args.path === 'string' ? args.path : undefined;
+    const select = isRecord(args.select) ? (args.select as Record<string, unknown>) : undefined;
+    return finalize(ctx, 'json_transform', () => {
+      if (data === undefined) return { exitCode: 2, stderr: 'no data provided', output: {} };
+      if (!path && !select) return { exitCode: 2, stderr: 'provide "path" or "select"', output: {} };
+
+      // Map mode: project each element of an array through a { outName: path } spec.
+      if (select) {
+        const source = path !== undefined ? getByPath(data, path) : data;
+        if (!Array.isArray(source)) {
+          return { exitCode: 1, stderr: 'select requires the target to be an array', output: {} };
+        }
+        const specs = Object.entries(select).filter((e): e is [string, string] => typeof e[1] === 'string');
+        const values = source.map((el) => {
+          const row: Record<string, unknown> = {};
+          for (const [out, p] of specs) row[out] = getByPath(el, p);
+          return row;
+        });
+        return {
+          exitCode: 0,
+          stdout: `mapped ${values.length} elements across ${specs.length} fields`,
+          output: { mode: 'map', count: values.length, values },
+        };
+      }
+
+      // Extract mode: pull a single value at the given path.
+      const value = getByPath(data, path as string);
+      return {
+        exitCode: value === undefined ? 1 : 0,
+        stdout: value === undefined ? `path "${path}" not found` : `extracted "${path}"`,
+        output: { mode: 'extract', path, found: value !== undefined, value: value ?? null },
+      };
+    });
+  },
+};
+
+/**
+ * Resolve a dot/bracket path (e.g. "a.b[0].c") over plain data. Traversal-only: never
+ * touches the prototype chain and rejects the __proto__/constructor/prototype keys.
+ */
+function getByPath(data: unknown, path: string): unknown {
+  const segments = parsePath(path);
+  let cur: unknown = data;
+  for (const seg of segments) {
+    if (cur === null || cur === undefined) return undefined;
+    if (typeof seg === 'number') {
+      if (!Array.isArray(cur)) return undefined;
+      cur = cur[seg];
+    } else {
+      if (seg === '__proto__' || seg === 'constructor' || seg === 'prototype') return undefined;
+      if (!isRecord(cur)) return undefined;
+      if (!Object.prototype.hasOwnProperty.call(cur, seg)) return undefined;
+      cur = (cur as Record<string, unknown>)[seg];
+    }
+  }
+  return cur;
+}
+
+function parsePath(path: string): Array<string | number> {
+  const out: Array<string | number> = [];
+  // Split on dots, then peel bracketed indices: "a.b[0][1].c" -> a, b, 0, 1, c
+  for (const part of path.split('.')) {
+    if (part === '') continue;
+    const m = part.match(/^([^[\]]*)((?:\[\d+\])*)$/);
+    if (!m) {
+      out.push(part);
+      continue;
+    }
+    if (m[1]) out.push(m[1]);
+    const idx = m[2].match(/\d+/g);
+    if (idx) for (const n of idx) out.push(parseInt(n, 10));
+  }
+  return out;
+}
+
 export class ToolRegistry {
   private readonly tools = new Map<string, Tool>();
 
@@ -213,7 +374,7 @@ export class ToolRegistry {
   }
 }
 
-export const DEFAULT_TOOLS: readonly Tool[] = [codeExec, dataIngest, systemInfo, filePlan];
+export const DEFAULT_TOOLS: readonly Tool[] = [codeExec, dataIngest, systemInfo, filePlan, httpFetch, jsonTransform];
 
 // ---------------------------------------------------------------------------
 // helpers

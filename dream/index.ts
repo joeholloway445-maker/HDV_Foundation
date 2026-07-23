@@ -17,4 +17,15 @@ export type {
   StreamEventType,
   ScheduleDecision,
   DreamSchedulerOptions,
+  SendViaApex as SchedulerSendViaApex,
 } from './scheduler.js';
+
+export { StreamEnergyMeter, DEFAULT_ENERGY_WEIGHTS } from './energy.js';
+export type { StreamEnergyMeterOptions } from './energy.js';
+
+export { ScenarioBank, DEFAULT_SCENARIOS } from './scenario_bank.js';
+export type {
+  ScenarioTemplate,
+  SpecializedScenario,
+  ScenarioPriors,
+} from './scenario_bank.js';

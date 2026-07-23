@@ -24,6 +24,11 @@ import {
   type SandboxKind,
 } from './sandbox.js';
 import { ToolRegistry } from './tools.js';
+import {
+  ResourceMonitor,
+  type SessionResourceUsage,
+  type ToolInvocationRecord,
+} from './resource_monitor.js';
 
 export type { SandboxKind } from './sandbox.js';
 
@@ -40,10 +45,15 @@ export interface ExecutionReport {
   durationMs: number;
   resourceLimits: ResourceLimits;
   personaCount: number;
+  /** Whether the sandbox was killed for exceeding its timeout. */
+  timedOut: boolean;
+  /** Peak memory estimate observed for the session, in MB. */
+  peakMemMb: number;
   /** Accounting fields the APEX ledger can turn into cost_usd. */
   billable: {
     personas: number;
     sandboxSeconds: number;
+    cpuSeconds: number;
   };
 }
 
@@ -53,6 +63,8 @@ export interface ExecutionEngineOptions {
   sandbox?: SandboxKind;
   limits?: Partial<ResourceLimits>;
   registry?: ToolRegistry;
+  /** Optional shared monitor; when omitted the engine keeps its own. */
+  monitor?: ResourceMonitor;
 }
 
 export class ExecutionEngine {
@@ -60,17 +72,29 @@ export class ExecutionEngine {
   private readonly limits?: Partial<ResourceLimits>;
   private readonly registry: ToolRegistry;
   private readonly sendViaApex?: SendViaApex;
+  private readonly monitor: ResourceMonitor;
 
   constructor(sandbox: SandboxKind = 'gvisor', sendViaApex?: SendViaApex, options: ExecutionEngineOptions = {}) {
     this.sandboxKind = options.sandbox ?? sandbox;
     this.limits = options.limits;
     this.registry = options.registry ?? new ToolRegistry();
     this.sendViaApex = sendViaApex;
+    this.monitor = options.monitor ?? new ResourceMonitor();
   }
 
   /** The tools available to VISION (read-only listing). */
   availableTools(): string[] {
     return this.registry.list();
+  }
+
+  /** Per-session resource usage accumulated by this engine (observe-only). */
+  resourceUsage(): readonly SessionResourceUsage[] {
+    return this.monitor.usageAll();
+  }
+
+  /** The tool-invocation audit trail accumulated by this engine (observe-only). */
+  toolAudit(): readonly ToolInvocationRecord[] {
+    return this.monitor.auditLog();
   }
 
   /**
@@ -84,7 +108,7 @@ export class ExecutionEngine {
     const persona = spawnPersona(AgentRole.VISION, 'vision-node-0');
     executePersona(persona, { intent, tool });
 
-    const session = createSandboxSession(this.sandboxKind, this.limits);
+    const session = createSandboxSession(this.sandboxKind, this.limits, { monitor: this.monitor });
     session.start();
 
     let ok = false;
@@ -118,7 +142,9 @@ export class ExecutionEngine {
       durationMs: summary.totalDurationMs,
       resourceLimits: summary.limits,
       personaCount: 1,
-      billable: { personas: 1, sandboxSeconds },
+      timedOut: summary.killedByTimeout,
+      peakMemMb: summary.peakMemMb,
+      billable: { personas: 1, sandboxSeconds, cpuSeconds: summary.cpuSeconds },
     };
   }
 

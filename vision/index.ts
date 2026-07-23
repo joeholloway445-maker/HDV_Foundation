@@ -8,7 +8,9 @@ export type { ExecutionReport, SandboxKind, SendViaApex, ExecutionEngineOptions 
 export {
   createSandboxSession,
   StubSandboxSession,
+  SandboxManager,
   DEFAULT_LIMITS,
+  DEFAULT_MAX_CONCURRENT_SESSIONS,
 } from './sandbox.js';
 export type {
   SandboxSession,
@@ -17,8 +19,19 @@ export type {
   SandboxRunner,
   SandboxSummary,
   SandboxLogLine,
+  SandboxInvocation,
+  SandboxHooks,
+  SandboxManagerOptions,
   ResourceLimits,
 } from './sandbox.js';
 
-export { ToolRegistry, DEFAULT_TOOLS } from './tools.js';
+export { ToolRegistry, DEFAULT_TOOLS, DEFAULT_HTTP_ALLOWLIST } from './tools.js';
 export type { Tool, ToolContext, ToolResult } from './tools.js';
+
+export { ResourceMonitor, estimateCpuSeconds } from './resource_monitor.js';
+export type {
+  ResourceSample,
+  ToolInvocationRecord,
+  SessionResourceUsage,
+  ResourceTotals,
+} from './resource_monitor.js';

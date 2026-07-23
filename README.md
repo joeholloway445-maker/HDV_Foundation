@@ -98,7 +98,7 @@ authoritative plan.
 | KNOLL laws + behavioral scoring   | ✅ / —         | ✅ Additive anomaly gate (`BEHAVIORAL_SCORE`)                | ✅ Unchanged (gates sync + async + gateway paths)        |
 | HOPE interpreter/document/voice   | ✅ Basic       | ✅ Entities/goals/urgency, clarify, voice                    | ✅ + **HTTP gateway** (`gateway/`) forward-facing        |
 | DREAM simulation + scheduler      | ✅ Flat        | ✅ Multi-branch trees + Pareto + scheduler                   | ✅ Unchanged; also backs ephemeral Colab workers         |
-| VISION execution                  | ✅ Stub        | ✅ Tool registry + sandbox + billable report                 | ✅ Unchanged                                             |
+| VISION execution                  | ✅ Stub        | ✅ Tool registry + sandbox + billable report                 | ✅ + **Phase 4.2**: `http_fetch`/`json_transform` tools, per-session resource monitor + tool audit, concurrent-session limit, timeout kill |
 | Node matrix                       | ✅ Definitions | ✅ SubManager + fleet lifecycle + pipeline                   | ✅ + **parameter accounting** (`nodes/parameters.ts`)    |
 | personamatrix (Python)            | ✅ Persona loop| ✅ + behavioral scoring twin                                 | ✅ + **parameter twin** (`personamatrix/parameters.py`)  |
 | Colab lab                         | ✅ 01/02       | ✅ + 03 (scoring) + 04 (ipywidgets)                          | ✅ + **05 horizontal worker** + `worker_protocol.py`     |
@@ -106,6 +106,15 @@ authoritative plan.
 | Docker/gVisor sandbox internals   | ⚠️ Stubbed     | ⚠️ Realistic stub                                           | ⚠️ Still stubbed                                         |
 | Prisma runtime persistence        | ⚠️ In-memory   | ⚠️ DB-ready via repository interfaces                       | ✅ **Prisma/Postgres backend** via `createRepositories('prisma')` (in-memory still default) |
 | Real 7B inference / real GPU      | ⚠️ Conceptual  | ⚠️ Conceptual                                               | ⚠️ Conceptual (worker payloads simulated)                |
+
+> **Phase 4.2 — VISION sandbox expansion.** The VISION tool library gains a hermetic
+> `http_fetch` (allowlisted domains only, returns deterministic mocks — no real network) and a
+> safe `json_transform` (pure path extract/map, never `eval`, prototype-pollution safe). The
+> sandbox is hardened with a per-session **resource monitor** (CPU-seconds, peak memory,
+> timeout accounting) plus a **tool-invocation audit trail**, a **concurrent-session limit**
+> (`SandboxManager`), and **timeout kill** (a run over its wall-clock limit is force-killed with
+> exit 124 and the session is stopped). None of this weakens the constitution: VISION still
+> cannot create or govern, and results return to HOPE via APEX only. See `npm run demo:vision`.
 
 ---
 
@@ -128,7 +137,9 @@ npm run typecheck     # tsc --noEmit — MUST be zero errors
 npm run demo          # Phase 1: routing + KNOLL block + tampered-hash demo
 npm run demo:phase2   # Phase 2/3: HOPE docs, DREAM trees, VISION tools, KNOLL scoring
 npm run demo:phase4   # Phase 4: queue intake · worker re-ingestion · params · health
+npm run demo:vision   # Phase 4.2: VISION tools · http_fetch stub · timeout kill · session limits · audit
 npm run demo:hope-ui  # HOPE console: interpret + document + voice, renders standalone HTML
+npm run demo:dream-energy # Phase 4.2: energy-driven DREAM scheduling (accumulate/decay)
 npm run gateway       # start HOPE HTTP gateway on PORT (default 8787)
 npm test              # all tests (backbone + phase2 + phase3 + phase4)
 npm run python:demo        # persona loop + billing ledger (python3)
@@ -312,6 +323,21 @@ and a GPU are present.
 3. **Worker re-ingestion** — a simulated ephemeral DREAM worker's result is re-ingested via
    APEX (`DREAM → HOPE`, legal), and an illegal `DREAM → VISION` route is **BLOCKED**.
 4. **Health snapshot** — always-on (HOPE/KNOLL/APEX) vs ephemeral (DREAM/VISION) status.
+
+### Phase 4.2 — DREAM stream-energy scheduling
+
+`dream/energy.ts` adds a **`StreamEnergyMeter`** that folds a stream of events
+(`USER_REQUEST`, `ENERGY_SPIKE`, `CHAT_BURST`, `ANOMALY_NEAR_MISS`, `IDLE_TICK`) into a
+single decaying "attention energy" scalar — busy streams heat up, quiet streams cool off
+(exponential half-life decay). The **`DreamScheduler`** now reads that accumulated energy to
+decide *when* to simulate and *how wide/deep* (breadth / depth / priority): a single spike
+still triggers immediately, while sustained chatter or repeated near-misses can accumulate
+past a threshold and schedule on their own — and idle speculation is deferred while the
+stream is still warm. `dream/scenario_bank.ts` provides optional **seeded scenario
+templates** DREAM can *specialize* into concrete intents (simulation only — no governance,
+no execution). Scheduling still goes **APEX → DREAM only**; DREAM is never reached directly.
+Run `npm run demo:dream-energy`; tests live in `tests/dream_energy.test.ts`
+(`npm run test:dream-energy`).
 
 ## License
 
