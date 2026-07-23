@@ -1,11 +1,14 @@
 {
   "name": "big5-matrix",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "description": "Big 5 Agent Hierarchy (HDV Foundation) \u2014 Hope/Dream/Vision/KNOLL/APEX matrix. Strict separation of concerns.",
   "type": "module",
   "engines": {
     "node": ">=20"
+  },
+  "bin": {
+    "hdv-mcp": "dist/mcp/cli.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -19,18 +22,25 @@
     "demo:hope-ui": "tsx demo/run_hope_ui_demo.ts",
     "demo:dream-energy": "tsx demo/run_dream_energy_demo.ts",
     "demo:providers": "tsx demo/run_providers_demo.ts",
+    "demo:tenancy": "tsx demo/run_tenancy_demo.ts",
     "demo:metrics": "tsx demo/run_metrics_demo.ts",
+    "demo:billing": "tsx demo/run_billing_demo.ts",
     "gateway": "tsx gateway/cli.ts",
+    "mcp": "tsx mcp/cli.ts",
+    "test:mcp": "node --import tsx --test tests/mcp.test.ts",
     "showcase": "node -e \"const p=require('path').resolve('showcase/index.html');console.log('HDV Foundation showcase (static, no build step).');console.log('Open in a browser:');console.log('  open '+p+'   # macOS');console.log('  xdg-open '+p+' # Linux');console.log('Or serve it (no new deps): npx serve showcase');\"",
+    "marketing": "node -e \"const p=require('path').resolve('marketing/index.html');console.log('HDV Foundation marketing landing page (static, self-contained, no build step).');console.log('Open in a browser:');console.log('  open '+p+'   # macOS');console.log('  xdg-open '+p+' # Linux');console.log('Or serve it (no new deps): npx serve marketing');console.log('Deploy notes: deploy/HOSTINGER.md \u00b7 GTM: docs/GTM.md');\"",
     "demo:gateway-auth": "tsx demo/run_gateway_auth_demo.ts",
     "test:gateway-auth": "node --import tsx --test tests/gateway_auth.test.ts",
     "test:vision": "node --import tsx --test tests/vision_sandbox.test.ts",
     "test:dream-energy": "node --import tsx --test tests/dream_energy.test.ts",
     "test:providers": "node --import tsx --test tests/providers.test.ts",
+    "test:tenancy": "node --import tsx --test tests/tenancy.test.ts",
     "test:observability": "node --import tsx --test tests/observability.test.ts",
+    "test:billing": "node --import tsx --test tests/billing.test.ts",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
-    "test": "node --import tsx --test tests/backbone.test.ts tests/phase2.test.ts tests/phase3.test.ts tests/phase4.test.ts tests/dream_energy.test.ts tests/persistence_prisma.test.ts tests/gateway_auth.test.ts tests/hope_ui.test.ts tests/vision_sandbox.test.ts tests/providers.test.ts tests/observability.test.ts",
+    "test": "node --import tsx --test tests/backbone.test.ts tests/phase2.test.ts tests/phase3.test.ts tests/phase4.test.ts tests/dream_energy.test.ts tests/persistence_prisma.test.ts tests/gateway_auth.test.ts tests/hope_ui.test.ts tests/vision_sandbox.test.ts tests/providers.test.ts tests/observability.test.ts tests/mcp.test.ts tests/tenancy.test.ts tests/billing.test.ts",
     "python:demo": "python3 personamatrix/demo.py",
     "python:scoring": "python3 colab/03_behavioral_scoring.py",
     "python:worker": "python3 colab/05_horizontal_worker.py",
@@ -55,6 +65,7 @@
     "typescript": "^5.7.2"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@prisma/client": "^6.19.3"
   }
 }

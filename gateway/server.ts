@@ -32,6 +32,7 @@ import {
 } from './middleware.js';
 import { ApexOrchestrator } from '../apex/index.js';
 import { MetricsCollector, PacketTracer, combineObservers } from '../observability/index.js';
+import { BillingService, isPlanTier, type PlanTier } from '../billing/index.js';
 import { IntentInterpreter, HopeDocumenter, HopeVoice } from '../hope/index.js';
 import { SimulationEngine } from '../dream/index.js';
 import { ExecutionEngine } from '../vision/index.js';
@@ -46,6 +47,7 @@ import {
   ALWAYS_ON_AGENTS,
   EPHEMERAL_AGENTS,
   computeParameterAccounting,
+  MODEL_SIZE,
 } from '../nodes/index.js';
 
 export interface GatewayResponse {
@@ -86,6 +88,14 @@ export interface HopeGatewayOptions {
    */
   metrics?: MetricsCollector;
   tracer?: PacketTracer;
+  /**
+   * PRODUCT metering layer (billing/). Bundles the pricing engine, per-tenant allowance store,
+   * and the MeterService. When the gateway builds its own orchestrator (the default), the
+   * meter is wired to the SAME read-only dispatch observer as metrics/tracing, so every gated
+   * route is attributed to a tenant's allowance without touching routing or KNOLL. Defaults to
+   * a BillingService loading config/pricing.json with the offline `demo` tenant seeded.
+   */
+  billing?: BillingService;
 }
 
 interface HopeResultRecord {
@@ -107,6 +117,8 @@ export class HopeGateway {
   /** Read-only observability meters surfaced at GET /v1/metrics. */
   readonly metrics: MetricsCollector;
   readonly tracer: PacketTracer;
+  /** PRODUCT metering layer surfaced under GET/POST /v1/billing/*. */
+  readonly billing: BillingService;
   private readonly readLimit: number;
   private readonly logger: GatewayLogger;
 
@@ -121,7 +133,14 @@ export class HopeGateway {
     // is metered without the gateway ever touching routing or KNOLL.
     this.metrics = options.metrics ?? new MetricsCollector();
     this.tracer = options.tracer ?? new PacketTracer();
-    const observer = combineObservers(this.metrics.observer(), this.tracer.observer());
+    // PRODUCT metering plugs into the SAME read-only observer seam as metrics/tracing, so every
+    // gated dispatch is attributed to a tenant allowance without ever touching routing or KNOLL.
+    this.billing = options.billing ?? new BillingService();
+    const observer = combineObservers(
+      this.metrics.observer(),
+      this.tracer.observer(),
+      this.billing.meter.observer(),
+    );
     this.orchestrator =
       options.orchestrator ?? new ApexOrchestrator({ defaultCostUsd: 0.02, observer });
     this.interpreter = options.interpreter ?? new IntentInterpreter();
@@ -321,11 +340,142 @@ export class HopeGateway {
     };
   }
 
+  // -------------------------------------------------------------------------
+  // Billing (PRODUCT metering) — GET/POST /v1/billing/*. Tenant via X-HDV-Tenant
+  // (default "demo"). These only price + account; they never route, gate, or execute.
+  // -------------------------------------------------------------------------
+
+  /** GET /v1/billing/usage — a tenant's balance, spend, and recent occurrences. */
+  handleBillingUsage(tenantId: string, limit?: number): GatewayResponse {
+    const n = clampLimit(limit, this.readLimit);
+    const balance = this.billing.store.balance(tenantId);
+    const occurrences = this.billing.store.recentOccurrences(tenantId, n);
+    return {
+      status: 200,
+      body: {
+        tenantId: balance.tenantId,
+        balance,
+        meter: this.billing.meter.stats(),
+        occurrences,
+      },
+    };
+  }
+
+  /** GET /v1/billing/pricing — the public, marketing-ready pricing table (no tenant needed). */
+  handleBillingPricing(): GatewayResponse {
+    return { status: 200, body: this.billing.pricing.publicTable() };
+  }
+
+  /**
+   * POST /v1/billing/allowance — set/adjust a tenant's allowance (admin/dev for now).
+   * Body: { tier?, includedAllowanceUsd?, hardCapUsd? }. Tenant via X-HDV-Tenant.
+   */
+  handleBillingAllowance(tenantId: string, body: unknown): GatewayResponse {
+    if (body === null || typeof body !== 'object') {
+      return { status: 400, body: { error: 'body must be JSON: { tier?, includedAllowanceUsd?, hardCapUsd? }' } };
+    }
+    const b = body as Record<string, unknown>;
+
+    let tier: PlanTier | undefined;
+    if (b.tier !== undefined) {
+      const raw = typeof b.tier === 'string' ? b.tier.trim().toUpperCase() : b.tier;
+      if (!isPlanTier(raw)) {
+        return { status: 400, body: { error: `invalid tier — must be one of FREE, STARTER, PRO, ENTERPRISE, BYOK` } };
+      }
+      tier = raw;
+    }
+
+    const includedAllowanceUsd = optionalNonNegative(b.includedAllowanceUsd);
+    if (includedAllowanceUsd === INVALID) {
+      return { status: 400, body: { error: 'includedAllowanceUsd must be a non-negative number' } };
+    }
+    // hardCapUsd allows null to mean "unlimited".
+    let hardCapUsd: number | null | undefined;
+    if (b.hardCapUsd === null) hardCapUsd = null;
+    else {
+      const v = optionalNonNegative(b.hardCapUsd);
+      if (v === INVALID) return { status: 400, body: { error: 'hardCapUsd must be a non-negative number or null' } };
+      hardCapUsd = v;
+    }
+
+    if (tier === undefined && includedAllowanceUsd === undefined && hardCapUsd === undefined) {
+      return { status: 400, body: { error: 'provide at least one of tier, includedAllowanceUsd, hardCapUsd' } };
+    }
+
+    this.billing.store.setAllowance(tenantId, { tier, includedAllowanceUsd, hardCapUsd });
+    const balance = this.billing.store.balance(tenantId);
+    return { status: 200, body: { ok: true, tenantId: balance.tenantId, balance } };
+  }
+
+  /**
+   * GET /v1/billing/estimate — a cost estimate for a hypothetical unit of work. Inputs come
+   * from the JSON body { activeParams, durationSec, model?, tier? } or the equivalent query
+   * params. Returns the estimate for the caller's tier (X-HDV-Tenant / ?tier) plus a per-tier
+   * comparison. Pricing is per-tier and model-agnostic (predictable); `model` is echoed as
+   * metadata and recorded on real occurrences.
+   */
+  handleBillingEstimate(tenantId: string, query: URLSearchParams, body: unknown): GatewayResponse {
+    const b = (body !== null && typeof body === 'object' ? (body as Record<string, unknown>) : {});
+    const activeParams = firstNumber(b.activeParams, numParam(query.get('activeParams')));
+    const durationSec = firstNumber(b.durationSec, numParam(query.get('durationSec')));
+    const model = firstString(b.model, query.get('model')) ?? MODEL_SIZE;
+
+    if (activeParams === undefined || activeParams <= 0) {
+      return { status: 400, body: { error: 'activeParams must be a positive number (body or query)' } };
+    }
+    if (durationSec === undefined || durationSec <= 0) {
+      return { status: 400, body: { error: 'durationSec must be a positive number (body or query)' } };
+    }
+
+    const rawTier = firstString(b.tier, query.get('tier'));
+    let tier: PlanTier;
+    if (rawTier !== undefined) {
+      const upper = rawTier.trim().toUpperCase();
+      if (!isPlanTier(upper)) {
+        return { status: 400, body: { error: `invalid tier — must be one of FREE, STARTER, PRO, ENTERPRISE, BYOK` } };
+      }
+      tier = upper;
+    } else {
+      tier = this.billing.store.balance(tenantId).tier;
+    }
+
+    const priorSpendUsd = this.billing.store.balance(tenantId).spentUsd;
+    const estimate = this.billing.pricing.estimate({ tier, activeParams, durationSec, priorSpendUsd });
+    const perTier = this.billing.pricing.tiers().map((t) =>
+      this.billing.pricing.estimate({ tier: t.tier, activeParams, durationSec }),
+    );
+
+    return {
+      status: 200,
+      body: {
+        tenantId,
+        tier,
+        model,
+        activeParams: estimate.activeParams,
+        durationSec: estimate.durationSec,
+        activeParamSeconds: estimate.activeParamSeconds,
+        activePersonaSeconds: estimate.activePersonaSeconds,
+        currency: estimate.currency,
+        unit: estimate.unit,
+        estimate,
+        perTier,
+      },
+    };
+  }
+
   /**
    * Route a parsed request to a handler. Async so a real body read can be awaited by the
    * server wrapper; handlers themselves are synchronous. This is the single mapping table.
+   * `headers` is optional (only billing routes read it, for X-HDV-Tenant) so existing callers
+   * are unaffected.
    */
-  async route(method: string, pathname: string, query: URLSearchParams, body: unknown): Promise<GatewayResponse> {
+  async route(
+    method: string,
+    pathname: string,
+    query: URLSearchParams,
+    body: unknown,
+    headers?: Record<string, string | string[] | undefined>,
+  ): Promise<GatewayResponse> {
     const m = method.toUpperCase();
     if (m === 'POST' && pathname === '/v1/intent') return this.handleIntent(body);
     if (m === 'GET' && pathname === '/v1/health') return this.handleHealth();
@@ -333,6 +483,11 @@ export class HopeGateway {
     if (m === 'GET' && pathname === '/v1/audit') return this.handleAudit(numParam(query.get('limit')));
     if (m === 'GET' && pathname === '/v1/matrix/stats') return this.handleMatrixStats();
     if (m === 'GET' && pathname === '/v1/metrics') return this.handleMetrics(query.get('format') ?? undefined);
+    // --- Billing (PRODUCT metering). Tenant resolved from X-HDV-Tenant (default "demo").
+    if (m === 'GET' && pathname === '/v1/billing/pricing') return this.handleBillingPricing();
+    if (m === 'GET' && pathname === '/v1/billing/usage') return this.handleBillingUsage(tenantFromHeaders(headers), numParam(query.get('limit')));
+    if (m === 'GET' && pathname === '/v1/billing/estimate') return this.handleBillingEstimate(tenantFromHeaders(headers), query, body);
+    if (m === 'POST' && pathname === '/v1/billing/allowance') return this.handleBillingAllowance(tenantFromHeaders(headers), body);
     return { status: 404, body: { error: `no route for ${m} ${pathname}` } };
   }
 
@@ -382,8 +537,12 @@ export class HopeGateway {
         return;
       }
 
-      const body = method === 'POST' || method === 'PUT' ? await readJsonBody(req) : undefined;
-      const result = await this.route(method, url.pathname, url.searchParams, body);
+      // Body is read for writes, and for GET /v1/billing/estimate which accepts a JSON body
+      // (with query params as an equivalent fallback for GET-body-averse clients).
+      const wantsBody =
+        method === 'POST' || method === 'PUT' || (method === 'GET' && url.pathname === '/v1/billing/estimate');
+      const body = wantsBody ? await readJsonBody(req) : undefined;
+      const result = await this.route(method, url.pathname, url.searchParams, body, req.headers);
       if (typeof result.text === 'string') {
         writeText(res, result.status, result.text, result.contentType ?? 'text/plain; charset=utf-8', guard.headers);
       } else {
@@ -438,6 +597,47 @@ function numParam(value: string | null): number | undefined {
   if (value === null) return undefined;
   const n = Number(value);
   return Number.isFinite(n) ? n : undefined;
+}
+
+/** Sentinel distinguishing "invalid value" from "absent" in optional numeric parsing. */
+const INVALID = Symbol('invalid');
+
+/**
+ * Parse an optional non-negative number from an unknown value. Returns `undefined` when the
+ * field is absent, the INVALID sentinel when present but not a valid non-negative number, and
+ * the number otherwise.
+ */
+function optionalNonNegative(value: unknown): number | undefined | typeof INVALID {
+  if (value === undefined) return undefined;
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(n) || n < 0) return INVALID;
+  return n;
+}
+
+/** First finite number among (body value, query-derived number). */
+function firstNumber(bodyValue: unknown, queryValue: number | undefined): number | undefined {
+  if (typeof bodyValue === 'number' && Number.isFinite(bodyValue)) return bodyValue;
+  if (typeof bodyValue === 'string') {
+    const n = Number(bodyValue);
+    if (Number.isFinite(n)) return n;
+  }
+  return queryValue;
+}
+
+/** First non-empty string among (body value, query value). */
+function firstString(bodyValue: unknown, queryValue: string | null): string | undefined {
+  if (typeof bodyValue === 'string' && bodyValue.trim().length > 0) return bodyValue.trim();
+  if (queryValue !== null && queryValue.trim().length > 0) return queryValue.trim();
+  return undefined;
+}
+
+/** Resolve the billing tenant from the X-HDV-Tenant header (default "demo"). */
+function tenantFromHeaders(headers?: Record<string, string | string[] | undefined>): string {
+  if (!headers) return 'demo';
+  const raw = headers['x-hdv-tenant'];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  const trimmed = value?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : 'demo';
 }
 
 function readJsonBody(req: http.IncomingMessage): Promise<unknown> {

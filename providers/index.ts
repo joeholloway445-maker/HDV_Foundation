@@ -30,3 +30,5 @@ export {
   ENV_MODEL,
 } from './factory.js';
 export type { FactoryOptions } from './factory.js';
+
+export { redactSecret, redactFrom, REDACTED } from './redact.js';

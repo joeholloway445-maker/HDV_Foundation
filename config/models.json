@@ -1,0 +1,69 @@
+{
+  "$comment": "Model catalog for tenancy/ (BYOK + subscription routing). parameterCount is in BILLIONS. hosting is where the endpoint physically lives (local | hostinger | cloud). providerKind is the adapter used to talk to it (stub | openai_compatible). costMultiplier is a relative price weight (1.0 = baseline hosted 8B). runsOn lists the delivery paths a model is eligible for: local | hostinger | openai_compatible | byok. Hostinger and cloud endpoints resolve their base URL from env at route time; keys are NEVER stored here.",
+  "defaultModelId": "mistral-7b",
+  "models": [
+    {
+      "id": "tinyllama",
+      "displayName": "TinyLlama 1.1B (local/ollama)",
+      "parameterCount": 1.1,
+      "providerKind": "openai_compatible",
+      "hosting": "local",
+      "costMultiplier": 0.0,
+      "runsOn": ["local", "byok"]
+    },
+    {
+      "id": "phi",
+      "displayName": "Phi-2 2.7B (local/ollama)",
+      "parameterCount": 2.7,
+      "providerKind": "openai_compatible",
+      "hosting": "local",
+      "costMultiplier": 0.0,
+      "runsOn": ["local", "byok"]
+    },
+    {
+      "id": "mistral-7b",
+      "displayName": "Mistral 7B Instruct (local/ollama)",
+      "parameterCount": 7,
+      "providerKind": "openai_compatible",
+      "hosting": "local",
+      "costMultiplier": 0.0,
+      "runsOn": ["local", "byok"]
+    },
+    {
+      "id": "llama3-8b-hostinger",
+      "displayName": "Llama 3 8B Instruct (Hostinger/HDV)",
+      "parameterCount": 8,
+      "providerKind": "openai_compatible",
+      "hosting": "hostinger",
+      "costMultiplier": 1.0,
+      "runsOn": ["hostinger", "byok"]
+    },
+    {
+      "id": "llama3-70b-hostinger",
+      "displayName": "Llama 3 70B Instruct (Hostinger/HDV)",
+      "parameterCount": 70,
+      "providerKind": "openai_compatible",
+      "hosting": "hostinger",
+      "costMultiplier": 6.0,
+      "runsOn": ["hostinger", "byok"]
+    },
+    {
+      "id": "gpt-4o-mini",
+      "displayName": "GPT-4o mini (cloud/OpenAI-compatible)",
+      "parameterCount": 8,
+      "providerKind": "openai_compatible",
+      "hosting": "cloud",
+      "costMultiplier": 2.0,
+      "runsOn": ["openai_compatible", "byok"]
+    },
+    {
+      "id": "gpt-4o",
+      "displayName": "GPT-4o (cloud/OpenAI-compatible)",
+      "parameterCount": 200,
+      "providerKind": "openai_compatible",
+      "hosting": "cloud",
+      "costMultiplier": 12.0,
+      "runsOn": ["openai_compatible", "byok"]
+    }
+  ]
+}

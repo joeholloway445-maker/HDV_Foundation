@@ -1,0 +1,64 @@
+{
+  "$comment": "Big 5 Matrix — PRODUCT pricing table (HDV Foundation). Metering is by ACTIVE-parameter-seconds: idle personas draw ~zero compute (see nodes/parameters.ts), so you only pay for the parameters you actually light up, for as long as they run. One conceptual persona = 7,000,000,000 (7B) active parameters. cost = pricePerRequest + (activeParams x durationSec / 1,000,000) x rate. Rates below are USD per MILLION active-parameter-seconds. hardCapUsd null = unlimited (soft cap). This file is loaded by billing/pricing.ts and is safe to edit; no code change required.",
+  "currency": "USD",
+  "meteringUnit": "active-parameter-seconds",
+  "modelParams": 7000000000,
+  "version": "2026-07",
+  "tiers": {
+    "FREE": {
+      "displayName": "Free",
+      "tagline": "Kick the tires. Fully metered, hard-capped, zero commitment.",
+      "pricePerRequest": 0,
+      "pricePerMillionActiveParamSeconds": 0.0000006,
+      "overageRatePerMillionActiveParamSeconds": 0.0000006,
+      "includedAllowanceUsd": 1,
+      "hardCapUsd": 1,
+      "byokPassthrough": false,
+      "passthroughFeeUsd": 0
+    },
+    "STARTER": {
+      "displayName": "Starter",
+      "tagline": "For builders shipping their first agents — predictable per-second economics.",
+      "pricePerRequest": 0.0002,
+      "pricePerMillionActiveParamSeconds": 0.0000005,
+      "overageRatePerMillionActiveParamSeconds": 0.0000008,
+      "includedAllowanceUsd": 25,
+      "hardCapUsd": 50,
+      "byokPassthrough": false,
+      "passthroughFeeUsd": 0
+    },
+    "PRO": {
+      "displayName": "Pro",
+      "tagline": "Scale personas across the matrix with volume rates and generous soft caps.",
+      "pricePerRequest": 0.0001,
+      "pricePerMillionActiveParamSeconds": 0.0000004,
+      "overageRatePerMillionActiveParamSeconds": 0.0000006,
+      "includedAllowanceUsd": 250,
+      "hardCapUsd": 1000,
+      "byokPassthrough": false,
+      "passthroughFeeUsd": 0
+    },
+    "ENTERPRISE": {
+      "displayName": "Enterprise",
+      "tagline": "Best-in-class rates, uncapped burst, priority routing, and audit-grade metering.",
+      "pricePerRequest": 0,
+      "pricePerMillionActiveParamSeconds": 0.0000003,
+      "overageRatePerMillionActiveParamSeconds": 0.0000004,
+      "includedAllowanceUsd": 2500,
+      "hardCapUsd": null,
+      "byokPassthrough": false,
+      "passthroughFeeUsd": 0
+    },
+    "BYOK": {
+      "displayName": "Bring Your Own Keys",
+      "tagline": "Route through your own provider. $0 platform fee — you pay only your provider.",
+      "pricePerRequest": 0,
+      "pricePerMillionActiveParamSeconds": 0,
+      "overageRatePerMillionActiveParamSeconds": 0,
+      "includedAllowanceUsd": 0,
+      "hardCapUsd": null,
+      "byokPassthrough": true,
+      "passthroughFeeUsd": 0
+    }
+  }
+}

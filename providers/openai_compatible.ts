@@ -89,7 +89,14 @@ export class OpenAiCompatibleProvider implements LlmProvider {
     const base = options.baseUrl.replace(/\/+$/, '');
     const path = options.chatPath ?? '/chat/completions';
     this.url = `${base}${path.startsWith('/') ? path : `/${path}`}`;
-    this.apiKey = options.apiKey;
+    // Store the API key as a NON-ENUMERABLE property so it never leaks through JSON.stringify,
+    // object spreads, console.log(obj), or structured logging. Keys must never be serialized.
+    Object.defineProperty(this, 'apiKey', {
+      value: options.apiKey,
+      enumerable: false,
+      writable: false,
+      configurable: false,
+    });
     this.model = options.model;
     this.maxTokens = options.maxTokens;
     this.temperature = options.temperature ?? 0.2;
@@ -174,6 +181,14 @@ export class OpenAiCompatibleProvider implements LlmProvider {
       model: parsed.model ?? model,
       usage: readUsage(parsed.usage),
     };
+  }
+
+  /**
+   * Safe serialization: JSON.stringify(provider) and structured loggers only ever see the
+   * provider name, model, and endpoint URL — NEVER the API key (which is also non-enumerable).
+   */
+  toJSON(): { name: string; model: string; url: string } {
+    return { name: this.name, model: this.model, url: this.url };
   }
 }
 

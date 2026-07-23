@@ -38,6 +38,11 @@ async function main(): Promise<void> {
     'GET  /v1/ledger',
     'GET  /v1/audit',
     'GET  /v1/matrix/stats',
+    'GET  /v1/metrics',
+    'GET  /v1/billing/pricing   (public — no key)',
+    'GET  /v1/billing/usage     (X-HDV-Tenant, default "demo")',
+    'GET  /v1/billing/estimate  ({ activeParams, durationSec, model? } or query)',
+    'POST /v1/billing/allowance ({ tier?, includedAllowanceUsd?, hardCapUsd? })',
   ];
   const { config } = gateway.middleware;
   const authMode = config.apiKey ? 'ENABLED (X-HDV-Key / Bearer)' : 'DISABLED (dev mode — set HDV_API_KEY)';

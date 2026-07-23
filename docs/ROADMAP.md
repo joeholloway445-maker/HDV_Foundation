@@ -90,6 +90,33 @@ existing test still green (skips where infra is absent).
 
 ---
 
+## Phase 5.5 — PRODUCT SURFACE (make it deployable & marketable) — *in progress*
+
+**Goal:** while Phase 5 makes one compute slice real, make the *product surface* real so HDV
+can be marketed and self-hosted **today** — no invariant touched. This is packaging, not new
+architecture: the gateway is already the only forward-facing process.
+
+- **Deploy runbook** — [`../deploy/`](../deploy/): a **Hostinger KVM4** guide
+  ([`HOSTINGER.md`](../deploy/HOSTINGER.md)) with Node 22, firewall, domain + TLS, and both a
+  **systemd** ([`hdv-gateway.service`](../deploy/hdv-gateway.service)) and **Docker**
+  ([`docker-compose.prod.yml`](../deploy/docker-compose.prod.yml) + [`Dockerfile`](../deploy/Dockerfile))
+  path, reverse-proxy samples ([`Caddyfile`](../deploy/Caddyfile) / [`nginx.conf.sample`](../deploy/nginx.conf.sample)),
+  and optional co-located **local LLM** ([`OLLAMA.md`](../deploy/OLLAMA.md)). Documents **BYOK
+  vs platform keys** on the VPS via the existing `providers/` seam.
+- **Marketing landing page** — [`../marketing/index.html`](../marketing/index.html)
+  (`npm run marketing`): a self-contained, conversion-oriented page (brand-forward hero, How-it-
+  works, Free/Starter/Pro/BYOK pricing in active-param-seconds, MCP + deploy mentions).
+- **Go-to-market** — [`GTM.md`](./GTM.md): honest positioning (governance + metered active
+  params, **not** fake 14.3Q weights), ICP, active-param-second pricing, private-beta plan,
+  demo-video script, first-10-design-partner motion, and a launch checklist.
+
+**Invariant:** all of the above is documentation + static assets + packaging around the
+*existing* KNOLL-gated gateway. No new code path bypasses `APEX → KNOLL`; the marketing/deploy
+surface never imports agent internals. Feeds directly into Phase 8.2 (SDK) and 8.5 (HOPE
+product surface).
+
+---
+
 ## Phase 6 — SCALE THE FLEET (horizontal, observable, cost-aware)
 
 **Goal:** go from "one real worker" to "a scheduler that materializes hundreds of ephemeral

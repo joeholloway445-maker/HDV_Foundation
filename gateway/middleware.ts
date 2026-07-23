@@ -24,8 +24,11 @@ export const RATE_LIMIT_WINDOW_MS = 60_000;
 /** Default CORS origin when HDV_CORS_ORIGIN is unset. */
 export const DEFAULT_CORS_ORIGIN = '*';
 
-/** Paths that must always stay reachable (auth- and rate-limit-exempt) for probes. */
-const ALWAYS_PUBLIC_PATHS = new Set<string>(['/v1/health']);
+/**
+ * Paths that must always stay reachable (auth- and rate-limit-exempt): health probes and the
+ * public marketing pricing table (non-tenant, read-only — safe to expose without a key).
+ */
+const ALWAYS_PUBLIC_PATHS = new Set<string>(['/v1/health', '/v1/billing/pricing']);
 
 export interface GatewaySecurityConfig {
   /** API key required on protected routes. Empty/undefined ⇒ dev mode (auth disabled). */
@@ -175,7 +178,7 @@ export class GatewayMiddleware {
     return {
       'access-control-allow-origin': this.config.corsOrigin,
       'access-control-allow-methods': 'GET, POST, OPTIONS',
-      'access-control-allow-headers': 'Content-Type, Authorization, X-HDV-Key',
+      'access-control-allow-headers': 'Content-Type, Authorization, X-HDV-Key, X-HDV-Tenant',
       'access-control-max-age': '600',
       vary: 'Origin',
     };

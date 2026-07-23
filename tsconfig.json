@@ -33,6 +33,7 @@
     "observability/**/*.ts",
     "gateway/**/*.ts",
     "providers/**/*.ts",
+    "mcp/**/*.ts",
     "demo/**/*.ts",
     "tests/**/*.ts"
   ],

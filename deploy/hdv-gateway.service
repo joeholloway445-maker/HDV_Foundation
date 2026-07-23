@@ -1,0 +1,49 @@
+# deploy/hdv-gateway.service — systemd unit for the HDV Foundation HOPE gateway (bare-metal path).
+#
+# Install (see deploy/HOSTINGER.md §6.1):
+#   sudo cp deploy/hdv-gateway.service /etc/systemd/system/hdv-gateway.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now hdv-gateway
+#   journalctl -u hdv-gateway -f
+#
+# Adjust User/WorkingDirectory if you cloned somewhere other than /home/hdv.
+
+[Unit]
+Description=HDV Foundation — HOPE HTTP gateway (APEX router · KNOLL gate)
+Documentation=https://github.com/joeholloway445-maker/HDV_Foundation
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hdv
+Group=hdv
+WorkingDirectory=/home/hdv/HDV_Foundation/big5-matrix
+
+# Secrets and config come from the git-ignored .env (chmod 600). Never commit it.
+EnvironmentFile=/home/hdv/HDV_Foundation/big5-matrix/.env
+Environment=NODE_ENV=production
+
+# `npm run gateway` -> tsx gateway/cli.ts. Uses the Node 22 installed via NodeSource.
+ExecStart=/usr/bin/npm run gateway
+
+Restart=on-failure
+RestartSec=3
+# Give long DREAM simulations time; the gateway self-shuts on SIGTERM.
+TimeoutStopSec=20
+KillSignal=SIGTERM
+
+# --- Hardening (the gateway needs no elevated privileges) ---
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/hdv/HDV_Foundation/big5-matrix
+
+# --- Logging ---
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hdv-gateway
+
+[Install]
+WantedBy=multi-user.target

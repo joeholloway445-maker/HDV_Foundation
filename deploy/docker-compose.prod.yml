@@ -1,0 +1,114 @@
+# deploy/docker-compose.prod.yml — production stack for the HDV Foundation HOPE gateway.
+#
+# What it runs:
+#   gateway   the always-on HOPE HTTP API (node:http, no framework) — the ONLY public-facing
+#             process, bound to 127.0.0.1:8787 so a reverse proxy (Caddy/nginx) terminates TLS.
+#   postgres  durable persistence behind the Prisma repository seam (createRepositories('prisma')).
+#   redis     backing for the router / rate-limit / task-queue stubs.
+#   ollama    (OPTIONAL, `--profile local-llm`) a local OpenAI-compatible LLM on the same box.
+#
+# Nothing except the gateway is published to the host, and the gateway is published only on
+# loopback. Postgres/Redis/Ollama are reachable only on the internal Docker network. This keeps
+# the "single legal road" principle at the network layer: no side door into the matrix.
+#
+# Usage (from big5-matrix/):
+#   cp .env.example .env         # set HDV_API_KEY, DATABASE_URL, REDIS_URL (see deploy/HOSTINGER.md §5)
+#   docker compose -f deploy/docker-compose.prod.yml up -d --build
+#   docker compose -f deploy/docker-compose.prod.yml exec gateway npm run db:push   # first boot
+#
+# Optional local LLM (co-located inference, no vendor key leaves the box):
+#   docker compose -f deploy/docker-compose.prod.yml --profile local-llm up -d
+#   # then in .env: HDV_LLM_PROVIDER=openai_compatible
+#   #               HDV_LLM_BASE_URL=http://ollama:11434/v1   HDV_LLM_MODEL=llama3.1:8b
+
+services:
+  gateway:
+    build:
+      # build context is the repo (big5-matrix/); Dockerfile lives in deploy/
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: hdv-foundation/gateway:latest
+    container_name: hdv-gateway
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      # Gateway binds this port inside the container; only loopback is published below.
+      PORT: 8787
+      # In-container service names override any localhost URLs from .env:
+      DATABASE_URL: "postgresql://big5:${POSTGRES_PASSWORD:-big5}@postgres:5432/big5_matrix?schema=public"
+      REDIS_URL: "redis://redis:6379"
+    ports:
+      # loopback only — the reverse proxy (host) forwards 443 -> 127.0.0.1:8787
+      - "127.0.0.1:8787:8787"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # /v1/health is always public (auth- and rate-limit-exempt)
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:8787/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  postgres:
+    image: postgres:16
+    container_name: hdv-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: big5
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-big5}
+      POSTGRES_DB: big5_matrix
+    # NOT published to the host — internal Docker network only.
+    expose:
+      - "5432"
+    volumes:
+      - hdv_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U big5 -d big5_matrix"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    container_name: hdv-redis
+    restart: unless-stopped
+    expose:
+      - "6379"
+    volumes:
+      - hdv_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Optional co-located local LLM. Enable with: --profile local-llm
+  # Serves an OpenAI-compatible API at http://ollama:11434/v1 on the internal network.
+  ollama:
+    image: ollama/ollama:latest
+    container_name: hdv-ollama
+    profiles: ["local-llm"]
+    restart: unless-stopped
+    # Internal only — never publish 11434 to the public interface.
+    expose:
+      - "11434"
+    volumes:
+      - hdv_ollama:/root/.ollama
+    # Uncomment on a GPU host with the NVIDIA container toolkit installed:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+volumes:
+  hdv_pgdata:
+  hdv_redisdata:
+  hdv_ollama:

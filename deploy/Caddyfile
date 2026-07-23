@@ -1,0 +1,51 @@
+# deploy/Caddyfile — HTTPS reverse proxy for the HDV Foundation HOPE gateway.
+#
+# Caddy obtains and auto-renews Let's Encrypt certificates for you. Point your domain's
+# A record at this VPS first (see deploy/HOSTINGER.md §3), then:
+#
+#   sudo cp deploy/Caddyfile /etc/caddy/Caddyfile
+#   sudo nano /etc/caddy/Caddyfile          # replace api.yourdomain.com below
+#   sudo systemctl reload caddy
+#
+# The gateway listens on 127.0.0.1:8787 (systemd or Docker loopback). Caddy is the only
+# process bound to :80/:443. /v1/health stays public for probes; every other route is
+# still KNOLL-gated inside the gateway.
+
+api.yourdomain.com {
+	encode zstd gzip
+
+	# Forward everything to the loopback gateway.
+	reverse_proxy 127.0.0.1:8787 {
+		# Preserve the real client IP so the gateway's per-IP rate limiter is accurate.
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Real-IP {remote_host}
+
+		# Health/readiness against the always-public endpoint.
+		health_uri /v1/health
+		health_interval 15s
+		health_timeout 5s
+	}
+
+	# Sensible security headers (the gateway sets its own CORS via HDV_CORS_ORIGIN).
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	log {
+		output file /var/log/caddy/hdv-gateway.log
+		format json
+	}
+}
+
+# --- Optional: also serve the static marketing page on the apex domain ---------------
+# Uncomment and adjust the root path if you host marketing/index.html on the same box.
+#
+# yourdomain.com {
+# 	encode zstd gzip
+# 	root * /home/hdv/HDV_Foundation/big5-matrix/marketing
+# 	file_server
+# 	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+# }

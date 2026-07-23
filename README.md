@@ -73,6 +73,7 @@ big5-matrix/
 ├── knoll/          Security guardrails: 6 virtual laws + behavioral scoring (scoring/features)
 ├── nodes/          20,480-node topology + lifecycle + persona pipeline + parameter accounting
 ├── gateway/        Phase 4 HOPE HTTP API (node:http): server + CLI (no framework)
+├── mcp/            MCP tool provider (stdio): HDV as tools for external agents/IDEs (see docs/MCP.md)
 ├── persistence/    Repository interfaces + in-memory impls + Prisma impls + factory + Redis stub + Kafka-like queue
 ├── colab/          Notebooks for GPU processing & persona spawning (ML lab only) + worker protocol
 ├── config/         routing_schema.ts, matrix.json, filters.json, schema.prisma
@@ -148,7 +149,10 @@ npm run demo:vision   # Phase 4.2: VISION tools · http_fetch stub · timeout ki
 npm run demo:hope-ui  # HOPE console: interpret + document + voice, renders standalone HTML
 npm run demo:dream-energy # Phase 4.2: energy-driven DREAM scheduling (accumulate/decay)
 npm run demo:metrics  # Phase 5: observability metrics · trace ring buffer · Prometheus text
+npm run demo:billing  # PRODUCT metering: pricing · estimate · live meter · hard-cap · BYOK $0
 npm run gateway       # start HOPE HTTP gateway on PORT (default 8787)
+npm run mcp           # start the MCP tool provider on stdio (for Cursor/other MCP clients)
+npm run test:mcp      # MCP tool-provider tests
 npm test              # all tests (backbone + phase2 + phase3 + phase4)
 npm run python:demo        # persona loop + billing ledger (python3)
 npm run python:scoring     # behavioral scoring twin validation (python3)
@@ -396,6 +400,39 @@ templates** DREAM can *specialize* into concrete intents (simulation only — no
 no execution). Scheduling still goes **APEX → DREAM only**; DREAM is never reached directly.
 Run `npm run demo:dream-energy`; tests live in `tests/dream_energy.test.ts`
 (`npm run test:dream-energy`).
+
+### Billing & metering (`billing/`) — parameter-usage allowances
+
+The **PRODUCT metering layer** turns raw APEX usage into a customer-facing **allowance**: a
+parameter-usage budget with **clear cost + occurrence metrics**, per tenant, per plan tier.
+Where the APEX ledger records what the *system* spent, `billing/` prices it for a *customer*.
+It only prices and accounts — it never routes, gates, executes, or interprets, so the
+constitution holds. The meter plugs into the **same read-only dispatch-observer seam** as
+observability, so it can never influence a KNOLL verdict or a route.
+
+- **Metering unit:** *active-parameter-seconds*. Idle personas draw ~zero compute, so you pay
+  only for the parameters you light up, for as long as they run:
+  `cost = pricePerRequest + (activeParams × durationSec / 1e6) × rate`. One persona = 7B params.
+- **Plan tiers** (`FREE · STARTER · PRO · ENTERPRISE · BYOK`), rates, included allowance, hard
+  caps, and overage rates live in **`config/pricing.json`** — edit the table, no code change.
+  Usage within your included allowance bills at the standard rate; beyond it, at the overage rate.
+- **Allowances** (`billing/allowance.ts`) are per-tenant, in-memory (offline `demo` tenant
+  seeded). `consume()` **rejects** work that would breach the hard cap (logged, never billed);
+  **BYOK** is unlimited with a **$0 platform fee** (pass-through — you pay only your provider).
+- **MeterService** (`billing/meter.ts`) attributes live APEX dispatch to a tenant using the
+  active-persona estimate × model params when available, else the ledger `cost_usd`.
+
+Gateway routes (auth-aware; tenant via the `X-HDV-Tenant` header, default `demo`):
+
+```bash
+GET  /v1/billing/pricing    # public marketing pricing table (no key required)
+GET  /v1/billing/usage      # balance · spend · recent occurrences (X-HDV-Tenant)
+GET  /v1/billing/estimate   # { activeParams, durationSec, model? } (body or query) → cost + per-tier
+POST /v1/billing/allowance  # set/adjust allowance { tier?, includedAllowanceUsd?, hardCapUsd? }
+```
+
+Run `npm run demo:billing` (pricing → estimate → live metering → hard-cap block → BYOK $0);
+tests live in `tests/billing.test.ts` (`npm run test:billing`).
 
 ## License
 
