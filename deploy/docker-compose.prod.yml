@@ -41,6 +41,11 @@ services:
       # In-container service names override any localhost URLs from .env:
       DATABASE_URL: "postgresql://big5:${POSTGRES_PASSWORD:-big5}@postgres:5432/big5_matrix?schema=public"
       REDIS_URL: "redis://redis:6379"
+      # Host .env points workers at 127.0.0.1:11434; inside the gateway use Docker DNS.
+      HDV_LLM_BASE_URL: "http://ollama:11434/v1"
+      PERSONAMATRIX_OLLAMA_URL: "http://ollama:11434"
+      HDV_PERSONA_INFERENCE: "1"
+      PERSONAMATRIX_BACKEND: "ollama"
     ports:
       # loopback only — the reverse proxy (host) forwards 443 -> 127.0.0.1:8787
       - "127.0.0.1:8787:8787"

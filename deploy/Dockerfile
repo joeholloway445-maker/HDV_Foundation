@@ -13,6 +13,11 @@
 FROM node:22-bookworm-slim AS builder
 WORKDIR /app
 
+# OpenSSL so Prisma detects debian-openssl-3.0.x (matches the runtime image).
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
 # Install deps first for layer caching.
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -27,8 +32,14 @@ ENV NODE_ENV=production
 WORKDIR /app
 
 # curl is used by live persona inference (nodes/persona.ts → Ollama /api/generate).
+<<<<<<< Updated upstream
 RUN apt-get update \
   && apt-get install -y --no-install-recommends curl ca-certificates \
+=======
+# openssl keeps Prisma's debian-openssl-3.0.x engine happy at runtime.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends curl ca-certificates openssl \
+>>>>>>> Stashed changes
   && rm -rf /var/lib/apt/lists/*
 
 # Bring in the built app (node_modules includes tsx + the generated Prisma client).
