@@ -38,7 +38,9 @@ import type {
 } from '../persistence/index.js';
 import { MetricsCollector, PacketTracer, combineObservers } from '../observability/index.js';
 import { BillingService, isPlanTier, type PlanTier } from '../billing/index.js';
-import { IntentInterpreter, HopeDocumenter, HopeVoice } from '../hope/index.js';
+import { IntentInterpreter, HopeDocumenter, HopeVoice, IntentEnricher } from '../hope/index.js';
+import type { LlmProvider } from '../providers/types.js';
+import { createProviderOrStub } from '../providers/index.js';
 import { SimulationEngine } from '../dream/index.js';
 import { ExecutionEngine } from '../vision/index.js';
 import { WaitlistStore, handleWaitlistSignup, handleWaitlistStats } from '../market/index.js';
@@ -124,6 +126,14 @@ export interface HopeGatewayOptions {
    * bypasses APEX/KNOLL. Ignored when you inject your own `orchestrator`.
    */
   queue?: TaskQueue;
+  /**
+   * Optional LLM provider for HOPE intent-summary enrichment (text only — never routes).
+   * When omitted, the gateway builds one from HDV_LLM_* env via createProviderOrStub
+   * (defaults to the offline stub). Pass `false` to force heuristic-only (no provider).
+   */
+  provider?: LlmProvider | false;
+  /** Optional IntentEnricher. When omitted, one is built from `provider` (or env). */
+  enricher?: IntentEnricher;
 }
 
 interface HopeResultRecord {
@@ -149,6 +159,8 @@ export class HopeGateway {
   readonly billing: BillingService;
   /** Launch GTM waitlist surfaced under POST /v1/waitlist and GET /v1/waitlist/stats. */
   readonly waitlist: WaitlistStore;
+  /** HOPE intent-summary enricher (heuristic or LLM). Text only — never routes. */
+  readonly enricher: IntentEnricher;
   private readonly readLimit: number;
   private readonly logger: GatewayLogger;
 
@@ -186,6 +198,17 @@ export class HopeGateway {
     this.interpreter = options.interpreter ?? new IntentInterpreter();
     this.documenter = options.documenter ?? new HopeDocumenter();
     this.voice = options.voice ?? new HopeVoice();
+    // Provider enrichment is optional and offline-safe: stub by default, real model when
+    // HDV_LLM_* points at an OpenAI-compatible endpoint (e.g. co-located Ollama).
+    if (options.enricher) {
+      this.enricher = options.enricher;
+    } else if (options.provider === false) {
+      this.enricher = new IntentEnricher();
+    } else {
+      this.enricher = new IntentEnricher({
+        provider: options.provider ?? createProviderOrStub(),
+      });
+    }
     this.readLimit = options.readLimit ?? 50;
     this.middleware = new GatewayMiddleware(resolveSecurityConfig(options.security ?? {}));
     this.logger = options.logger === false ? () => {} : options.logger ?? defaultLogger;
@@ -217,14 +240,17 @@ export class HopeGateway {
   /**
    * POST /v1/intent — HOPE interprets + documents an utterance and submits it via APEX.
    * KNOLL gates the routed packet. Returns HOPE's voice + the routing status.
+   * Optionally enriches the human-readable intent summary via the injected LLM provider
+   * (text only — never changes classification, routing, or governance).
    */
-  handleIntent(body: unknown): GatewayResponse {
+  async handleIntent(body: unknown): Promise<GatewayResponse> {
     const utterance = extractUtterance(body);
     if (!utterance) {
       return { status: 400, body: { error: 'body must be JSON with a non-empty "utterance" string' } };
     }
 
-    const intent = this.interpreter.interpret(utterance);
+    const classified = this.interpreter.interpret(utterance);
+    const { intent, summary: enriched } = await this.enricher.enrichIntent(classified);
     const doc = this.documenter.document(intent);
 
     // Low-confidence intents are HELD (HOPE clarifies rather than guessing) — no dispatch.
@@ -238,6 +264,7 @@ export class HopeGateway {
           voice: this.voice.clarify(intent),
           intent: publicIntent(intent),
           documentId: doc.id,
+          enrichment: { source: enriched.source, model: enriched.model ?? null },
         },
       };
     }
@@ -255,6 +282,7 @@ export class HopeGateway {
         voice: result ? this.voice.status(result) : this.voice.acknowledge(intent),
         intent: publicIntent(intent),
         documentId: doc.id,
+        enrichment: { source: enriched.source, model: enriched.model ?? null },
       },
     };
   }
@@ -621,7 +649,7 @@ export class HopeGateway {
     headers?: Record<string, string | string[] | undefined>,
   ): Promise<GatewayResponse> {
     const m = method.toUpperCase();
-    if (m === 'POST' && pathname === '/v1/intent') return this.handleIntent(body);
+    if (m === 'POST' && pathname === '/v1/intent') return await this.handleIntent(body);
     if (m === 'POST' && pathname === '/v1/worker/report') return this.handleWorkerReport(body);
     if (m === 'GET' && pathname === '/v1/health') return this.handleHealth();
     if (m === 'GET' && pathname === '/v1/ledger') return this.handleLedger(numParam(query.get('limit')));

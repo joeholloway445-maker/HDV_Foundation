@@ -189,9 +189,9 @@ test('active parameters track live personas only (idle draws ~zero)', () => {
 // D. HOPE gateway handlers — testable without binding a port
 // ---------------------------------------------------------------------------
 
-test('gateway /v1/intent interprets, documents, and submits via APEX (KNOLL-gated)', () => {
-  const gw = new HopeGateway();
-  const res = gw.handleIntent({ utterance: 'simulate three outcomes for launching the product early' });
+test('gateway /v1/intent interprets, documents, and submits via APEX (KNOLL-gated)', async () => {
+  const gw = new HopeGateway({ provider: false });
+  const res = await gw.handleIntent({ utterance: 'simulate three outcomes for launching the product early' });
   assert.equal(res.status, 200);
   assert.equal(res.body.accepted, true);
   assert.equal(res.body.dispatched, true);
@@ -201,16 +201,16 @@ test('gateway /v1/intent interprets, documents, and submits via APEX (KNOLL-gate
   assert.ok(typeof res.body.voice === 'string' && (res.body.voice as string).length > 0);
 });
 
-test('gateway /v1/intent rejects a missing utterance with 400', () => {
-  const gw = new HopeGateway();
-  assert.equal(gw.handleIntent({}).status, 400);
-  assert.equal(gw.handleIntent({ utterance: '   ' }).status, 400);
-  assert.equal(gw.handleIntent(null).status, 400);
+test('gateway /v1/intent rejects a missing utterance with 400', async () => {
+  const gw = new HopeGateway({ provider: false });
+  assert.equal((await gw.handleIntent({})).status, 400);
+  assert.equal((await gw.handleIntent({ utterance: '   ' })).status, 400);
+  assert.equal((await gw.handleIntent(null)).status, 400);
 });
 
-test('gateway /v1/intent holds a low-confidence utterance for clarification (no dispatch)', () => {
-  const gw = new HopeGateway();
-  const res = gw.handleIntent({ utterance: 'hmm' });
+test('gateway /v1/intent holds a low-confidence utterance for clarification (no dispatch)', async () => {
+  const gw = new HopeGateway({ provider: false });
+  const res = await gw.handleIntent({ utterance: 'hmm' });
   assert.equal(res.status, 200);
   assert.equal(res.body.dispatched, false);
   assert.equal(res.body.clarificationNeeded, true);
@@ -237,9 +237,9 @@ test('gateway /v1/matrix/stats exposes topology + 14.3Q parameter accounting', (
   assert.equal(params.totalConceptual, 14_336_000_000_000_000);
 });
 
-test('gateway /v1/ledger and /v1/audit are read-only projections that fill after routing', () => {
-  const gw = new HopeGateway();
-  gw.handleIntent({ utterance: 'simulate three outcomes for launching the product early' });
+test('gateway /v1/ledger and /v1/audit are read-only projections that fill after routing', async () => {
+  const gw = new HopeGateway({ provider: false });
+  await gw.handleIntent({ utterance: 'simulate three outcomes for launching the product early' });
   const ledger = gw.handleLedger();
   const audit = gw.handleAudit();
   assert.ok((ledger.body.count as number) >= 1, 'ledger reflects routed traffic');
