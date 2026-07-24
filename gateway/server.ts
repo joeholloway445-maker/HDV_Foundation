@@ -647,10 +647,10 @@ export class HopeGateway {
   }
 
   /** Start listening. Resolves once bound. */
-  listen(port: number): Promise<http.Server> {
+  listen(port: number, host = '0.0.0.0'): Promise<http.Server> {
     const server = this.createServer();
     return new Promise((resolve) => {
-      server.listen(port, () => resolve(server));
+      server.listen(port, host, () => resolve(server));
     });
   }
 

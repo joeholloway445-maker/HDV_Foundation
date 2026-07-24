@@ -22,7 +22,7 @@
 #   REPO_URL     git URL to clone            (default: https://github.com/joeholloway445-maker/HDV_Foundation.git)
 #   REPO_REF     branch/tag to check out     (default: main)
 #   TARGET_DIR   where to clone              (default: /opt/hdv-foundation)
-#   APP_SUBDIR   package dir within the repo (default: big5-matrix)
+#   APP_SUBDIR   package dir within the repo (default: .  — app lives at repo root)
 #   DOMAIN       domain for the reverse proxy note (default: unset — printed as a reminder)
 #   SKIP_DOCKER=1   skip Docker install + compose up (bare-metal / systemd path)
 #   SKIP_NODE=1     skip the Node.js install
@@ -42,7 +42,7 @@ set -euo pipefail
 REPO_URL="${REPO_URL:-https://github.com/joeholloway445-maker/HDV_Foundation.git}"
 REPO_REF="${REPO_REF:-main}"
 TARGET_DIR="${TARGET_DIR:-/opt/hdv-foundation}"
-APP_SUBDIR="${APP_SUBDIR:-big5-matrix}"
+APP_SUBDIR="${APP_SUBDIR:-.}"
 NODE_MAJOR="${NODE_MAJOR:-22}"
 OLLAMA_MODEL="${OLLAMA_MODEL:-llama3.2:3b}"
 
@@ -139,7 +139,11 @@ else
   $SUDO git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" "$TARGET_DIR"
 fi
 
-APP_DIR="$TARGET_DIR/$APP_SUBDIR"
+if [ "$APP_SUBDIR" = "." ] || [ -z "$APP_SUBDIR" ]; then
+  APP_DIR="$TARGET_DIR"
+else
+  APP_DIR="$TARGET_DIR/$APP_SUBDIR"
+fi
 [ -d "$APP_DIR" ] || die "Expected app directory not found: $APP_DIR"
 log "Application directory: $APP_DIR"
 
