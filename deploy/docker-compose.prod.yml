@@ -35,6 +35,9 @@ services:
     environment:
       # Gateway binds this port inside the container; only loopback is published below.
       PORT: 8787
+      # Inside the container listen on all interfaces; compose still publishes ONLY 127.0.0.1:8787
+      # on the host. Binding 127.0.0.1 inside Docker makes the published port unreachable.
+      HDV_BIND_HOST: "0.0.0.0"
       # In-container service names override any localhost URLs from .env:
       DATABASE_URL: "postgresql://big5:${POSTGRES_PASSWORD:-big5}@postgres:5432/big5_matrix?schema=public"
       REDIS_URL: "redis://redis:6379"

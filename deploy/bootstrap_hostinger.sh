@@ -82,7 +82,12 @@ if [ "${SKIP_NODE:-0}" != "1" ]; then
     log "Node.js $(node -v) already present — skipping."
   elif need_cmd apt-get; then
     log "Installing Node.js ${NODE_MAJOR} LTS via NodeSource…"
-    curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | $SUDO -E bash -
+    # When running as root, SUDO is empty — must not expand to `… | -E bash -`.
+    if [ -n "$SUDO" ]; then
+      curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | $SUDO -E bash -
+    else
+      curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash -
+    fi
     $SUDO apt-get install -y nodejs
     log "Node.js $(node -v) / npm $(npm -v) installed."
   else
