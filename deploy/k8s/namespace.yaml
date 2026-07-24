@@ -1,0 +1,10 @@
+# deploy/k8s/namespace.yaml — the namespace the whole HDV Foundation fleet lives in.
+#
+# Everything (always-on trio, ephemeral worker Jobs, KEDA ScaledJobs) is scoped here so RBAC,
+# quotas, and network policy apply to the matrix as a unit.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hdv-foundation
+  labels:
+    app.kubernetes.io/part-of: big5-matrix

@@ -35,6 +35,15 @@ export type {
 export { spawnPersona, executePersona, terminatePersona } from './persona.js';
 export type { Persona, PersonaState, PersonaExecution } from './persona.js';
 
+export { SpecialtyRouter, SPECIALIZATIONS, PERSONA_SPECIALTIES } from './specialization.js';
+export type {
+  PersonaSpecialty,
+  PersonaSpecialization,
+  SpecialtyMatch,
+  SpecialtyAssignment,
+  SpecialtyRouterOptions,
+} from './specialization.js';
+
 export { NodeFleet } from './lifecycle.js';
 export type { NodeFleetOptions } from './lifecycle.js';
 

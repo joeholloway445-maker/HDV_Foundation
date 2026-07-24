@@ -17,9 +17,10 @@ import {
   type RoutingPacket,
 } from '../config/routing_schema.js';
 import { computePacketHash } from '../config/hash.js';
-import { VIRTUAL_LAWS } from './laws.js';
+import { VIRTUAL_LAWS, type KnollLawContext } from './laws.js';
 import { SecurityAuditLog } from './audit.js';
 import { BehavioralScorer } from './scoring.js';
+import { LearnedBehavioralScorer } from './scoring_learned.js';
 
 export interface KnollOptions {
   /** Max packets allowed per source within the rate window. */
@@ -35,6 +36,15 @@ export interface KnollOptions {
    */
   scorer?: BehavioralScorer;
   enableScoring?: boolean;
+  /**
+   * Optional LEARNED behavioral scorer (Phase 7). Runs AFTER the laws AND the heuristic scorer
+   * as a strictly ADDITIVE gate: it can only ADD a deny, never override a hard-law allow. Default
+   * OFF — it activates only when a scorer is injected here or `enableLearnedScoring` is true. In
+   * its default `shadow` mode it logs its verdict and never denies; flip it to `enforce` to let it
+   * add denies. See knoll/scoring_learned.ts.
+   */
+  learnedScorer?: LearnedBehavioralScorer;
+  enableLearnedScoring?: boolean;
 }
 
 interface RateBucket {
@@ -46,6 +56,8 @@ export class Knoll {
   readonly audit: SecurityAuditLog;
   /** The behavioral scorer, when scoring is enabled (default). Read-only surface. */
   readonly scorer?: BehavioralScorer;
+  /** The optional learned behavioral scorer (Phase 7). Present only when enabled. Read-only. */
+  readonly learnedScorer?: LearnedBehavioralScorer;
   private readonly rateLimit: number;
   private readonly rateWindowMs: number;
   private readonly now: () => number;
@@ -58,12 +70,25 @@ export class Knoll {
     this.now = options.now ?? Date.now;
     const scoringEnabled = options.enableScoring ?? true;
     this.scorer = scoringEnabled ? options.scorer ?? new BehavioralScorer({ now: this.now }) : undefined;
+    // Learned scoring is OFF by default. It activates only when a scorer is injected or the flag
+    // is set — and even then it is additive-only (see intercept()).
+    if (options.learnedScorer) {
+      this.learnedScorer = options.learnedScorer;
+    } else if (options.enableLearnedScoring) {
+      this.learnedScorer = new LearnedBehavioralScorer({ now: this.now });
+    } else {
+      this.learnedScorer = undefined;
+    }
   }
 
   /**
    * The gate. Returns a verdict AND writes an audit record. APEX must honor `isAllowed`.
+   *
+   * `context` is optional runtime metadata about the caller (e.g. the authenticated tenant of
+   * the source). It is additive: omit it and KNOLL behaves exactly as in Phase 1. Today it
+   * powers the NO_CROSS_TENANT law — see knoll/laws.ts.
    */
-  intercept(packet: unknown): KnollValidationResponse {
+  intercept(packet: unknown, context?: KnollLawContext): KnollValidationResponse {
     // Structural guard: reject anything that is not shaped like a RoutingPacket.
     const structural = this.checkStructure(packet);
     if (!structural.isAllowed) {
@@ -91,7 +116,7 @@ export class Knoll {
 
     // Virtual laws.
     for (const law of VIRTUAL_LAWS) {
-      const verdict = law(rp);
+      const verdict = law(rp, context);
       if (!verdict.passed) {
         this.audit.record(rp.header.packetId, 'BLOCKED', verdict.reasoning);
         return {
@@ -102,8 +127,10 @@ export class Knoll {
       }
     }
 
-    // Behavioral anomaly scoring — the additive final gate (runs only after all six
-    // laws pass). It denies high-anomaly packets the hard rules can't express.
+    // Behavioral anomaly scoring — the additive gate (runs only after all six laws pass).
+    // It denies high-anomaly packets the hard rules can't express.
+    let note = 'all virtual laws satisfied';
+    const scoreConstraints: string[] = [];
     if (this.scorer) {
       const behavioral = this.scorer.score(rp);
       if (behavioral.isAnomalous) {
@@ -115,22 +142,35 @@ export class Knoll {
           enforcedConstraints: ['BEHAVIORAL_SCORE'],
         };
       }
-      const note = behavioral.flagged
-        ? `all virtual laws satisfied; flagged (anomaly ${behavioral.score})`
-        : 'all virtual laws satisfied';
-      this.audit.record(rp.header.packetId, 'ALLOWED', note);
-      return {
-        isAllowed: true,
-        reasoning: note,
-        enforcedConstraints: [...VIRTUAL_LAWS.map((_, i) => `LAW_${i + 1}`), 'BEHAVIORAL_SCORE'],
-      };
+      if (behavioral.flagged) note = `all virtual laws satisfied; flagged (anomaly ${behavioral.score})`;
+      scoreConstraints.push('BEHAVIORAL_SCORE');
     }
 
-    this.audit.record(rp.header.packetId, 'ALLOWED', 'all virtual laws satisfied');
+    // Learned behavioral scoring (Phase 7) — a strictly ADDITIVE final gate, default off. It can
+    // only ADD a deny; it never overrides the allow the laws + heuristic just produced. In shadow
+    // mode it logs its verdict and never denies.
+    if (this.learnedScorer) {
+      const { deny, score } = this.learnedScorer.verdict(rp);
+      if (deny) {
+        const reasoning = `learned behavioral anomaly ${score.probability} >= ${score.threshold} (enforce)`;
+        this.audit.record(rp.header.packetId, 'BLOCKED', reasoning);
+        return {
+          isAllowed: false,
+          reasoning,
+          enforcedConstraints: ['LEARNED_BEHAVIORAL_SCORE'],
+        };
+      }
+      // shadow-mode anomalies (and flags) are surfaced in the note but never deny.
+      if (score.isAnomalous) note += ` [learned shadow anomaly ${score.probability}]`;
+      else if (score.flagged) note += ` [learned flagged ${score.probability}]`;
+      scoreConstraints.push('LEARNED_BEHAVIORAL_SCORE');
+    }
+
+    this.audit.record(rp.header.packetId, 'ALLOWED', note);
     return {
       isAllowed: true,
-      reasoning: 'all virtual laws satisfied',
-      enforcedConstraints: VIRTUAL_LAWS.map((_, i) => `LAW_${i + 1}`),
+      reasoning: note,
+      enforcedConstraints: [...VIRTUAL_LAWS.map((_, i) => `LAW_${i + 1}`), ...scoreConstraints],
     };
   }
 

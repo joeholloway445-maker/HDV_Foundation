@@ -14,8 +14,11 @@ export {
   lawNoKnollForgery,
   lawHopeCannotCommand,
   lawNoMaliciousIntent,
+  lawNoCrossTenant,
 } from './laws.js';
-export type { LawVerdict } from './laws.js';
+export type { LawVerdict, KnollLaw, KnollLawContext } from './laws.js';
+export { AuditHashChain } from './hashchain.js';
+export type { HashChainLink, HashChainVerification } from './hashchain.js';
 export { BehavioralScorer } from './scoring.js';
 export type {
   BehavioralScore,
@@ -24,3 +27,13 @@ export type {
 } from './scoring.js';
 export { extractFeatures } from './features.js';
 export type { BehavioralFeatures, ScoringContext } from './features.js';
+export { LearnedBehavioralScorer, exportAuditTrainingSet, FEATURE_ORDER } from './scoring_learned.js';
+export type {
+  LearnedMode,
+  LearnedSample,
+  LabeledPacketSample,
+  LearnedModel,
+  LearnedScore,
+  TrainOptions,
+  LearnedBehavioralScorerOptions,
+} from './scoring_learned.js';

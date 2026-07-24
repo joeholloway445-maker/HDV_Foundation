@@ -1,0 +1,349 @@
+openapi: 3.0.3
+info:
+  title: Big 5 Matrix (HDV Foundation) — HOPE Gateway API
+  version: "0.8.0"
+  description: >
+    The public HTTP surface of the Big 5 Matrix. Every request enters through the HOPE gateway,
+    is minted into a RoutingPacket by APEX, and is gated by KNOLL before any DREAM/VISION work
+    runs. This document covers the main `/v1` routes. It is the contract the typed SDK
+    (`@big5-matrix/sdk`) and the live HOPE app are built against. Clients import NO agent
+    internals — they only speak HTTP to these routes.
+  license:
+    name: MIT
+servers:
+  - url: http://localhost:8787
+    description: Local gateway (npm run gateway)
+tags:
+  - name: intent
+  - name: health
+  - name: metrics
+  - name: billing
+  - name: waitlist
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Optional API key sent as `Authorization: Bearer <token>`.
+  parameters:
+    TenantHeader:
+      name: X-HDV-Tenant
+      in: header
+      required: false
+      schema:
+        type: string
+      description: Tenant identifier for tenant-scoped routes (defaults to "demo").
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
+    KnollVerdict:
+      type: object
+      properties:
+        isAllowed:
+          type: boolean
+        reasoning:
+          type: string
+          nullable: true
+        enforcedConstraints:
+          type: array
+          items:
+            type: string
+          description: >
+            Public law/guard names, e.g. NO_DIRECT_DREAM_VISION, HASH_INTEGRITY, NO_CROSS_TENANT.
+    IntentRequest:
+      type: object
+      properties:
+        utterance:
+          type: string
+          description: The natural-language request to interpret and route.
+      required: [utterance]
+    IntentResponse:
+      type: object
+      properties:
+        accepted:
+          type: boolean
+        dispatched:
+          type: boolean
+        clarificationNeeded:
+          type: boolean
+        routingStatus:
+          type: string
+          enum: [SUCCESS, BLOCKED, FAILED, HELD]
+        knoll:
+          allOf:
+            - $ref: '#/components/schemas/KnollVerdict'
+          nullable: true
+        voice:
+          type: string
+        intent:
+          type: object
+          additionalProperties: true
+        documentId:
+          type: string
+    HealthResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        time:
+          type: integer
+          format: int64
+        alwaysOn:
+          type: array
+          items:
+            type: object
+            properties:
+              role: { type: string }
+              lifecycle: { type: string }
+              status: { type: string }
+        ephemeral:
+          type: array
+          items:
+            type: object
+            properties:
+              role: { type: string }
+              lifecycle: { type: string }
+              idle: { type: boolean }
+              lastActiveAgoMs:
+                type: integer
+                nullable: true
+        knollGate:
+          type: string
+    WaitlistSignupRequest:
+      type: object
+      properties:
+        email: { type: string, format: email }
+        name: { type: string }
+        company: { type: string }
+        interestedTier: { type: string }
+        useCase: { type: string }
+        source: { type: string }
+        referral: { type: string }
+      required: [email]
+    WaitlistSignupResponse:
+      type: object
+      properties:
+        created: { type: boolean }
+        duplicate: { type: boolean }
+        position: { type: integer }
+        entry:
+          type: object
+          additionalProperties: true
+    WaitlistStats:
+      type: object
+      properties:
+        total: { type: integer }
+        bySource:
+          type: object
+          additionalProperties: { type: integer }
+        byTier:
+          type: object
+          additionalProperties: { type: integer }
+        last24h: { type: integer }
+        last7d: { type: integer }
+        firstAt: { type: integer, nullable: true }
+        lastAt: { type: integer, nullable: true }
+    AllowanceRequest:
+      type: object
+      properties:
+        tier:
+          type: string
+          enum: [FREE, STARTER, PRO, ENTERPRISE, BYOK]
+        includedAllowanceUsd: { type: number }
+        hardCapUsd:
+          type: number
+          nullable: true
+paths:
+  /v1/intent:
+    post:
+      tags: [intent]
+      summary: Submit a natural-language intent
+      description: HOPE interprets + documents the utterance and submits it via APEX; KNOLL gates the route.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IntentRequest'
+      responses:
+        '200':
+          description: Interpreted and (when confident) routed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntentResponse'
+        '400':
+          description: Missing or empty utterance.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/health:
+    get:
+      tags: [health]
+      summary: Resident-agent health and KNOLL gate state
+      responses:
+        '200':
+          description: Health snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /v1/metrics:
+    get:
+      tags: [metrics]
+      summary: Observability snapshot
+      description: Defaults to a JSON snapshot; pass `?format=prometheus` for exposition text.
+      parameters:
+        - name: format
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [json, prometheus, text]
+      responses:
+        '200':
+          description: Metrics snapshot (JSON) or Prometheus text.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+            text/plain:
+              schema:
+                type: string
+  /v1/billing/pricing:
+    get:
+      tags: [billing]
+      summary: Public pricing table
+      responses:
+        '200':
+          description: The marketing-ready pricing table.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /v1/billing/usage:
+    get:
+      tags: [billing]
+      summary: A tenant's balance, meter, and recent occurrences
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Usage snapshot for the tenant.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /v1/billing/estimate:
+    get:
+      tags: [billing]
+      summary: Cost estimate for a hypothetical unit of work
+      description: Inputs may be provided as query params or a JSON body.
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
+        - name: activeParams
+          in: query
+          schema: { type: number }
+        - name: durationSec
+          in: query
+          schema: { type: number }
+        - name: model
+          in: query
+          schema: { type: string }
+        - name: tier
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Estimate for the caller's tier plus a per-tier comparison.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '400':
+          description: Invalid activeParams/durationSec/tier.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/billing/allowance:
+    post:
+      tags: [billing]
+      summary: Set/adjust a tenant's allowance (admin/dev)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AllowanceRequest'
+      responses:
+        '200':
+          description: Updated balance.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '400':
+          description: Invalid allowance input.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/waitlist:
+    post:
+      tags: [waitlist]
+      summary: Public waitlist signup (idempotent by email)
+      description: Auth-exempt but rate-limited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WaitlistSignupRequest'
+      responses:
+        '200':
+          description: Signup recorded (or idempotent re-signup).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WaitlistSignupResponse'
+        '400':
+          description: Invalid signup (e.g. malformed email).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/waitlist/stats:
+    get:
+      tags: [waitlist]
+      summary: Privacy-safe aggregate signup stats
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Aggregate counts (no PII).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WaitlistStats'

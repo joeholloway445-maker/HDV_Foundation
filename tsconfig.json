@@ -27,6 +27,7 @@
     "dream/**/*.ts",
     "vision/**/*.ts",
     "knoll/**/*.ts",
+    "marketplace/**/*.ts",
     "nodes/**/*.ts",
     "config/**/*.ts",
     "persistence/**/*.ts",

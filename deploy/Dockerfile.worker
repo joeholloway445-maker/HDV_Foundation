@@ -1,0 +1,62 @@
+# deploy/Dockerfile.worker — production image for an EPHEMERAL DREAM/VISION worker.
+#
+# This is the container a real deployment runs as a one-shot Job (K8s Job / KEDA ScaledJob /
+# Colab GPU runtime): it loads a WorkerManifest, runs a persona batch through personamatrix,
+# POSTs the WorkerReport to $GATEWAY_URL/v1/worker/report (APEX re-ingests → KNOLL → HOPE),
+# and self-terminates. Entrypoint: colab/worker_job.py.
+#
+# OFFLINE-FIRST: the default image is CPU-only and stdlib-only (deterministic StubBackend), so
+# it runs anywhere with zero GPU and zero network beyond the gateway POST. For a REAL 7B model,
+# build with `--build-arg WITH_TRANSFORMERS=1` (installs transformers/accelerate/torch) and run
+# on a GPU host with PERSONAMATRIX_BACKEND=transformers.
+#
+# Build (from big5-matrix/):
+#   docker build -f deploy/Dockerfile.worker -t hdv-foundation/worker:latest .
+#   docker build -f deploy/Dockerfile.worker --build-arg WITH_TRANSFORMERS=1 \
+#     -t hdv-foundation/worker:gpu .
+#
+# Run (offline demo — prints the payload, no gateway needed):
+#   docker run --rm -e HDV_WORKER_OFFLINE=1 hdv-foundation/worker:latest
+# Run (report to a gateway):
+#   docker run --rm -e GATEWAY_URL=http://gateway:8787 -e HDV_WORKER_ROLE=DREAM \
+#     hdv-foundation/worker:latest
+
+FROM python:3.12-slim AS runtime
+
+# Optional: install the real 7B inference stack. Off by default to keep the image tiny and
+# fully offline. torch is CPU-only here; use a CUDA base + wheels for real GPU throughput.
+ARG WITH_TRANSFORMERS=0
+
+WORKDIR /app
+
+# The worker only needs the Python packages: personamatrix (the persona loop + backends) and
+# colab/ (worker_protocol + worker_job entrypoint). No Node runtime required.
+COPY personamatrix/ ./personamatrix/
+COPY colab/ ./colab/
+COPY config/ ./config/
+
+RUN if [ "$WITH_TRANSFORMERS" = "1" ]; then \
+      pip install --no-cache-dir transformers>=4.40 accelerate>=0.30 torch>=2.2 ; \
+    else \
+      echo "Stub backend only (deterministic, offline). Rebuild with --build-arg WITH_TRANSFORMERS=1 for real 7B." ; \
+    fi
+
+# Worker configuration (all overridable at `docker run -e ...`):
+#   HDV_WORKER_ROLE   DREAM | VISION            (which ephemeral Big AI to back)
+#   HDV_WORKER_TASK   free-text task label
+#   HDV_WORKER_BATCH  persona batch size        (default 100)
+#   HDV_WORKER_GPU_HINT  T4 | A100 | cpu | ...
+#   GATEWAY_URL       e.g. http://gateway:8787  (unset ⇒ offline demo path)
+#   HDV_API_KEY       X-HDV-Key for a secured gateway
+#   PERSONAMATRIX_BACKEND  stub | transformers  (auto-detects transformers when unset)
+ENV HDV_WORKER_ROLE=DREAM \
+    HDV_WORKER_BATCH=100 \
+    HDV_WORKER_GPU_HINT=cpu \
+    PYTHONUNBUFFERED=1
+
+# Run as a non-root user; the worker is compute-only and needs no privileges.
+RUN useradd --create-home --uid 10001 worker
+USER worker
+
+# One-shot: run the batch, report via APEX, self-terminate. Ephemeral by contract.
+ENTRYPOINT ["python3", "colab/worker_job.py"]

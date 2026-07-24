@@ -116,6 +116,107 @@ export function computeActiveParameters(input: ActiveParameterInput): ActivePara
   };
 }
 
+// ---------------------------------------------------------------------------
+// Base-vs-delta accounting (Phase 6 — honest active-parameter footprint).
+//
+// The naive figure (`computeActiveParameters`) counts a full 7B model per live persona. That
+// is the CONCEPTUAL number and is truthful for "capacity", but it is NOT what real compute
+// costs once serving is shared: a vLLM replica loads the 7B BASE weights ONCE, and each
+// persona is a cheap DELTA over those shared weights (a LoRA adapter + a prompt/sampling
+// profile — see serving/persona_adapters.ts). The honest COST footprint is therefore:
+//
+//     activeCostParams = sharedBaseParams(replicas) + activePersonas × deltaParamsPerPersona
+//
+// This is what maps to GPU-seconds and to the eval board's cost_per_active_param_second. Idle
+// personas contribute ZERO delta params, so idle ≈ $0 still holds.
+// ---------------------------------------------------------------------------
+
+/** A single 7B replica's transformer geometry (used to size a LoRA delta honestly). */
+export const MODEL_HIDDEN_DIM = 4096;
+export const MODEL_LAYERS = 32;
+/** LoRA is applied to the q_proj and v_proj matrices by default (the standard PEFT target). */
+export const LORA_TARGET_PROJECTIONS = 2;
+/** Default LoRA rank for a per-persona adapter. */
+export const DEFAULT_LORA_RANK = 16;
+
+/**
+ * Parameters in ONE persona's LoRA delta. For each targeted projection in each layer, LoRA adds
+ * two low-rank matrices A (hidden×rank) and B (rank×hidden) → `2 · rank · hidden` params.
+ * With the defaults this is ~8.39M params — about 0.12% of a 7B base, i.e. a genuinely cheap
+ * delta. Prompt/sampling-only personas can pass rank = 0 (a pure prompt profile, zero weights).
+ */
+export function deltaParamsPerPersona(rank: number = DEFAULT_LORA_RANK): number {
+  const r = Math.max(0, Math.floor(rank));
+  return 2 * r * MODEL_HIDDEN_DIM * LORA_TARGET_PROJECTIONS * MODEL_LAYERS;
+}
+
+/**
+ * Base weights resident across the serving fleet: the 7B model is loaded ONCE per replica,
+ * regardless of how many personas ride on top of it. Defaults to a single replica.
+ */
+export function sharedBaseParams(replicas: number = 1): number {
+  return Math.max(0, Math.floor(replicas)) * MODEL_PARAMS;
+}
+
+export interface BaseVsDeltaInput {
+  /** Personas currently live (materialized + executing) as cheap deltas. */
+  activePersonas: number;
+  /** vLLM replicas that have the shared 7B base loaded. Default 1. */
+  replicas?: number;
+  /** Per-persona delta size. Default `deltaParamsPerPersona()` (~8.39M). */
+  deltaParamsPerPersona?: number;
+}
+
+export interface BaseVsDeltaUsage {
+  activePersonas: number;
+  replicas: number;
+  /** 7B base weights, counted once per replica. */
+  sharedBaseParams: number;
+  /** Per-persona delta size actually used in this accounting. */
+  deltaParamsPerPersona: number;
+  /** activePersonas × deltaParamsPerPersona — the only part that scales with load. */
+  deltaParams: number;
+  /** sharedBaseParams + deltaParams — the honest compute footprint (maps to GPU cost). */
+  activeCostParams: number;
+  /** activePersonas × MODEL_PARAMS — the naive/conceptual figure (no weight sharing). */
+  naiveActiveParams: number;
+  /** activeCostParams / naiveActiveParams — how much cheaper shared serving is (≤ 1). */
+  amortizationRatio: number;
+}
+
+/**
+ * The honest active-cost parameter count under shared serving: base weights amortized per
+ * replica plus a cheap per-persona delta. This is the figure the GPU cost model and the
+ * billing meter should price against, not the naive full-model-per-persona number.
+ */
+export function activeCostParams(input: BaseVsDeltaInput): number {
+  const activePersonas = Math.max(0, Math.floor(input.activePersonas));
+  const replicas = Math.max(input.replicas === undefined ? 1 : Math.floor(input.replicas), 0);
+  const delta = input.deltaParamsPerPersona ?? deltaParamsPerPersona();
+  return sharedBaseParams(replicas) + activePersonas * Math.max(0, delta);
+}
+
+/** Full base-vs-delta breakdown, including how much shared serving amortizes the naive figure. */
+export function computeBaseVsDelta(input: BaseVsDeltaInput): BaseVsDeltaUsage {
+  const activePersonas = Math.max(0, Math.floor(input.activePersonas));
+  const replicas = Math.max(input.replicas === undefined ? 1 : Math.floor(input.replicas), 0);
+  const perPersona = Math.max(0, input.deltaParamsPerPersona ?? deltaParamsPerPersona());
+  const base = sharedBaseParams(replicas);
+  const deltaParams = activePersonas * perPersona;
+  const cost = base + deltaParams;
+  const naive = activePersonas * MODEL_PARAMS;
+  return {
+    activePersonas,
+    replicas,
+    sharedBaseParams: base,
+    deltaParamsPerPersona: perPersona,
+    deltaParams,
+    activeCostParams: cost,
+    naiveActiveParams: naive,
+    amortizationRatio: naive > 0 ? cost / naive : 0,
+  };
+}
+
 /** Format a big integer count of parameters into a human word scale (quadrillion, etc). */
 export function humanizeParameters(n: number): string {
   const scales: Array<[number, string]> = [

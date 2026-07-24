@@ -39,7 +39,7 @@ import { AgentRole } from '../../config/routing_schema.js';
 // ---------------------------------------------------------------------------
 
 /**
- * The six hard "virtual laws" KNOLL applies to every packet, in order, plus the two
+ * The hard "virtual laws" KNOLL applies to every packet, in order, plus the two
  * structural guards that run before them. These strings are the STABLE public contract —
  * they appear verbatim in `KnollValidationResponse.enforcedConstraints`. Integrators may
  * key dashboards, alerts, and tests off these names.
@@ -55,6 +55,7 @@ export const KNOLL_LAW_NAMES = [
   'NO_KNOLL_FORGERY', // LAW 4 — no agent may forge KNOLL as a packet source
   'HOPE_CANNOT_COMMAND', // LAW 5 — HOPE routes intent via APEX; never commands DREAM/VISION
   'NO_MALICIOUS_INTENT', // LAW 6 — malicious-intent heuristic over intent + payload strings
+  'NO_CROSS_TENANT', // LAW 7 — packets may not cross a tenant boundary (Phase 8 isolation)
 ] as const;
 
 export type KnollLawName = (typeof KNOLL_LAW_NAMES)[number];

@@ -1,0 +1,50 @@
+# deploy/k8s/worker-rbac.yaml — least-privilege identity for the ephemeral DREAM/VISION workers
+# and the scheduler that materializes them.
+#
+# Two subjects:
+#   - hdv-worker         the ServiceAccount each ephemeral worker Job runs as. It needs almost
+#                        nothing at the API level — it claims a matrix slice via a lease
+#                        (nodes/lease.ts, Redis/Postgres) and reports results → APEX → HOPE.
+#   - hdv-scheduler-role the RBAC the KEDA ScaledJob controller / claim→Job scheduler uses to
+#                        create and reap Jobs in THIS namespace only (no cluster-wide power).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hdv-worker
+  namespace: hdv-foundation
+  labels:
+    app.kubernetes.io/part-of: big5-matrix
+    app.kubernetes.io/component: worker
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: hdv-scheduler-role
+  namespace: hdv-foundation
+  labels:
+    app.kubernetes.io/part-of: big5-matrix
+rules:
+  # Create ephemeral worker Jobs and reap them on completion (ttlSecondsAfterFinished also helps).
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  # Observe the Pods those Jobs spawn (status, logs) — read-only.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: hdv-scheduler-binding
+  namespace: hdv-foundation
+  labels:
+    app.kubernetes.io/part-of: big5-matrix
+subjects:
+  - kind: ServiceAccount
+    name: hdv-worker
+    namespace: hdv-foundation
+roleRef:
+  kind: Role
+  name: hdv-scheduler-role
+  apiGroup: rbac.authorization.k8s.io

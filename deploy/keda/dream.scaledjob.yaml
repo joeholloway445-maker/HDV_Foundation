@@ -1,0 +1,90 @@
+# deploy/keda/dream.scaledjob.yaml — DREAM workers, scale-to-ZERO on Kafka lag.
+#
+# This is the literal "workers to zero" enforcement. A KEDA ScaledJob watches consumer-group
+# lag on the DREAM topic that KafkaTaskQueue already produces (`<prefix>.<ROLE>` →
+# `hdv.routing.DREAM`, see persistence/kafka_real.ts `topicFor`). Zero lag ⇒ zero Jobs ⇒ zero
+# GPU $. When APEX publishes DREAM claims, KEDA materializes up to `maxReplicaCount` ephemeral
+# Jobs; each claims a matrix slice (nodes/lease.ts), runs, reports → APEX → HOPE, and exits.
+#
+# Requires: KEDA installed in the cluster and the Kafka scaler; a DREAM worker image whose
+# entrypoint drains one claim and exits. DREAM and VISION never address each other (KNOLL LAW 3).
+apiVersion: keda.sh/v1alpha1
+kind: ScaledJob
+metadata:
+  name: hdv-dream-worker
+  namespace: hdv-foundation
+  labels:
+    app.kubernetes.io/part-of: big5-matrix
+    app.kubernetes.io/component: dream-worker
+spec:
+  # --- scale-to-zero knobs ---
+  minReplicaCount: 0          # THE promise: no work ⇒ no workers.
+  maxReplicaCount: 50         # ceiling on concurrent ephemeral DREAM Jobs.
+  pollingInterval: 15         # seconds between lag checks.
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  # KEDA reaps finished Jobs; the Job's own TTL is a backstop (jobTargetRef below).
+  scalingStrategy:
+    strategy: "default"
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: "kafka:9092"
+        consumerGroup: "hdv-dream-workers"
+        topic: "hdv.routing.DREAM"
+        # Materialize ~1 worker per this many lagging messages; drains back to 0 at zero lag.
+        lagThreshold: "1"
+        offsetResetPolicy: "earliest"
+  jobTargetRef:
+    parallelism: 1
+    completions: 1
+    backoffLimit: 3
+    activeDeadlineSeconds: 1800
+    ttlSecondsAfterFinished: 120   # reap the Job shortly after it exits.
+    template:
+      metadata:
+        labels:
+          app.kubernetes.io/part-of: big5-matrix
+          app.kubernetes.io/component: dream-worker
+      spec:
+        restartPolicy: Never
+        serviceAccountName: hdv-worker
+        securityContext:
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+        containers:
+          - name: dream-worker
+            image: hdv-foundation/worker:latest
+            imagePullPolicy: IfNotPresent
+            args: ["--role", "DREAM"]
+            envFrom:
+              - configMapRef:
+                  name: hdv-gateway-config
+              - secretRef:
+                  name: hdv-gateway-secrets
+            env:
+              - name: HDV_WORKER_ROLE
+                value: "DREAM"
+              - name: HDV_KAFKA_CONSUMER_GROUP
+                value: "hdv-dream-workers"
+            resources:
+              requests:
+                cpu: "250m"
+                memory: "512Mi"
+              limits:
+                cpu: "1"
+                memory: "1Gi"
+                # GPU workers request an accelerator; uncomment on a GPU node pool:
+                # nvidia.com/gpu: "1"
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+            volumeMounts:
+              - name: tmp
+                mountPath: /tmp
+        volumes:
+          - name: tmp
+            emptyDir: {}

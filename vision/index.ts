@@ -25,6 +25,15 @@ export type {
   ResourceLimits,
 } from './sandbox.js';
 
+// Phase 5: real gVisor sandbox adapter (falls back to the stub when runsc is unavailable).
+export {
+  GvisorSandboxSession,
+  isGvisorAvailable,
+  GVISOR_RUNTIME_BIN,
+  DEFAULT_GVISOR_IMAGE,
+} from './sandbox_gvisor.js';
+export type { GvisorSandboxOptions } from './sandbox_gvisor.js';
+
 export { ToolRegistry, DEFAULT_TOOLS, DEFAULT_HTTP_ALLOWLIST } from './tools.js';
 export type { Tool, ToolContext, ToolResult } from './tools.js';
 

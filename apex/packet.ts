@@ -22,6 +22,11 @@ export interface CreatePacketInput {
   knollToken?: string;
   /** Optional fixed timestamp (for deterministic tests). */
   timestamp?: number;
+  /**
+   * Optional tenant identifier (Phase 8 multi-tenancy). ADDITIVE: when omitted the packet has
+   * no tenant scope (dev / single-tenant) and behaves exactly like a Phase 1 packet.
+   */
+  tenantId?: string;
 }
 
 /** Construct a fully-valid RoutingPacket with a correct hash and token. */
@@ -48,6 +53,8 @@ export function createPacket(input: CreatePacketInput): RoutingPacket {
       source: input.source,
       destination: input.destination,
       priority: input.priority ?? 'STANDARD',
+      // Only stamp tenantId when supplied so tenant-less packets stay byte-identical to Phase 1.
+      ...(input.tenantId !== undefined ? { tenantId: input.tenantId } : {}),
     },
     payload: {
       intent: input.intent,

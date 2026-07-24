@@ -1,0 +1,119 @@
+# deploy/k8s/gateway.deployment.yaml — the ALWAYS-ON HOPE gateway (never scales to zero).
+#
+# HOPE · APEX · KNOLL run inside this one always-on process (the gateway boots the router and
+# the KNOLL gate). It is deliberately tiny and cheap: small requests/limits, minReplicas >= 1.
+# DREAM/VISION are NOT here — they are ephemeral worker Jobs materialized by KEDA (deploy/keda/).
+#
+# The image is the same multi-stage build used by compose (deploy/Dockerfile), which runs
+# `npm run gateway`. TLS is terminated at the Ingress (see ingress.notes.md); the pod serves
+# plain HTTP on 8787 inside the cluster.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hdv-gateway
+  namespace: hdv-foundation
+  labels:
+    app.kubernetes.io/part-of: big5-matrix
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/name: hdv-gateway
+spec:
+  # Always-on: at least one replica at all times. HPA (below) scales the trio 1..n, never to 0.
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hdv-gateway
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: big5-matrix
+        app.kubernetes.io/component: gateway
+        app.kubernetes.io/name: hdv-gateway
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: gateway
+          image: hdv-foundation/gateway:latest
+          imagePullPolicy: IfNotPresent
+          command: ["npm", "run", "gateway"]
+          ports:
+            - name: http
+              containerPort: 8787
+          envFrom:
+            - configMapRef:
+                name: hdv-gateway-config
+            - secretRef:
+                name: hdv-gateway-secrets
+          # Tiny footprint — the always-on core is cheap; the fleet cost is in ephemeral workers.
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # /v1/health is public, auth- and rate-limit-exempt (see gateway/).
+          startupProbe:
+            httpGet:
+              path: /v1/health
+              port: http
+            failureThreshold: 30
+            periodSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /v1/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /v1/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+          # Root filesystem is read-only; give the process a writable scratch dir.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+# HPA for the always-on trio: scales 1..n on CPU, but NEVER to zero. This is the explicit
+# counterpart to the workers' scale-TO-zero (KEDA ScaledJob in deploy/keda/).
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: hdv-gateway
+  namespace: hdv-foundation
+  labels:
+    app.kubernetes.io/part-of: big5-matrix
+    app.kubernetes.io/component: gateway
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: hdv-gateway
+  minReplicas: 1
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

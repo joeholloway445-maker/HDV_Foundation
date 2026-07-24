@@ -31,7 +31,8 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 import { ApexRouter, createPacket } from '../apex/index.js';
-import { Knoll } from '../knoll/index.js';
+import { Knoll, LearnedBehavioralScorer, exportAuditTrainingSet } from '../knoll/index.js';
+import type { LabeledPacketSample, LearnedMode } from '../knoll/index.js';
 import { AgentRole, type PacketPriority, type RoutingStatus } from '../config/routing_schema.js';
 import { loadPricingBook } from '../billing/index.js';
 import type { PlanTier } from '../billing/index.js';
@@ -66,12 +67,46 @@ export interface EvalCase {
   };
 }
 
+/** One labeled training packet for the learned scorer: a packet spec + its deny label. */
+export interface LearnedTrainCase {
+  source: string;
+  destination: string;
+  intent: string;
+  data?: Record<string, unknown>;
+  priority?: PacketPriority;
+  /** 1 = the packet should be DENIED (BLOCKED); 0 = it is fine to ALLOW. */
+  label: 0 | 1;
+}
+
+/**
+ * Optional learned-scorer configuration. When `enable` is true, the board trains a
+ * `LearnedBehavioralScorer` on `train` and wires it into KNOLL as an ADDITIVE gate — so the
+ * board measures the real learned scorer, not a mock. It can only ADD denies (see
+ * knoll/scoring_learned.ts); illegal traffic is still caught by the hard laws first.
+ */
+export interface LearnedBoardConfig {
+  enable: boolean;
+  /** shadow (log only, never denies) vs enforce (adds denies). Default 'enforce'. */
+  mode?: LearnedMode;
+  /** Run the hand-tuned heuristic scorer alongside the learned one. Default false (isolate learned). */
+  withHeuristic?: boolean;
+  /** Training epochs. Default 300. */
+  epochs?: number;
+  /** Deny threshold on the sigmoid probability. Default 0.6. */
+  threshold?: number;
+  /** Flag threshold. Default 0.4. */
+  flagThreshold?: number;
+  train: LearnedTrainCase[];
+}
+
 export interface EvalFixture {
   name: string;
   description?: string;
   generatedFrom?: string;
   /** Pricing tier used to meter successful ephemeral executions. Default ENTERPRISE. */
   tier?: PlanTier;
+  /** Optional learned-scorer config (Phase 7). Absent → the board runs the default gate. */
+  learned?: LearnedBoardConfig;
   cases: EvalCase[];
 }
 
@@ -163,7 +198,11 @@ export function runBoard(fixture: EvalFixture, options: RunBoardOptions = {}): B
   const tier: PlanTier = fixture.tier ?? 'ENTERPRISE';
   const pricing = loadPricingBook();
 
-  const router = new ApexRouter({ knoll: new Knoll(), defaultCostUsd: 0 });
+  const knoll = fixture.learned?.enable
+    ? new Knoll(undefined, buildLearnedKnollOptions(fixture.learned))
+    : new Knoll();
+
+  const router = new ApexRouter({ knoll, defaultCostUsd: 0 });
   for (const role of Object.values(AgentRole)) {
     router.register(role, () => ({ ok: true }));
   }
@@ -233,6 +272,39 @@ export function runBoard(fixture: EvalFixture, options: RunBoardOptions = {}): B
     metrics,
     results,
     passed,
+  };
+}
+
+/**
+ * Train a LearnedBehavioralScorer on the fixture's labeled packets and return the KNOLL options
+ * that wire it in. Training uses the same feature extractor KNOLL uses live (via
+ * `exportAuditTrainingSet`), so the board scores the REAL learned gate. By default the heuristic
+ * scorer is turned off so the board isolates the learned scorer's additive denies.
+ */
+function buildLearnedKnollOptions(config: LearnedBoardConfig) {
+  const samples: LabeledPacketSample[] = config.train.map((t) => {
+    const source = asRole(t.source, 'source', `learned-train:${t.intent}`);
+    const destination = asRole(t.destination, 'destination', `learned-train:${t.intent}`);
+    const packet = createPacket({
+      source,
+      destination,
+      intent: t.intent,
+      data: t.data ?? {},
+      priority: t.priority,
+    });
+    return { packet, outcome: t.label === 1 ? ('BLOCKED' as const) : ('ALLOWED' as const) };
+  });
+
+  const scorer = new LearnedBehavioralScorer({
+    mode: config.mode ?? 'enforce',
+    threshold: config.threshold,
+    flagThreshold: config.flagThreshold,
+  });
+  scorer.train(exportAuditTrainingSet(samples), { epochs: config.epochs ?? 300 });
+
+  return {
+    enableScoring: config.withHeuristic ?? false,
+    learnedScorer: scorer,
   };
 }
 

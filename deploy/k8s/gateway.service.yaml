@@ -1,0 +1,22 @@
+# deploy/k8s/gateway.service.yaml — stable in-cluster address for the HOPE gateway.
+#
+# ClusterIP only: the gateway is reached from inside the cluster and, from outside, exclusively
+# through the Ingress (TLS terminated there — see ingress.notes.md). This preserves the "single
+# legal road" at the network edge: no side door into the matrix.
+apiVersion: v1
+kind: Service
+metadata:
+  name: hdv-gateway
+  namespace: hdv-foundation
+  labels:
+    app.kubernetes.io/part-of: big5-matrix
+    app.kubernetes.io/component: gateway
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: hdv-gateway
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

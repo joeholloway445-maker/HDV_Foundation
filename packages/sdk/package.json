@@ -1,0 +1,34 @@
+{
+  "name": "@big5-matrix/sdk",
+  "version": "0.1.0",
+  "description": "Typed, fetch-based client for the Big 5 Matrix (HDV Foundation) HOPE gateway /v1 API. Talks only to the gateway over HTTP — imports zero agent internals.",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "big5",
+    "hdv",
+    "sdk",
+    "client",
+    "gateway",
+    "openapi",
+    "typed-client"
+  ],
+  "types": "./index.ts",
+  "exports": {
+    ".": {
+      "types": "./index.ts",
+      "import": "./index.ts"
+    }
+  },
+  "files": [
+    "index.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

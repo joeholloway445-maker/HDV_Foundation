@@ -31,6 +31,11 @@ import {
   type GatewayLogger,
 } from './middleware.js';
 import { ApexOrchestrator } from '../apex/index.js';
+import type {
+  RequestLogRepository,
+  SecurityAuditRepository,
+  TaskQueue,
+} from '../persistence/index.js';
 import { MetricsCollector, PacketTracer, combineObservers } from '../observability/index.js';
 import { BillingService, isPlanTier, type PlanTier } from '../billing/index.js';
 import { IntentInterpreter, HopeDocumenter, HopeVoice } from '../hope/index.js';
@@ -104,6 +109,21 @@ export interface HopeGatewayOptions {
    * in-memory store.
    */
   waitlist?: WaitlistStore;
+  /**
+   * Phase 5 durability. When the gateway builds its OWN orchestrator (the default), these are
+   * forwarded to it so the APEX ledger and KNOLL audit trail are mirrored into durable
+   * repositories (see persistence/). They are ignored when you inject your own `orchestrator`
+   * (wire them into it yourself). The offline default leaves both undefined (pure in-memory).
+   */
+  requestLog?: RequestLogRepository;
+  securityAudit?: SecurityAuditRepository;
+  /**
+   * Phase 5 async intake. When provided (and the gateway builds its own orchestrator), the
+   * task queue is wired into the ApexOrchestrator so callers can `intake()` packets and a
+   * consumer drains them through the SAME KNOLL-gated dispatch path. Pure transport: it never
+   * bypasses APEX/KNOLL. Ignored when you inject your own `orchestrator`.
+   */
+  queue?: TaskQueue;
 }
 
 interface HopeResultRecord {
@@ -154,7 +174,15 @@ export class HopeGateway {
       this.billing.meter.observer(),
     );
     this.orchestrator =
-      options.orchestrator ?? new ApexOrchestrator({ defaultCostUsd: 0.02, observer });
+      options.orchestrator ??
+      new ApexOrchestrator({
+        defaultCostUsd: 0.02,
+        observer,
+        // Durable mirrors + async intake are additive: undefined ⇒ the offline in-memory path.
+        requestLog: options.requestLog,
+        securityAudit: options.securityAudit,
+        queue: options.queue,
+      });
     this.interpreter = options.interpreter ?? new IntentInterpreter();
     this.documenter = options.documenter ?? new HopeDocumenter();
     this.voice = options.voice ?? new HopeVoice();

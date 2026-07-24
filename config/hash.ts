@@ -23,6 +23,9 @@ export function canonicalize(packet: Pick<RoutingPacket, 'header' | 'payload'>):
       source: header.source,
       destination: header.destination,
       priority: header.priority,
+      // ADDITIVE: only fold tenantId into the canonical form when it is present, so legacy
+      // (tenant-less) packets serialize — and therefore hash — exactly as they did before.
+      ...(header.tenantId !== undefined ? { tenantId: header.tenantId } : {}),
     },
     payload: {
       intent: payload.intent,

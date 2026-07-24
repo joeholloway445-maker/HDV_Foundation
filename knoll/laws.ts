@@ -13,6 +13,20 @@ export interface LawVerdict {
   reasoning?: string;
 }
 
+/**
+ * Optional runtime context KNOLL passes to laws that need to know something about the
+ * *caller* beyond the packet bytes. Today only NO_CROSS_TENANT uses it (the authenticated
+ * tenant of the source). Additive: laws that ignore it keep their `(packet) => LawVerdict`
+ * shape, and callers that omit it fall back to dev-mode (single-tenant) behavior.
+ */
+export interface KnollLawContext {
+  /** The tenant KNOLL believes the packet's SOURCE is authenticated as, if any. */
+  sourceTenantId?: string;
+}
+
+/** A virtual law: a pure verdict over a packet plus optional runtime context. */
+export type KnollLaw = (packet: RoutingPacket, context?: KnollLawContext) => LawVerdict;
+
 /** Directed pairs that may NEVER appear as (source, destination). */
 const ILLEGAL_DIRECT_PAIRS: ReadonlyArray<readonly [AgentRole, AgentRole]> = [
   [AgentRole.DREAM, AgentRole.VISION],
@@ -125,6 +139,31 @@ export function lawNoMaliciousIntent(packet: RoutingPacket): LawVerdict {
   return { passed: true, law: 'NO_MALICIOUS_INTENT' };
 }
 
+/**
+ * LAW 7 — NO_CROSS_TENANT (Phase 8 multi-tenancy isolation).
+ *
+ * A packet may never cross a tenant boundary. If KNOLL knows the authenticated tenant of the
+ * source (context.sourceTenantId) AND the packet carries a header.tenantId, the two MUST match
+ * or the packet is denied. When either side is absent the system is treated as single-tenant /
+ * dev mode and the law passes — this is what keeps legacy Phase 1 (tenant-less) packets legal.
+ */
+export function lawNoCrossTenant(packet: RoutingPacket, context?: KnollLawContext): LawVerdict {
+  const packetTenant = packet.header.tenantId;
+  const sourceTenant = context?.sourceTenantId;
+  // Dev mode: no tenant on the packet or no known source tenant → nothing to isolate.
+  if (!packetTenant || !sourceTenant) {
+    return { passed: true, law: 'NO_CROSS_TENANT' };
+  }
+  if (packetTenant !== sourceTenant) {
+    return {
+      passed: false,
+      law: 'NO_CROSS_TENANT',
+      reasoning: `cross-tenant traffic denied: source tenant "${sourceTenant}" may not address packet tenant "${packetTenant}"`,
+    };
+  }
+  return { passed: true, law: 'NO_CROSS_TENANT' };
+}
+
 function collectStrings(value: unknown): string[] {
   if (typeof value === 'string') return [value];
   if (Array.isArray(value)) return value.flatMap(collectStrings);
@@ -135,11 +174,12 @@ function collectStrings(value: unknown): string[] {
 }
 
 /** The ordered law set KNOLL applies to structural/relational validation. */
-export const VIRTUAL_LAWS: ReadonlyArray<(packet: RoutingPacket) => LawVerdict> = [
+export const VIRTUAL_LAWS: ReadonlyArray<KnollLaw> = [
   lawTokenWellFormed,
   lawValidEndpoints,
   lawNoDirectDreamVision,
   lawNoKnollForgery,
   lawHopeCannotCommand,
   lawNoMaliciousIntent,
+  lawNoCrossTenant,
 ];

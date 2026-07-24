@@ -1,6 +1,6 @@
 {
   "name": "big5-matrix",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "private": true,
   "description": "Big 5 Agent Hierarchy (HDV Foundation) \u2014 Hope/Dream/Vision/KNOLL/APEX matrix. Strict separation of concerns.",
   "type": "module",
@@ -14,6 +14,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prototype": "bash scripts/prototype.sh",
+    "phase5:slice": "bash scripts/phase5_slice.sh",
     "smoke": "tsx scripts/smoke_prototype.ts",
     "ci": "npm run db:generate && npm run typecheck && npm test",
     "ci:python": "python3 personamatrix/demo.py && python3 personamatrix/test_model_backend.py && python3 colab/03_behavioral_scoring.py",
@@ -29,6 +30,7 @@
     "demo:billing": "tsx demo/run_billing_demo.ts",
     "demo:prototype": "tsx demo/run_prototype_walkthrough.ts",
     "eval:board": "tsx eval/run_board.ts",
+    "eval:board:learned": "tsx eval/run_board.ts --fixture eval/fixtures/learned.json --out eval/out/learned",
     "test:eval": "node --import tsx --test tests/eval.test.ts",
     "gateway": "tsx gateway/cli.ts",
     "mcp": "tsx mcp/cli.ts",
@@ -41,6 +43,7 @@
     "demo:gateway-auth": "tsx demo/run_gateway_auth_demo.ts",
     "test:gateway-auth": "node --import tsx --test tests/gateway_auth.test.ts",
     "test:vision": "node --import tsx --test tests/vision_sandbox.test.ts",
+    "test:vision-gvisor": "node --import tsx --test tests/vision_gvisor.test.ts",
     "test:dream-energy": "node --import tsx --test tests/dream_energy.test.ts",
     "test:providers": "node --import tsx --test tests/providers.test.ts",
     "test:tenancy": "node --import tsx --test tests/tenancy.test.ts",
@@ -49,14 +52,21 @@
     "test:market": "node --import tsx --test tests/market.test.ts",
     "test:phase5-queue": "node --import tsx --test tests/phase5_queue.test.ts",
     "test:worker-report": "node --import tsx --test tests/worker_report.test.ts",
+    "test:worker-job": "node --import tsx --test tests/worker_job.test.ts",
+    "test:phase6": "node --import tsx --test tests/phase6.test.ts",
+    "test:phase7": "node --import tsx --test tests/phase7.test.ts",
+    "test:phase8": "node --import tsx --test tests/phase8.test.ts",
+    "app:hope": "node -e \"const p=require('path').resolve('hope/app/index.html');console.log('HOPE live app (static, no build; talks ONLY to the gateway /v1).');console.log('1) start the gateway:  npm run gateway');console.log('2) serve this folder:  npx serve hope/app   (or: python3 -m http.server 8080 --directory hope/app)');console.log('3) open, pointing at the gateway:  http://localhost:3000/?api=http://localhost:8787');console.log('File: '+p+'   \u00b7   Serve note: hope/app/README.md');\"",
+    "openapi": "node -e \"const p=require('path').resolve('docs/openapi.yaml');console.log('HDV gateway OpenAPI spec (main /v1 routes): '+p);console.log('Typed client: packages/sdk (@big5-matrix/sdk)');\"",
     "queue:kafka:deps": "npm install kafkajs",
     "queue:kafka:up": "docker compose up -d kafka",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
-    "test": "node --import tsx --test tests/backbone.test.ts tests/phase2.test.ts tests/phase3.test.ts tests/phase4.test.ts tests/dream_energy.test.ts tests/persistence_prisma.test.ts tests/gateway_auth.test.ts tests/hope_ui.test.ts tests/vision_sandbox.test.ts tests/providers.test.ts tests/observability.test.ts tests/mcp.test.ts tests/tenancy.test.ts tests/billing.test.ts tests/eval.test.ts tests/market.test.ts tests/phase5_queue.test.ts tests/worker_report.test.ts",
+    "test": "node --import tsx --test tests/backbone.test.ts tests/phase2.test.ts tests/phase3.test.ts tests/phase4.test.ts tests/dream_energy.test.ts tests/persistence_prisma.test.ts tests/gateway_auth.test.ts tests/hope_ui.test.ts tests/vision_sandbox.test.ts tests/vision_gvisor.test.ts tests/providers.test.ts tests/observability.test.ts tests/mcp.test.ts tests/tenancy.test.ts tests/billing.test.ts tests/eval.test.ts tests/market.test.ts tests/phase5_queue.test.ts tests/worker_report.test.ts tests/worker_job.test.ts tests/phase6.test.ts tests/phase7.test.ts tests/phase8.test.ts",
     "python:demo": "python3 personamatrix/demo.py",
     "python:scoring": "python3 colab/03_behavioral_scoring.py",
     "python:worker": "python3 colab/05_horizontal_worker.py",
+    "python:worker-job": "python3 colab/worker_job.py",
     "python:gpu-hook": "python3 colab/06_gpu_model_hooks.py",
     "python:test-backend": "python3 personamatrix/test_model_backend.py"
   },
@@ -79,6 +89,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@prisma/client": "^6.19.3"
+    "@prisma/client": "^6.19.3",
+    "kafkajs": "^2.2.4"
   }
 }

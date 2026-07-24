@@ -1,0 +1,82 @@
+# deploy/keda/vision.scaledjob.yaml — VISION workers, scale-to-ZERO on Kafka lag.
+#
+# Identical scale-to-zero contract as the DREAM ScaledJob, bound to the VISION topic
+# (`hdv.routing.VISION`, produced by KafkaTaskQueue). VISION is the action/execution layer, so
+# its workers run inside sandboxes and typically want tighter isolation and (optionally) a GPU.
+# Zero lag ⇒ zero Jobs ⇒ zero GPU $. Results flow → APEX → HOPE; VISION never talks to DREAM.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledJob
+metadata:
+  name: hdv-vision-worker
+  namespace: hdv-foundation
+  labels:
+    app.kubernetes.io/part-of: big5-matrix
+    app.kubernetes.io/component: vision-worker
+spec:
+  minReplicaCount: 0
+  maxReplicaCount: 50
+  pollingInterval: 15
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  scalingStrategy:
+    strategy: "default"
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: "kafka:9092"
+        consumerGroup: "hdv-vision-workers"
+        topic: "hdv.routing.VISION"
+        lagThreshold: "1"
+        offsetResetPolicy: "earliest"
+  jobTargetRef:
+    parallelism: 1
+    completions: 1
+    backoffLimit: 3
+    activeDeadlineSeconds: 1800
+    ttlSecondsAfterFinished: 120
+    template:
+      metadata:
+        labels:
+          app.kubernetes.io/part-of: big5-matrix
+          app.kubernetes.io/component: vision-worker
+      spec:
+        restartPolicy: Never
+        serviceAccountName: hdv-worker
+        securityContext:
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+        containers:
+          - name: vision-worker
+            image: hdv-foundation/worker:latest
+            imagePullPolicy: IfNotPresent
+            args: ["--role", "VISION"]
+            envFrom:
+              - configMapRef:
+                  name: hdv-gateway-config
+              - secretRef:
+                  name: hdv-gateway-secrets
+            env:
+              - name: HDV_WORKER_ROLE
+                value: "VISION"
+              - name: HDV_KAFKA_CONSUMER_GROUP
+                value: "hdv-vision-workers"
+            resources:
+              requests:
+                cpu: "250m"
+                memory: "512Mi"
+              limits:
+                cpu: "1"
+                memory: "1Gi"
+                # nvidia.com/gpu: "1"
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+            volumeMounts:
+              - name: tmp
+                mountPath: /tmp
+        volumes:
+          - name: tmp
+            emptyDir: {}

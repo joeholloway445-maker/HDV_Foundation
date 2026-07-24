@@ -172,9 +172,28 @@ test('brokersFromEnv parses KAFKA_BROKERS or falls back to localhost:9092', () =
   );
 });
 
-test('createTaskQueue("kafka") without kafkajs throws a single clear, actionable error', async () => {
-  // No `kafkaModule` injected and kafkajs is not installed → dynamic import fails → one error.
-  await assert.rejects(() => createTaskQueue('kafka'), /kafkajs/);
+test('createTaskQueue("kafka", { kafkaModule }) returns a working KafkaTaskQueue offline', async () => {
+  // kafkajs is now a declared dependency; the selector wires the Kafka adapter. We inject a
+  // fake broker so the real broker connection isn't required for this offline assertion.
+  const { module } = makeFakeKafka();
+  const q = await createTaskQueue('kafka', { kafkaModule: module });
+  assert.ok(q instanceof KafkaTaskQueue, 'kafka mode builds a KafkaTaskQueue');
+  const received: DeliveredMessage[] = [];
+  const sub = (q as KafkaTaskQueue).subscribe('g', (m) => received.push(m), { partitions: [AgentRole.DREAM] });
+  await sub.ready;
+  const published = q.publish(dreamPacket());
+  await (q as KafkaTaskQueue).flush();
+  assert.equal(received.length, 1, 'the kafka-mode queue delivers via the injected broker');
+  assert.equal(received[0].messageId, published.messageId);
+  await (q as KafkaTaskQueue).close();
+});
+
+test('createTaskQueue("kafka") surfaces a clear error when the broker is unreachable', {
+  // A real connection attempt (no injected module) to a dead broker is slow due to retries, so
+  // this runs only when explicitly opted in. It proves the failure is a single actionable throw.
+  skip: process.env.HDV_TEST_KAFKA_NOBROKER ? false : 'set HDV_TEST_KAFKA_NOBROKER=1 to run',
+}, async () => {
+  await assert.rejects(() => createTaskQueue('kafka', { brokers: ['127.0.0.1:1'] }));
 });
 
 // ---------------------------------------------------------------------------

@@ -247,3 +247,9 @@ a waitlist collecting qualified leads; at least 3 design-partner intro calls boo
 
 *This document is the master index. When a plan changes, change it here first, then in the
 linked single-source-of-truth doc. Never let a number become a lie.*
+
+---
+
+## Status stamp (0.9.0)
+
+**Phases 5–8 foundations are implemented in-repo** (331 tests pass). Live GPU/Kafka/K8s on Hostinger remain *ops* — code seams, manifests, workers, laws, SDK, hashchain, marketplace, learned scorer, leases, and KEDA YAMLs are in tree. Run `npm run phase5:slice` / `npm run prototype` / `npm run eval:board`.

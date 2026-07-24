@@ -54,3 +54,21 @@ export type {
   SubscribeOptions,
 } from './kafka_stub.js';
 export { InMemoryKafkaStub } from './kafka_stub.js';
+
+// Phase 5 real-slice: a Kafka-backed TaskQueue over `kafkajs` (persistence/kafka_real.ts).
+// `resolveQueueMode` selects the backend from HDV_QUEUE (offline in-memory default);
+// `createTaskQueue` returns a ready TaskQueue for the resolved backend. The Kafka path is
+// only touched when HDV_QUEUE=kafka, so the backbone stays broker- and dependency-free.
+export { KafkaTaskQueue, createTaskQueue, resolveQueueMode, brokersFromEnv } from './kafka_real.js';
+export type {
+  QueueMode,
+  KafkaTaskQueueOptions,
+  KafkaSubscription,
+  KafkaModuleLike,
+  KafkaLike,
+  ProducerLike,
+  ConsumerLike,
+  EachMessagePayloadLike,
+  KafkaMessageLike,
+  KafkaHeaders,
+} from './kafka_real.js';

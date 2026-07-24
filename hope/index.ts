@@ -24,6 +24,26 @@ export type {
   IntentEnricherOptions,
 } from './enricher.js';
 
+// Intent memory: interpretation-only recall archive (hash-vector embed + pgvector stub).
+export {
+  IntentMemory,
+  InMemoryVectorStore,
+  PgVectorStore,
+  embedIntent,
+  cosineSimilarity,
+  EMBED_DIM,
+} from './memory.js';
+export type {
+  StoredIntent,
+  VectorQuery,
+  VectorMatch,
+  VectorStore,
+  PgVectorClient,
+  IntentMemoryOptions,
+  RememberOptions,
+  RecallOptions,
+} from './memory.js';
+
 // Forward-facing console (interpretation/documentation/voice only; routes only if injected).
 export {
   HopeConsole,

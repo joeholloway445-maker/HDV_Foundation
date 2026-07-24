@@ -18,6 +18,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import { estimateCpuSeconds, type ResourceMonitor } from './resource_monitor.js';
+import { GvisorSandboxSession, isGvisorAvailable } from './sandbox_gvisor.js';
 
 export type SandboxKind = 'docker' | 'gvisor';
 export type SandboxStatus = 'created' | 'running' | 'stopped';
@@ -231,13 +232,25 @@ export class StubSandboxSession implements SandboxSession {
   }
 }
 
-/** Factory: create a sandbox session of the given kind with optional resource limits. */
+/**
+ * Factory: create a sandbox session of the given kind with optional resource limits.
+ *
+ * Phase 5: when `kind === 'gvisor'` AND the gVisor runtime (`runsc` + `docker`) is available on
+ * the host, this returns a REAL `GvisorSandboxSession` (vision/sandbox_gvisor.ts). When gVisor
+ * is missing (the offline default and any host without it) it transparently falls back to the
+ * `StubSandboxSession`, so callers get identical semantics with zero infra. Docker sandboxes
+ * always use the stub for now (only gVisor has a real adapter).
+ */
 export function createSandboxSession(
   kind: SandboxKind = 'gvisor',
   limits?: Partial<ResourceLimits>,
   hooks?: SandboxHooks,
 ): SandboxSession {
-  return new StubSandboxSession(kind, { ...DEFAULT_LIMITS, ...limits }, hooks);
+  const resolved = { ...DEFAULT_LIMITS, ...limits };
+  if (kind === 'gvisor' && isGvisorAvailable()) {
+    return new GvisorSandboxSession(resolved, hooks);
+  }
+  return new StubSandboxSession(kind, resolved, hooks);
 }
 
 /**

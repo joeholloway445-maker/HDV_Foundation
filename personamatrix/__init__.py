@@ -44,6 +44,14 @@ from .parameters import (
     humanize_parameters,
     parameter_report,
 )
+from .specialization import (
+    PERSONA_SPECIALTIES,
+    SPECIALIZATIONS,
+    PersonaSpecialization,
+    SpecialtyMatch,
+    SpecialtyAssignment,
+    SpecialtyRouter,
+)
 from .model_backend import (
     DEFAULT_MODEL_ID,
     BACKEND_STUB,
@@ -91,6 +99,13 @@ __all__ = [
     "compute_active_parameters",
     "humanize_parameters",
     "parameter_report",
+    # Phase 7: persona specialization twin
+    "PERSONA_SPECIALTIES",
+    "SPECIALIZATIONS",
+    "PersonaSpecialization",
+    "SpecialtyMatch",
+    "SpecialtyAssignment",
+    "SpecialtyRouter",
     # Colab GPU / 7B model integration hooks
     "DEFAULT_MODEL_ID",
     "BACKEND_STUB",
@@ -107,4 +122,4 @@ __all__ = [
     "deterministic_seed",
 ]
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"

@@ -1,0 +1,30 @@
+# deploy/k8s/configmap.sample.yaml — NON-SECRET gateway configuration (sample).
+#
+# Copy to configmap.yaml and edit for your cluster. Only non-sensitive values belong here;
+# API keys, DB passwords, and Redis credentials go in a Secret (see secret.sample.yaml).
+#
+# These names mirror the env the gateway already reads (see docker-compose.prod.yml and
+# .env.example) so the container behaves identically in compose and in k8s.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hdv-gateway-config
+  namespace: hdv-foundation
+  labels:
+    app.kubernetes.io/part-of: big5-matrix
+    app.kubernetes.io/component: gateway
+data:
+  # Gateway HTTP port (Service targets this).
+  PORT: "8787"
+  NODE_ENV: "production"
+  # Task queue: flip to "kafka" to publish DREAM/VISION claims onto per-role topics that KEDA
+  # autoscales against (see deploy/keda/). "memory" keeps the always-on core self-contained.
+  HDV_QUEUE: "kafka"
+  # Kafka bootstrap brokers (comma-separated). KafkaTaskQueue produces topics <prefix>.<ROLE>.
+  KAFKA_BROKERS: "kafka:9092"
+  HDV_KAFKA_TOPIC_PREFIX: "hdv.routing"
+  # Optional shared LLM through the OpenAI-compatible / vLLM seam (serving/). Point at the
+  # in-cluster vLLM Service; the API key (if any) comes from the Secret.
+  HDV_LLM_PROVIDER: "openai_compatible"
+  HDV_LLM_BASE_URL: "http://vllm:8000/v1"
+  HDV_LLM_MODEL: "meta-llama/Llama-2-7b-hf"

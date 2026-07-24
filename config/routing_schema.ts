@@ -34,6 +34,12 @@ export interface RoutingPacket {
     source: AgentRole;
     destination: AgentRole;
     priority: PacketPriority;
+    /**
+     * Optional tenant identifier (Phase 8 multi-tenancy). ADDITIVE: legacy Phase 1 packets
+     * omit this field and remain valid. When present it is folded into the tamper hash and is
+     * enforced by KNOLL's NO_CROSS_TENANT law. Absence means "dev / single-tenant mode".
+     */
+    tenantId?: string;
   };
   payload: {
     intent: string;
