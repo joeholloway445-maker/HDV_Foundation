@@ -8,7 +8,10 @@
 // the same interfaces without touching call sites. This schema is the source of truth.
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // Runtime image is debian bookworm (OpenSSL 3). Builder may detect 1.1.x without
+  // openssl installed — ship both so Docker and local hosts stay compatible.
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {
