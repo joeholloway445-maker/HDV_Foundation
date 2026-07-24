@@ -168,11 +168,15 @@ export class SimulationEngine {
       const reward = clamp01(exec.score);
       const feasibility = clamp01(derive(persona.id, 1.7, 0.31));
       const risk = clamp01(1 - (0.5 * reward + 0.5 * feasibility) + derive(persona.id, 3.1, 0.11) * 0.2);
+      const scenarioText =
+        exec.text && exec.text.trim().length > 0
+          ? exec.text.trim().slice(0, 200)
+          : `Variant ${i + 1} @L${level} for "${intent}"`;
       const outcome: Outcome = {
         id: persona.id,
         parentId: parent.outcome.id,
         depth: level,
-        scenario: `Variant ${i + 1} @L${level} for "${intent}"`,
+        scenario: scenarioText,
         probability: round4(1 / breadth),
         utility: round4(reward * feasibility),
         risk: round4(risk),

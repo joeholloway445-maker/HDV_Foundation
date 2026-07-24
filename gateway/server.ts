@@ -214,6 +214,7 @@ export class HopeGateway {
     this.logger = options.logger === false ? () => {} : options.logger ?? defaultLogger;
 
     // Wire the ephemeral engines via DI (composition root — no peer imports between peers).
+    // Live persona inference is env-gated (HDV_PERSONA_INFERENCE=1 → Ollama per persona).
     const dream = new SimulationEngine(this.orchestrator.sendViaApex, { breadth: 2, depth: 1 });
     const vision = new ExecutionEngine('gvisor', this.orchestrator.sendViaApex);
     this.orchestrator.wire({

@@ -97,7 +97,9 @@ services:
     container_name: hdv-ollama
     profiles: ["local-llm"]
     restart: unless-stopped
-    # Internal only — never publish 11434 to the public interface.
+    # Loopback only — never publicly reachable. Host workers + gateway (via service DNS) share it.
+    ports:
+      - "127.0.0.1:11434:11434"
     expose:
       - "11434"
     volumes:
