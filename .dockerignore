@@ -1,0 +1,10 @@
+# Keep host secrets and junk out of the gateway image.
+.env
+.env.*
+!.env.example
+.git
+node_modules
+dist
+coverage
+*.log
+.DS_Store
