@@ -1,0 +1,80 @@
+name: Pages
+
+# Deploy the HDV Foundation marketing site to GitHub Pages.
+# Assembles a static bundle from marketing/ (site root) plus the showcase and
+# hope/app single-page demos, then publishes it via the official Pages actions.
+# Independent of CI: this workflow only builds/uploads static HTML.
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+# Least-privilege token scoped for Pages deployment (OIDC id-token required).
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow one concurrent deployment; don't cancel an in-progress publish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build static bundle
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Assemble site
+        run: |
+          set -euo pipefail
+          rm -rf _site
+          mkdir -p _site
+
+          # marketing/ is the site root (index.html, waitlist.html, assets, ...).
+          # Copy only web assets; skip source/docs files that aren't served.
+          if [ -d marketing ]; then
+            cp -r marketing/. _site/
+            # Drop non-web sources that live alongside the marketing HTML.
+            rm -f _site/comparison.ts _site/math.md _site/DEMO_VIDEO.md
+          fi
+
+          # showcase/ single-page demo -> /showcase/
+          if [ -d showcase ]; then
+            mkdir -p _site/showcase
+            cp -r showcase/. _site/showcase/
+          fi
+
+          # hope/app/ single-page demo -> /hope/app/
+          if [ -d hope/app ]; then
+            mkdir -p _site/hope/app
+            cp -r hope/app/. _site/hope/app/
+          fi
+
+          # Prevent Jekyll processing so files/dirs are served verbatim.
+          touch _site/.nojekyll
+
+          echo "Assembled site contents:"
+          find _site -maxdepth 2 -type f | sort
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

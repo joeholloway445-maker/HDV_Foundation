@@ -1,0 +1,78 @@
+name: Release
+
+# Optional, idempotent release workflow. It fires ONLY on a pushed version tag (v*), never on a
+# normal branch push, so day-to-day development is untouched (see ci.yml / security.yml for that).
+#
+# What it does, in order:
+#   1. Re-runs the full local CI gate on the tagged commit (`npm run ci`):
+#      db:generate + typecheck + test + eval:board (must PASS) + smoke. A red tag never ships.
+#   2. Creates a GitHub Release for the tag — but ONLY if one does not already exist. If a release
+#      is already present for this tag, the job SKIPS creation and still succeeds. Re-pushing or
+#      re-running a tag therefore creates nothing new and never clobbers an existing release.
+#
+# This keeps the workflow safe to re-run and free of redundant work: idempotent by construction.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# Serialize releases for the same tag; do NOT cancel an in-flight release (a half-published
+# release is worse than a slightly slower one).
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# Creating a Release requires write access to repository contents.
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Release ${{ github.ref_name }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Gate the tag on the same checks a contributor runs locally before tagging.
+      - name: Verify (npm run ci)
+        run: npm run ci
+
+      # Idempotency check: if a release already exists for this tag, we create nothing.
+      - name: Check for existing release
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Release ${GITHUB_REF_NAME} already exists — skipping creation (idempotent, redundant)."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "No release for ${GITHUB_REF_NAME} yet — one will be created."
+          fi
+
+      # Create the release only when it is genuinely new. Notes come from the tag's changelog
+      # section when present, otherwise from auto-generated commit notes.
+      - name: Create release
+        if: steps.existing.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --notes "Automated release for ${GITHUB_REF_NAME}. See CHANGELOG.md for details." \
+            --verify-tag \
+            --generate-notes

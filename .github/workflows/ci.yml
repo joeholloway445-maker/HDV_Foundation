@@ -53,6 +53,15 @@ jobs:
       - name: Test
         run: npm test
 
+      # Quality gate: the public eval board must PASS (exit 0). run_board.ts exits 1 on any
+      # escaped governance violation or blocked legal packet, so a regression fails CI here.
+      - name: Eval board (quality gate — must PASS)
+        run: npm run eval:board
+
+      # Smoke the gateway's public handlers end-to-end (no port bound), exactly as a client hits them.
+      - name: Smoke (gateway handlers)
+        run: npm run smoke
+
   python:
     name: Python ${{ matrix.python-version }} (personamatrix)
     runs-on: ubuntu-latest
