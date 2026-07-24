@@ -9,6 +9,9 @@
 > phases 1–8, founder actions, market-this-week). Founder quick-list (driving-friendly):
 > [`docs/FOUNDER_ACTIONS.md`](./docs/FOUNDER_ACTIONS.md) · `npm run plan`.
 >
+> **Live site:** <https://joeholloway445-maker.github.io/HDV_Foundation/> (auto-deployed to
+> GitHub Pages on every push to `main`).
+>
 > **Prototype & marketing:** [`docs/PROTOTYPE.md`](./docs/PROTOTYPE.md) ·
 > landing page [`marketing/index.html`](./marketing/index.html) (`npm run marketing`) ·
 > waitlist [`marketing/waitlist.html`](./marketing/waitlist.html) (`npm run waitlist`) ·
@@ -103,11 +106,13 @@ big5-matrix/
 
 ## Phase status
 
-Current release: **v0.3.0 (Phase 4 foundations)**. The backbone from Phase 1 and the Phase
-2/3 capabilities are unchanged and still enforced; Phase 4 layers forward-facing presence
-and scaling foundations on top **without breaking any invariant** (typecheck + all existing
-tests still pass; new tests added). See [`docs/GAME_PLAN.md`](./docs/GAME_PLAN.md) for the
-authoritative plan.
+Current release: **v0.9.0** — Phases 5–8 foundations are implemented in-repo and offline-tested
+(routing, security, metering, gateway, SDK, learned scorer, marketplace, hash-chain), with live
+GPU/Kafka/K8s remaining an ops task. Every release is additive: the Phase 1 backbone and the
+Phase 2/3 capabilities are unchanged and still enforced. See [`CHANGELOG.md`](./CHANGELOG.md)
+for the full v0.1 → v0.9 history, [`docs/PHASES_5_8_STATUS.md`](./docs/PHASES_5_8_STATUS.md) for
+the honest real-vs-stub ledger, and [`docs/GAME_PLAN.md`](./docs/GAME_PLAN.md) for the
+authoritative plan. The Phase-by-phase table below documents the Phase 1 → Phase 4 backbone.
 
 | Area                              | Phase 1        | Phase 2/3                                                     | Phase 4 (v0.3.0)                                          |
 |-----------------------------------|----------------|--------------------------------------------------------------|----------------------------------------------------------|
@@ -142,16 +147,45 @@ authoritative plan.
 - Node.js ≥ 20 (developed on Node 22)
 - Python ≥ 3.10 (standard library only; `ipywidgets` optional for `colab/04`)
 
-## Install
+## Quick start (clone → prototype → open)
 
 ```bash
-cd big5-matrix
+git clone https://github.com/joeholloway445-maker/HDV_Foundation.git
+cd HDV_Foundation
 npm install
+npm run prototype        # boots + live-verifies the whole stack over HTTP, then prints every URL/file to open
+```
+
+`npm run prototype` installs deps if needed, typechecks, runs a fast smoke, starts the HOPE
+gateway on `:8787`, curls the marquee endpoints (health · intent · pricing · waitlist · metrics),
+and prints the marketing page, waitlist, showcase, and MCP paths you can open next. `Ctrl+C`
+stops the gateway; add `--ci` (`./scripts/prototype.sh --ci`) to boot-verify-and-exit. Full
+honest timeline: [`docs/PROTOTYPE.md`](./docs/PROTOTYPE.md). Version history:
+[`CHANGELOG.md`](./CHANGELOG.md).
+
+Then open the marketing funnel (static, no build step):
+
+```bash
+npm run marketing        # prints how to open marketing/index.html (landing page)
+npm run waitlist         # prints how to open marketing/waitlist.html (waitlist form)
+npm run showcase         # prints how to open showcase/index.html (architecture/product showcase)
+```
+
+## Install (manual)
+
+```bash
+npm install              # from the repository root
 ```
 
 ## Commands
 
 ```bash
+npm run prototype     # ONE command: boot + live-verify the whole prototype over HTTP (Ctrl+C to stop)
+npm run smoke         # fast programmatic smoke of every gateway handler (no port bound)
+npm run eval:board    # public eval board — 5 headline metrics vs the real APEX→KNOLL gate (GATE must PASS)
+npm run marketing     # print how to open the static marketing landing page
+npm run waitlist      # print how to open the static waitlist page
+npm run showcase      # print how to open the static architecture/product showcase
 npm run typecheck     # tsc --noEmit — MUST be zero errors
 npm run demo          # Phase 1: routing + KNOLL block + tampered-hash demo
 npm run demo:phase2   # Phase 2/3: HOPE docs, DREAM trees, VISION tools, KNOLL scoring
@@ -182,19 +216,42 @@ the workflow.
 
 | Job | Runtime | Steps |
 |-----|---------|-------|
-| **node** | Node 22 (matrix) | `npm ci` → `npm run db:generate` (Prisma client) → `npm run typecheck` → `npm test` |
+| **node** | Node 22 (matrix) | `npm ci` → `npm run db:generate` (Prisma client) → `npm run typecheck` → `npm test` → `npm run eval:board` (quality gate — **must PASS**) → `npm run smoke` |
 | **python** | Python 3.12 (matrix) | `personamatrix/demo.py` → `personamatrix/test_model_backend.py` → `colab/03_behavioral_scoring.py` |
 
 Reproduce the CI gates locally:
 
 ```bash
-npm run ci          # db:generate + typecheck + test (Node backbone)
+npm run ci          # db:generate + typecheck + test + eval:board + smoke (Node backbone)
 npm run ci:python   # personamatrix demo + backend tests + behavioral scoring (Python)
 ```
+
+An optional [`/.github/workflows/release.yml`](./.github/workflows/release.yml) fires only on a
+pushed `v*` tag: it re-runs `npm run ci` on the tagged commit, then creates a GitHub Release
+**only if one does not already exist** for that tag (idempotent — re-pushing a tag never clobbers
+an existing release). See [`CHANGELOG.md`](./CHANGELOG.md) for release notes.
 
 A lightweight [`/.github/workflows/security.yml`](./.github/workflows/security.yml) adds a
 PR-only dependency review (blocks new high-severity vulnerabilities) plus a non-blocking
 `npm audit` (advisory, `continue-on-error`).
+
+### GitHub Pages deployment
+
+[`/.github/workflows/pages.yml`](./.github/workflows/pages.yml) publishes the static
+marketing site on every push to `main` (also runnable via **workflow_dispatch**). It builds a
+bundle with [`actions/upload-pages-artifact`](https://github.com/actions/upload-pages-artifact)
+and deploys with [`actions/deploy-pages`](https://github.com/actions/deploy-pages):
+
+| Source | Served at |
+|--------|-----------|
+| `marketing/` (incl. `index.html`, `waitlist.html`, `404.html`) | site root `/HDV_Foundation/` |
+| `showcase/` | `/HDV_Foundation/showcase/` |
+| `hope/app/` | `/HDV_Foundation/hope/app/` |
+
+The published URL follows the project-pages pattern
+**`https://joeholloway445-maker.github.io/HDV_Foundation/`**. This workflow is independent of
+the CI gates above — it only builds and uploads static HTML, so it never blocks (or is blocked
+by) typecheck/test jobs. Enable Pages once under **Settings → Pages → Source: GitHub Actions**.
 
 ### Database (Postgres) setup — optional
 

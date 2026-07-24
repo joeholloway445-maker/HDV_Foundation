@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>404 — Page not found · HDV Foundation</title>
+<meta name="description" content="The page you were looking for doesn't exist. Head back to HDV Foundation." />
+<meta name="color-scheme" content="dark" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,900&family=Sora:wght@300;400;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --void: #05070f;
+    --deep: #090d1c;
+    --ink: #eef1fb;
+    --ink-soft: rgba(238, 241, 251, 0.72);
+    --amber: #ffce7a;
+    --aqua: #6ee7d0;
+    --line: rgba(255, 206, 122, 0.20);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    background:
+      radial-gradient(1200px 600px at 50% -10%, rgba(110, 231, 208, 0.10), transparent 60%),
+      radial-gradient(900px 500px at 80% 110%, rgba(255, 206, 122, 0.10), transparent 60%),
+      var(--void);
+    color: var(--ink);
+    font-family: "Sora", system-ui, -apple-system, sans-serif;
+    text-align: center;
+    padding: 2rem;
+  }
+  .wrap { max-width: 34rem; }
+  .code {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: clamp(4rem, 18vw, 8rem);
+    line-height: 1;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    background: linear-gradient(120deg, var(--amber), var(--aqua));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    margin: 0;
+  }
+  h1 {
+    font-family: "Fraunces", Georgia, serif;
+    font-weight: 400;
+    font-size: clamp(1.4rem, 5vw, 2rem);
+    margin: 0.75rem 0 0.5rem;
+  }
+  p { color: var(--ink-soft); line-height: 1.6; margin: 0 0 2rem; }
+  .actions { display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap; }
+  a.btn {
+    display: inline-block;
+    padding: 0.7rem 1.25rem;
+    border-radius: 0.6rem;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.95rem;
+    border: 1px solid var(--line);
+    color: var(--ink);
+    transition: transform 0.15s ease, border-color 0.15s ease;
+  }
+  a.btn:hover { transform: translateY(-2px); border-color: var(--amber); }
+  a.btn.primary {
+    background: linear-gradient(120deg, var(--amber), var(--aqua));
+    color: #05070f;
+    border-color: transparent;
+  }
+</style>
+</head>
+<body>
+  <main class="wrap">
+    <p class="code">404</p>
+    <h1>This page slipped the matrix.</h1>
+    <p>The page you were looking for doesn't exist or has moved. Let's route you back to something that does.</p>
+    <div class="actions">
+      <a class="btn primary" href="/HDV_Foundation/">Back to home</a>
+      <a class="btn" href="/HDV_Foundation/waitlist.html">Join the waitlist</a>
+    </div>
+  </main>
+</body>
+</html>

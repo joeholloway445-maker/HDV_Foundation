@@ -27,6 +27,9 @@
 #   SKIP_DOCKER=1   skip Docker install + compose up (bare-metal / systemd path)
 #   SKIP_NODE=1     skip the Node.js install
 #   NO_UP=1         install everything but do NOT run `docker compose up`
+#   WITH_OLLAMA=1   also install Ollama (loopback-only) and pull OLLAMA_MODEL for local inference
+#   OLLAMA_MODEL    model to pull when WITH_OLLAMA=1   (default: llama3.2:3b; try mistral / tinyllama)
+#   WITH_CADDY=1    also install Caddy and drop in deploy/Caddyfile with DOMAIN substituted, then reload
 #
 # This script only provisions infrastructure and renders config. It never edits application code
 # and never touches the Big 5 routing/security invariants.
@@ -41,6 +44,7 @@ REPO_REF="${REPO_REF:-main}"
 TARGET_DIR="${TARGET_DIR:-/opt/hdv-foundation}"
 APP_SUBDIR="${APP_SUBDIR:-big5-matrix}"
 NODE_MAJOR="${NODE_MAJOR:-22}"
+OLLAMA_MODEL="${OLLAMA_MODEL:-llama3.2:3b}"
 
 log()  { printf '\033[1;36m[hdv]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[hdv:warn]\033[0m %s\n' "$*" >&2; }
@@ -181,20 +185,102 @@ else
 fi
 
 # --------------------------------------------------------------------------------------------
+# 8. Ollama (OPTIONAL) — co-located local 7B/8B inference, loopback-only
+# --------------------------------------------------------------------------------------------
+# Enable with WITH_OLLAMA=1. Installs Ollama, pins it to 127.0.0.1 (never publicly reachable —
+# no `ufw allow 11434`), and pulls OLLAMA_MODEL. A provider is a pure text transducer; this
+# changes text quality only and never touches routing/security. See deploy/OLLAMA.md.
+if [ "${WITH_OLLAMA:-0}" = "1" ]; then
+  if need_cmd ollama; then
+    log "Ollama already installed — skipping install."
+  else
+    log "Installing Ollama (loopback-only local inference)…"
+    curl -fsSL https://ollama.com/install.sh | sh || warn "Ollama install failed — see deploy/OLLAMA.md."
+  fi
+  if need_cmd ollama || [ -x /usr/local/bin/ollama ]; then
+    # Pin Ollama to loopback via a systemd drop-in (idempotent: rewrite each run).
+    if need_cmd systemctl; then
+      $SUDO mkdir -p /etc/systemd/system/ollama.service.d
+      printf '[Service]\nEnvironment="OLLAMA_HOST=127.0.0.1:11434"\nEnvironment="OLLAMA_KEEP_ALIVE=30m"\n' \
+        | $SUDO tee /etc/systemd/system/ollama.service.d/override.conf >/dev/null
+      $SUDO systemctl daemon-reload || true
+      $SUDO systemctl enable --now ollama 2>/dev/null || $SUDO systemctl restart ollama 2>/dev/null || \
+        warn "Could not (re)start ollama via systemctl."
+    fi
+    log "Pulling Ollama model: ${OLLAMA_MODEL} (this can take a while)…"
+    ollama pull "${OLLAMA_MODEL}" || warn "ollama pull ${OLLAMA_MODEL} failed — pull it manually later."
+    log "Ollama ready on 127.0.0.1:11434. Wire it in $ENV_FILE:"
+    log "  HDV_LLM_PROVIDER=openai_compatible  HDV_LLM_BASE_URL=http://127.0.0.1:11434/v1  HDV_LLM_MODEL=${OLLAMA_MODEL}"
+  fi
+else
+  log "WITH_OLLAMA not set — skipping local Ollama install (BYOK/stub provider by default)."
+fi
+
+# --------------------------------------------------------------------------------------------
+# 9. Caddy (OPTIONAL) — automatic HTTPS reverse proxy in front of the loopback gateway
+# --------------------------------------------------------------------------------------------
+# Enable with WITH_CADDY=1 (needs DOMAIN + DNS already pointing at this box). Installs Caddy,
+# drops in deploy/Caddyfile with DOMAIN substituted, and reloads. Idempotent: re-running just
+# refreshes the config and reloads.
+if [ "${WITH_CADDY:-0}" = "1" ]; then
+  if [ -z "${DOMAIN:-}" ]; then
+    warn "WITH_CADDY=1 but DOMAIN is unset — set DOMAIN=api.yourdomain.com and re-run."
+  elif ! need_cmd apt-get; then
+    warn "WITH_CADDY=1 but apt-get is unavailable — install Caddy manually (see deploy/HOSTINGER.md §6.2)."
+  else
+    if need_cmd caddy; then
+      log "Caddy already installed — refreshing config."
+    else
+      log "Installing Caddy…"
+      $SUDO apt-get install -y debian-keyring debian-archive-keyring apt-transport-https || true
+      curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
+        | $SUDO gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+      curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
+        | $SUDO tee /etc/apt/sources.list.d/caddy-stable.list >/dev/null
+      $SUDO apt-get update -y && $SUDO apt-get install -y caddy
+    fi
+    log "Installing Caddyfile for ${DOMAIN}…"
+    $SUDO cp "$APP_DIR/deploy/Caddyfile" /etc/caddy/Caddyfile
+    $SUDO sed -i "s/api\.yourdomain\.com/${DOMAIN}/g" /etc/caddy/Caddyfile
+    $SUDO systemctl reload caddy 2>/dev/null || $SUDO systemctl restart caddy 2>/dev/null || \
+      warn "Could not reload caddy — check 'systemctl status caddy' and DNS for ${DOMAIN}."
+    log "Caddy configured for https://${DOMAIN} (auto TLS via Let's Encrypt)."
+  fi
+else
+  log "WITH_CADDY not set — set up the reverse proxy manually (see 'Next steps' below)."
+fi
+
+# --------------------------------------------------------------------------------------------
 # done — next steps
 # --------------------------------------------------------------------------------------------
+# DNS reminder: only print the "point your records" nudge if the domain does NOT yet resolve to
+# this box (idempotent — a correctly configured domain shows a ✓ instead of a to-do).
+DNS_HINT="  2. DNS: point ${DOMAIN:-your-domain} A/AAAA records at this server, then obtain TLS."
+if [ -n "${DOMAIN:-}" ] && need_cmd dig; then
+  RESOLVED="$(dig +short "${DOMAIN}" A | head -n1 || true)"
+  MYIP="$(curl -fsS4 https://api.ipify.org 2>/dev/null || true)"
+  if [ -n "${RESOLVED}" ] && [ -n "${MYIP}" ] && [ "${RESOLVED}" = "${MYIP}" ]; then
+    DNS_HINT="  2. DNS: ✓ ${DOMAIN} already resolves to this box (${MYIP}) — TLS can be issued."
+  elif [ -n "${RESOLVED}" ]; then
+    DNS_HINT="  2. DNS: ${DOMAIN} resolves to ${RESOLVED} but this box is ${MYIP:-unknown} — fix the A record before TLS."
+  fi
+fi
+
 cat <<EOF
 
 $(log "Bootstrap complete.")
 Next steps:
-  1. Point a reverse proxy at the loopback gateway:
-       - Caddy:  cp $APP_DIR/deploy/Caddyfile /etc/caddy/Caddyfile   (set your domain)
+  1. Point a reverse proxy at the loopback gateway (skip if you passed WITH_CADDY=1):
+       - Caddy:  cp $APP_DIR/deploy/Caddyfile /etc/caddy/Caddyfile   (set your domain, then: systemctl reload caddy)
        - nginx:  see $APP_DIR/deploy/nginx.conf.sample + certbot
-  2. DNS: point ${DOMAIN:-your-domain} A/AAAA records at this server, then obtain TLS.
+${DNS_HINT}
   3. Smoke test (from the box):
        curl -s http://127.0.0.1:8787/v1/health
        curl -s -XPOST http://127.0.0.1:8787/v1/waitlist -H 'content-type: application/json' \\
             -d '{"email":"founder@example.com","source":"marketing"}'
-  4. Full runbook: $APP_DIR/deploy/HOSTINGER.md · Launch plan: $APP_DIR/docs/LAUNCH_CHECKLIST.md
+  4. Verify the public surface once TLS is up (from anywhere):
+       BASE_URL="https://${DOMAIN:-api.yourdomain.com}" bash $APP_DIR/scripts/verify_public.sh
+  5. Full handoff: $APP_DIR/docs/HANDOFF_HOSTINGER.md
+     Runbook: $APP_DIR/deploy/HOSTINGER.md · Ollama: $APP_DIR/deploy/OLLAMA.md · Launch: $APP_DIR/docs/LAUNCH_CHECKLIST.md
 
 EOF
