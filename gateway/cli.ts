@@ -42,6 +42,7 @@ import {
   type RepositoryBundle,
   type TaskQueue,
 } from '../persistence/index.js';
+import { sealProductionOrExplain } from './production.js';
 
 function parsePort(): number {
   const fromEnv = Number(process.env.PORT);
@@ -55,7 +56,20 @@ function databaseUrl(): string | undefined {
 }
 
 async function main(): Promise<void> {
+  // --- PRODUCTION SEAL (refuse to boot with open back doors) -------------------------------
+  const seal = sealProductionOrExplain();
+  for (const w of seal.warnings) console.warn(`[seal:warn] ${w}`);
+  if (!seal.ok) {
+    console.error('[seal:err] PRODUCTION BOOT REFUSED:');
+    for (const e of seal.errors) console.error(`  - ${e}`);
+    process.exit(1);
+  }
+  if (seal.production) {
+    console.log('[seal] HDV_PRODUCTION=1 — protected routes require API key; bind', seal.bindHost);
+  }
+
   const port = parsePort();
+  const bindHost = seal.bindHost;
 
   // --- Phase 5: optional durable persistence (Prisma/Postgres) -----------------------------
   // When DATABASE_URL is set we back the ledger + audit with Postgres, hydrating existing rows
@@ -111,7 +125,7 @@ async function main(): Promise<void> {
   const consumer = queue ? gateway.orchestrator.startQueueConsumer({ group: 'apex-intake' }) : undefined;
   if (consumer) console.log('Queue: APEX intake consumer started (group "apex-intake").');
 
-  const server = await gateway.listen(port);
+  const server = await gateway.listen(port, bindHost);
 
   const routes = [
     'POST /v1/intent',
@@ -131,7 +145,8 @@ async function main(): Promise<void> {
   const { config } = gateway.middleware;
   const authMode = config.apiKey ? 'ENABLED (X-HDV-Key / Bearer)' : 'DISABLED (dev mode — set HDV_API_KEY)';
   console.log('='.repeat(72));
-  console.log(`BIG 5 MATRIX — HOPE GATEWAY listening on http://localhost:${port}`);
+  console.log(`BIG 5 MATRIX — HOPE GATEWAY listening on http://${bindHost}:${port}`);
+  console.log(`Seal: production=${seal.production} · bind=${bindHost}`);
   console.log('KNOLL gate: enforced · APEX: sole router · no endpoint bypasses APEX');
   console.log(`Auth: ${authMode} · Rate limit: ${config.rateLimit}/min per IP · CORS: ${config.corsOrigin}`);
   console.log(`Persistence: ${repositories?.mode ?? 'memory'} · Queue: ${queueMode}`);
