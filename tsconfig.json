@@ -23,6 +23,7 @@
   },
   "include": [
     "apex/**/*.ts",
+    "holloway/**/*.ts",
     "hope/**/*.ts",
     "dream/**/*.ts",
     "vision/**/*.ts",
@@ -34,6 +35,7 @@
     "observability/**/*.ts",
     "gateway/**/*.ts",
     "providers/**/*.ts",
+    "legal/**/*.ts",
     "mcp/**/*.ts",
     "demo/**/*.ts",
     "eval/**/*.ts",

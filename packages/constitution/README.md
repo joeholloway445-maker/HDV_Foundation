@@ -75,19 +75,26 @@ interface KnollValidationResponse {
 The five Big AI roles. These are the **only** values allowed in `header.source` /
 `header.destination`.
 
-| Role     | Layer         | Lifecycle   | May execute | May create | May govern |
-| -------- | ------------- | ----------- | ----------- | ---------- | ---------- |
-| `HOPE`   | interface     | `ALWAYS_ON` | ✗           | ✗          | ✗          |
-| `KNOLL`  | security      | `ALWAYS_ON` | ✗           | ✗          | ✓ (audit)  |
-| `APEX`   | orchestration | `ALWAYS_ON` | ✗           | ✗          | ✓ (route)  |
-| `DREAM`  | simulation    | `EPHEMERAL` | ✗           | ✓          | ✗          |
-| `VISION` | action        | `EPHEMERAL` | ✓           | ✗          | ✗          |
+The **Primary Triad** (`HOPE`, `VISION`, `DREAM`) holds absolute separation of duty — each owns
+exactly one duty at 100% and is forbidden the other two. `KNOLL` (foundational enforcer) and
+`APEX` (orchestration) sit outside the triad. Authority flows downward Hope → Vision → Dream;
+memory returns upward to Hope.
 
-The kit exports this as `AGENT_LIFECYCLE`, `ALWAYS_ON_ROLES`, and `EPHEMERAL_ROLES`.
+| Role     | Duty / Layer      | Lifecycle   | May execute | May create | May govern |
+| -------- | ----------------- | ----------- | ----------- | ---------- | ---------- |
+| `HOPE`   | 100% governance   | `ALWAYS_ON` | ✗           | ✗          | ✓          |
+| `VISION` | 100% execution    | `EPHEMERAL` | ✓           | ✗          | ✗          |
+| `DREAM`  | 100% creation     | `EPHEMERAL` | ✗           | ✓          | ✗          |
+| `KNOLL`  | foundation (sec.) | `ALWAYS_ON` | ✗           | ✗          | ✓ (audit)  |
+| `APEX`   | orchestration     | `ALWAYS_ON` | ✗           | ✗          | ✓ (route)  |
+
+The kit exports the lifecycle as `AGENT_LIFECYCLE`, `ALWAYS_ON_ROLES`, and `EPHEMERAL_ROLES`,
+and the Primary Triad duty vocabulary as `PRIMARY_TRIAD`, `AUTHORITY_FLOW`, `ROLE_DUTY`,
+`ROLE_DUTY_PERCENT`, and the per-role `FORBIDDEN` map (with the `DutyClass` type).
 
 ### 3. KNOLL law names — the stable verdict vocabulary
 
-The six hard "virtual laws" run in order; KNOLL blocks on the first failure. Their names
+The hard "virtual laws" run in order; KNOLL blocks on the first failure. Their names
 appear verbatim in `KnollValidationResponse.enforcedConstraints`. Exported as
 `KNOLL_LAW_NAMES`.
 
@@ -97,8 +104,10 @@ appear verbatim in `KnollValidationResponse.enforcedConstraints`. Exported as
 | 2   | `VALID_ENDPOINTS`        | source/destination are distinct, valid roles (no self-addressing).   |
 | 3   | `NO_DIRECT_DREAM_VISION` | DREAM and VISION never communicate directly, in either direction.    |
 | 4   | `NO_KNOLL_FORGERY`       | No agent may forge `KNOLL` as a packet source.                        |
-| 5   | `HOPE_CANNOT_COMMAND`    | HOPE routes intent via APEX; it can't directly target DREAM/VISION.  |
+| 5   | `HOPE_CANNOT_COMMAND`    | HOPE (governance) routes intent via APEX; never targets DREAM/VISION. |
 | 6   | `NO_MALICIOUS_INTENT`    | Heuristic block over the intent + string payload values.             |
+| 7   | `NO_CROSS_TENANT`        | A packet may not cross a tenant boundary (Phase 8 isolation).        |
+| 8   | `PRIMARY_TRIAD_DUTY`     | Absolute separation of duty: HOPE=govern, VISION=execute, DREAM=create. |
 
 Structural / cross-cutting guards that run **around** the six laws (exported as
 `KNOLL_GUARD_NAMES`): `STRUCTURE`, `HASH_INTEGRITY`, `RATE_LIMIT`, `BEHAVIORAL_SCORE`. The

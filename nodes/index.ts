@@ -67,3 +67,32 @@ export type {
   ActiveParameterInput,
   ActiveParameterUsage,
 } from './parameters.js';
+
+// Topology math engines (pure/deterministic): Shannon entropy, discrete HMM, Etalon/Adaline.
+export {
+  shannonEntropy,
+  normalizeDistribution,
+  normalizedEntropy,
+  maxEntropy,
+  entropySpike,
+  forward,
+  viterbi,
+  validateHMM,
+  EtalonClassifier,
+  Adaline,
+  flattenGrid,
+  GRID_SIZE,
+  FEATURE_DIM,
+} from './math/index.js';
+export type {
+  Distribution,
+  DiscreteHMM,
+  ForwardResult,
+  ViterbiResult,
+  LabeledSample,
+  EtalonPrediction,
+  EtalonClassifierOptions,
+  AdalineSample,
+  AdalineOptions,
+  AdalineTrainingReport,
+} from './math/index.js';

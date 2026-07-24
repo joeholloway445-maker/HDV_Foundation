@@ -38,16 +38,22 @@ by **KNOLL** using a single, tamper-evident `RoutingPacket` contract.
 
 ## The Big 5
 
-| Agent  | Full name                                                        | Layer         | Job                                              | Hard constraint                          | Lifecycle    |
-|--------|-----------------------------------------------------------------|---------------|--------------------------------------------------|------------------------------------------|--------------|
-| HOPE   | Holloway's Own Providential Enterprise                          | Interface     | Parse intent, be the UI/UX voice (interpreter)   | CANNOT execute or create                 | Always-on    |
-| DREAM  | Dynamic Renderer of Ephemeral Art Model                         | Simulation    | Generate all possible outcomes                    | CANNOT govern or execute                 | Ephemeral    |
-| VISION | Vectorized Infrastructure and Systems Ionic Operational Node    | Action        | Tool usage / task implementation (sandboxed)     | CANNOT create or govern                  | Ephemeral    |
-| KNOLL  | Kinetic Node of Operational Locks and Limiters                 | Security      | Watch all traffic, enforce virtual laws, privacy | Always active, monitor-only              | Always-on    |
-| APEX   | Automated Processor of Ephemeral eXchanges                     | Orchestration | Route tasks between agents (master router)        | Every route MUST pass through KNOLL first | Always-on    |
+The **Primary Triad** — HOPE, VISION, DREAM — holds **absolute separation of duty**: each owns
+exactly one duty at 100% and is forbidden the other two. Authority flows downward Hope → Vision
+→ Dream; memory returns upward to Hope. KNOLL is the independent foundational enforcer and APEX
+is the orchestration layer (both outside the triad).
 
-**Operational rule:** APEX is master router · KNOLL is master auditor · HOPE is master
-interpreter. **DREAM and VISION cannot communicate directly.**
+| Agent  | Full name                                                        | Duty / Layer      | Job                                              | Hard constraint                          | Lifecycle    |
+|--------|-----------------------------------------------------------------|-------------------|--------------------------------------------------|------------------------------------------|--------------|
+| HOPE   | Holloway's Own Providential Enterprise                          | 100% Governance   | Rule-making, policy, direction; interpret intent (a governance function) | CANNOT execute or create                 | Always-on    |
+| VISION | Vectorized Infrastructure and Systems Ionic Operational Node    | 100% Execution    | Pipelines, processing, delivery (sandboxed)      | CANNOT govern or create                  | Ephemeral    |
+| DREAM  | Dynamic Renderer of Ephemeral Art Model                         | 100% Creation     | Generative / UI / content                        | CANNOT govern or execute                 | Ephemeral    |
+| KNOLL  | Kinetic Node of Operational Locks and Limiters                 | Foundation (Security) | Active health routing + virtual laws; 34% freeze | Independent entity; freeze + quarantine  | Always-on    |
+| APEX   | Automated Processor of Ephemeral eXchanges                     | Orchestration     | Route tasks between agents (master router)        | Every route MUST pass through KNOLL first | Always-on    |
+
+**Operational rule:** APEX is master router · KNOLL is master auditor + foundational enforcer ·
+HOPE is the governance voice (interpreting intent is governance). **DREAM and VISION cannot
+communicate directly.** Full audited constitution: [`docs/CONSTITUTION.md`](docs/CONSTITUTION.md).
 
 ### Legal traffic flow
 

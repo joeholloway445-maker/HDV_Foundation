@@ -6,6 +6,14 @@
  */
 import { AgentRole, type RoutingPacket } from '../config/routing_schema.js';
 import { isWellFormedKnollToken } from '../config/hash.js';
+import {
+  FORBIDDEN,
+  ROLE_DUTY,
+  isPrimaryTriadRole,
+  dutyForIntentKind,
+  asDutyClass,
+  type DutyClass,
+} from '../config/duty.js';
 
 export interface LawVerdict {
   passed: boolean;
@@ -108,9 +116,10 @@ export function lawNoKnollForgery(packet: RoutingPacket): LawVerdict {
 }
 
 /**
- * LAW 5 — HOPE is the interface/interpreter and cannot execute or create. It may not
- * directly target VISION (execution) or DREAM (creation/simulation); it must hand
- * structured intent to APEX, which decides routing.
+ * LAW 5 — HOPE is the GOVERNANCE voice (rule-making, policy, system direction) and cannot
+ * execute or create. Authority flows downward via APEX, never by HOPE reaching around it:
+ * HOPE may not directly target VISION (execution) or DREAM (creation); it hands structured
+ * intent to APEX, which decides routing. (Duty separation itself is LAW 8 PRIMARY_TRIAD_DUTY.)
  */
 export function lawHopeCannotCommand(packet: RoutingPacket): LawVerdict {
   const { source, destination } = packet.header;
@@ -164,6 +173,53 @@ export function lawNoCrossTenant(packet: RoutingPacket, context?: KnollLawContex
   return { passed: true, law: 'NO_CROSS_TENANT' };
 }
 
+/**
+ * LAW 8 — PRIMARY_TRIAD_DUTY. Absolute separation of duty across the Primary Triad.
+ *
+ * Authority flows downward Hope -> Vision -> Dream; each triad role owns exactly ONE duty at
+ * 100% and is FORBIDDEN the other two:
+ *   HOPE   = GOVERNANCE  (cannot execute, cannot create)
+ *   VISION = EXECUTION   (cannot govern,  cannot create)
+ *   DREAM  = CREATION    (cannot govern,  cannot execute)
+ *
+ * A packet declares the duty it asks the DESTINATION to perform via `payload.data.duty`
+ * (explicit `DutyClass`) or `payload.data.kind` (a HOPE `IntentKind`). If that requested duty
+ * is forbidden for the destination triad role, the packet is a duty violation and is blocked
+ * (e.g. asking HOPE to execute/create, VISION to govern/create, DREAM to govern/execute).
+ *
+ * ADDITIVE / backward-compatible: packets that declare no duty, or address APEX/KNOLL (outside
+ * the triad), pass — mirroring how NO_CROSS_TENANT treats tenant-less packets as dev mode. This
+ * law never mutates the packet; like every KNOLL law it only allows or denies.
+ */
+export function lawPrimaryTriadDuty(packet: RoutingPacket): LawVerdict {
+  const dest = packet.header.destination;
+  if (!isPrimaryTriadRole(dest)) {
+    return { passed: true, law: 'PRIMARY_TRIAD_DUTY' };
+  }
+  const requested = requestedDuty(packet);
+  if (!requested) {
+    return { passed: true, law: 'PRIMARY_TRIAD_DUTY' };
+  }
+  if (FORBIDDEN[dest].includes(requested)) {
+    return {
+      passed: false,
+      law: 'PRIMARY_TRIAD_DUTY',
+      reasoning: `duty violation: ${dest} is 100% ${ROLE_DUTY[dest]} and is forbidden ${requested} (authority flows Hope -> Vision -> Dream)`,
+    };
+  }
+  return { passed: true, law: 'PRIMARY_TRIAD_DUTY' };
+}
+
+/** The duty a packet asks its destination to perform: explicit `data.duty` wins, else `data.kind`. */
+function requestedDuty(packet: RoutingPacket): DutyClass | undefined {
+  const data = packet.payload.data as Record<string, unknown>;
+  return (
+    asDutyClass(data.duty) ??
+    asDutyClass(data.requestedDuty) ??
+    dutyForIntentKind(typeof data.kind === 'string' ? data.kind : undefined)
+  );
+}
+
 function collectStrings(value: unknown): string[] {
   if (typeof value === 'string') return [value];
   if (Array.isArray(value)) return value.flatMap(collectStrings);
@@ -182,4 +238,5 @@ export const VIRTUAL_LAWS: ReadonlyArray<KnollLaw> = [
   lawHopeCannotCommand,
   lawNoMaliciousIntent,
   lawNoCrossTenant,
+  lawPrimaryTriadDuty,
 ];
