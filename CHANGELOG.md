@@ -20,20 +20,38 @@ six security laws.
 
 ### Added
 
-- **CI quality gate.** `.github/workflows/ci.yml` now runs `npm run eval:board` (must PASS — the
-  board exits non-zero on any escaped governance violation or blocked legal packet) and
-  `npm run smoke` after the test suite, so every push/PR proves the real APEX→KNOLL gate and the
-  gateway's public handlers, not just unit tests.
-- **Release workflow.** `.github/workflows/release.yml` — an optional, idempotent workflow that
-  fires only on a pushed `v*` tag. It re-runs the full `npm run ci` gate on the tagged commit,
-  then creates a GitHub Release **only if one does not already exist** for the tag (re-pushing or
-  re-running a tag creates nothing and never clobbers an existing release).
+- **Audited HDV constitution (Primary Triad + Knoll 34% + Holloways + math + privacy + legal).**
+  Absolute duty separation: Hope = 100% Governance, Vision = 100% Execution, Dream = 100%
+  Creation (`config/duty.ts`, KNOLL LAW 8 `PRIMARY_TRIAD_DUTY`). Authority flows Hope → Vision →
+  Dream; memory returns upward to Hope. Docs: `docs/CONSTITUTION.md`, updated `.cursorrules`.
+- **KNOLL — independent active router with 34% enforcement + system freeze.**
+  `knoll/freeze.ts` (`SystemFreezeController`) provides absolute freeze + isolated quarantine.
+  At behavioral score **≥ 0.34 (34%)**, `Knoll.intercept` denies the packet, freezes the system,
+  and quarantines the offender. `knoll/active_router.ts` probes HOPE/VISION/DREAM/APEX for health
+  only. APEX refuses new business routes while frozen (`SYSTEM_FREEZE`) except a Holloway/Prime
+  override. Tests: `tests/knoll_freeze.test.ts`, `tests/triad_duty.test.ts`.
+- **HOLLOWAY sovereign layer wired end-to-end into KNOLL freeze.** Acting Prime unconstrained
+  command (countermandable only by Former Primes); Designated Audit Ledger readable only by
+  Acting / Former / Prime Hope. `knoll/holloway_bridge.ts` verifies signed `HollowayOverrideToken`s,
+  drives FREEZE/UNFREEZE on `SystemFreezeController`, and records overrides on the ledger.
+  Docs: `docs/HOLLOWAY.md`.
+- **Math engines** — Shannon entropy, discrete HMM, Etalon/Adaline (`nodes/math/`) +
+  `knoll/entropy_bridge.ts` for entropy-spike → Knoll intervention signals.
+- **Reflected Hopes** — per-user isolated containers (`hope/reflected/`), opt-in privacy default,
+  tactical-intel exception seam. Cannot contaminate Core/Prime Hope.
+- **Legal framework** — embedded Governance NDA + TOS (`legal/`), manual progression gates.
+- **CI quality gate.** `.github/workflows/ci.yml` now runs `npm run eval:board` and
+  `npm run smoke` after the test suite.
+- **Release workflow.** `.github/workflows/release.yml` on pushed `v*` tags.
 - **This changelog.**
 
 ### Changed
 
-- `npm run ci` now includes `eval:board` + `smoke` so the local gate matches CI exactly
-  (`db:generate → typecheck → test → eval:board → smoke`).
+- **Behavioral anomaly deny threshold lowered 0.6 → 0.34 (34%)** in `knoll/scoring.ts` and
+  `personamatrix/scoring.py`; `intentEntropy` weight raised so Shannon spikes can cross 34%.
+- KNOLL default freeze controller uses the sovereign token recognizer (signed overrides + legacy
+  shape strings).
+- `npm run ci` now includes `eval:board` + `smoke`.
 
 ## [0.9.0] — 2026-07-24 — Phase 8 foundations (platform)
 

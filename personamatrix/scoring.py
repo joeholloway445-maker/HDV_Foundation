@@ -4,6 +4,13 @@ A stdlib-only mirror of the TypeScript behavioral scorer, for Colab experimentat
 offline tuning of KNOLL's additive scoring gate. It is ADDITIVE to the six virtual laws;
 it never replaces them. numpy is optional -- everything here uses only the standard library.
 
+ENFORCEMENT THRESHOLD (KNOLL active-router change): the default deny threshold is 0.34
+(34%), mirroring knoll/scoring.ts. Lowered from the legacy 0.6 when KNOLL became an
+INDEPENDENT ACTIVE ROUTER: at or above 34% the TypeScript KNOLL denies the packet AND trips
+an immediate system-level freeze + packet quarantine (see knoll/freeze.ts). This Python twin
+keeps the same threshold so offline tuning matches live enforcement. The Shannon-entropy
+feature (`intent_entropy`) is one contributor that can push a high-entropy blob over 34%.
+
 Features (each normalized 0..1, higher = more suspicious):
     rate             -- recent request volume from the source (flooding)
     intent_entropy   -- character entropy of intent + string payload (random blobs)
@@ -38,12 +45,16 @@ ENDPOINT_RISK = {
     "DREAM->VISION": 1.0, "VISION->DREAM": 1.0,
 }
 
+# Weights sum to 1.0. `intent_entropy` was raised (0.10 -> 0.20, pulling from the low-signal
+# `rate` and `payload_size` features) so a Shannon-entropy SPIKE can meaningfully contribute to
+# crossing the 34% deny threshold. `malicious_hits` stays the dominant hard signal. Mirrors
+# knoll/scoring.ts DEFAULT_WEIGHTS.
 DEFAULT_WEIGHTS: Dict[str, float] = {
-    "rate": 0.15,
-    "intent_entropy": 0.10,
+    "rate": 0.10,
+    "intent_entropy": 0.20,
     "malicious_hits": 0.30,
     "endpoint_risk": 0.15,
-    "payload_size": 0.10,
+    "payload_size": 0.05,
     "priority_abuse": 0.10,
     "source_reputation": 0.10,
 }
@@ -133,8 +144,9 @@ class BehavioralScore:
 class BehavioralScorer:
     """Stateful anomaly scorer mirroring knoll/scoring.ts."""
 
-    threshold: float = 0.6
-    flag_threshold: float = 0.4
+    # 0.34 (34%) deny threshold -- KNOLL active-router enforcement (was 0.6). See module docstring.
+    threshold: float = 0.34
+    flag_threshold: float = 0.2
     rate_window_s: float = 1.0
     rate_soft_cap: int = 20
     weights: Dict[str, float] = field(default_factory=lambda: dict(DEFAULT_WEIGHTS))

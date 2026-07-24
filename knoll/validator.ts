@@ -21,6 +21,8 @@ import { VIRTUAL_LAWS, type KnollLawContext } from './laws.js';
 import { SecurityAuditLog } from './audit.js';
 import { BehavioralScorer } from './scoring.js';
 import { LearnedBehavioralScorer } from './scoring_learned.js';
+import { SystemFreezeController } from './freeze.js';
+import { createSovereignFreezeController } from './holloway_bridge.js';
 
 export interface KnollOptions {
   /** Max packets allowed per source within the rate window. */
@@ -45,6 +47,13 @@ export interface KnollOptions {
    */
   learnedScorer?: LearnedBehavioralScorer;
   enableLearnedScoring?: boolean;
+  /**
+   * The system freeze controller (KNOLL active-router enforcement). When the behavioral gate
+   * scores a packet at or above the 34% deny threshold, KNOLL denies it AND trips this freeze
+   * plus quarantines the packet. Shared with APEX so `ApexRouter.dispatch` can refuse new
+   * business routes while frozen. A controller is stood up automatically when none is injected.
+   */
+  freeze?: SystemFreezeController;
 }
 
 interface RateBucket {
@@ -58,6 +67,11 @@ export class Knoll {
   readonly scorer?: BehavioralScorer;
   /** The optional learned behavioral scorer (Phase 7). Present only when enabled. Read-only. */
   readonly learnedScorer?: LearnedBehavioralScorer;
+  /**
+   * The system freeze controller. Always present: a 34%+ behavioral anomaly trips it, and APEX
+   * consults it (`knoll.freeze.isFrozen()`) before every business route. Read-only surface.
+   */
+  readonly freeze: SystemFreezeController;
   private readonly rateLimit: number;
   private readonly rateWindowMs: number;
   private readonly now: () => number;
@@ -79,6 +93,10 @@ export class Knoll {
     } else {
       this.learnedScorer = undefined;
     }
+    // KNOLL owns the system freeze: a 34%+ behavioral anomaly trips it (see intercept()).
+    // Default freeze is wired to the Holloway sovereign token recognizer (signed overrides +
+    // legacy shape strings). Inject a custom controller to override.
+    this.freeze = options.freeze ?? createSovereignFreezeController({ now: this.now });
   }
 
   /**
@@ -135,6 +153,11 @@ export class Knoll {
       const behavioral = this.scorer.score(rp);
       if (behavioral.isAnomalous) {
         const reasoning = `behavioral anomaly score ${behavioral.score} >= ${behavioral.threshold}`;
+        // KNOLL active-router enforcement: at/above the 34% deny threshold KNOLL does not merely
+        // deny — it trips an ABSOLUTE system freeze and quarantines the offending packet. APEX
+        // then refuses every new business route until a Holloway/Prime override lifts the freeze.
+        this.freeze.triggerFreeze(reasoning, behavioral.score, rp.header.packetId);
+        this.freeze.quarantinePacket(rp, { reason: reasoning, score: behavioral.score });
         this.audit.record(rp.header.packetId, 'BLOCKED', reasoning);
         return {
           isAllowed: false,

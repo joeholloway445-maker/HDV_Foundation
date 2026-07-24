@@ -35,6 +35,24 @@ export type {
 import { AgentRole } from '../../config/routing_schema.js';
 
 // ---------------------------------------------------------------------------
+// 1b. The Primary Triad duty vocabulary (re-exported, single source of truth).
+//     Absolute separation of duty: HOPE = governance, VISION = execution, DREAM = creation.
+//     Authority flows Hope -> Vision -> Dream; memory returns upward to Hope.
+// ---------------------------------------------------------------------------
+export {
+  DUTY_CLASSES,
+  PRIMARY_TRIAD,
+  AUTHORITY_FLOW,
+  ROLE_DUTY,
+  ROLE_DUTY_PERCENT,
+  FORBIDDEN,
+  isPrimaryTriadRole,
+  dutyForIntentKind,
+  asDutyClass,
+} from '../../config/duty.js';
+export type { DutyClass, PrimaryTriadRole } from '../../config/duty.js';
+
+// ---------------------------------------------------------------------------
 // 2. KNOLL law names — the public, stable identifiers KNOLL emits per verdict.
 // ---------------------------------------------------------------------------
 
@@ -53,9 +71,10 @@ export const KNOLL_LAW_NAMES = [
   'VALID_ENDPOINTS', // LAW 2 — source/destination are distinct, valid roles
   'NO_DIRECT_DREAM_VISION', // LAW 3 — DREAM and VISION never talk directly, either way
   'NO_KNOLL_FORGERY', // LAW 4 — no agent may forge KNOLL as a packet source
-  'HOPE_CANNOT_COMMAND', // LAW 5 — HOPE routes intent via APEX; never commands DREAM/VISION
+  'HOPE_CANNOT_COMMAND', // LAW 5 — HOPE (governance) routes intent via APEX; never commands DREAM/VISION
   'NO_MALICIOUS_INTENT', // LAW 6 — malicious-intent heuristic over intent + payload strings
   'NO_CROSS_TENANT', // LAW 7 — packets may not cross a tenant boundary (Phase 8 isolation)
+  'PRIMARY_TRIAD_DUTY', // LAW 8 — absolute separation of duty: HOPE=govern, VISION=execute, DREAM=create
 ] as const;
 
 export type KnollLawName = (typeof KNOLL_LAW_NAMES)[number];

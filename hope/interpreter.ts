@@ -1,19 +1,22 @@
 /**
- * hope/interpreter.ts — HOPE, the Interface Layer (master interpreter).
+ * hope/interpreter.ts — HOPE, the GOVERNANCE role of the Primary Triad (100% governance).
  *
- * HOPE parses natural language into a structured intent payload and hands it to APEX to
- * route. HOPE is the UI/UX "voice" of the system.
+ * HOPE governs by direction: interpreting natural language into a structured intent payload is a
+ * GOVERNANCE function (deciding what the user means and what the system should be directed to
+ * do). HOPE hands that direction to APEX, which routes it downward (Hope -> Vision -> Dream);
+ * memory returns upward to HOPE. HOPE is the governance "voice" of the system.
  *
  * Phase 2 adds richer, NLP-style parsing: entity / goal / constraint extraction, urgency
  * detection, multi-intent (primary + secondary) recognition, and clarification requests
  * when confidence is below threshold.
  *
- * CONSTRAINTS (enforced by construction here, and by KNOLL at the gate):
- *   - HOPE CANNOT execute. It performs no tool use and touches no sandbox.
- *   - HOPE CANNOT create. It produces interpretations, not artifacts.
+ * CONSTRAINTS (enforced by construction here, and by KNOLL at the gate — LAW 5
+ * HOPE_CANNOT_COMMAND + LAW 8 PRIMARY_TRIAD_DUTY):
+ *   - HOPE CANNOT execute. It performs no tool use and touches no sandbox (VISION's duty).
+ *   - HOPE CANNOT create. It produces governance direction, not artifacts (DREAM's duty).
  *   - HOPE only ever talks to APEX. It imports no peer agent (no DREAM, no VISION).
  *
- * See hope/PROMPT.md for the interpreter template / voice guidance.
+ * See hope/PROMPT.md for the governance prompt / voice guidance.
  */
 import { AgentRole } from '../config/routing_schema.js';
 import type { CreatePacketInput, DispatchResult } from '../apex/index.js';

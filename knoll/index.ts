@@ -15,6 +15,7 @@ export {
   lawHopeCannotCommand,
   lawNoMaliciousIntent,
   lawNoCrossTenant,
+  lawPrimaryTriadDuty,
 } from './laws.js';
 export type { LawVerdict, KnollLaw, KnollLawContext } from './laws.js';
 export { AuditHashChain } from './hashchain.js';
@@ -27,6 +28,9 @@ export type {
 } from './scoring.js';
 export { extractFeatures } from './features.js';
 export type { BehavioralFeatures, ScoringContext } from './features.js';
+// Entropy-spike intervention bridge (pure math; monitor-only, mutates nothing).
+export { evaluateEntropySpike } from './entropy_bridge.js';
+export type { EntropySpikeSignal } from './entropy_bridge.js';
 export { LearnedBehavioralScorer, exportAuditTrainingSet, FEATURE_ORDER } from './scoring_learned.js';
 export type {
   LearnedMode,
@@ -37,3 +41,25 @@ export type {
   TrainOptions,
   LearnedBehavioralScorerOptions,
 } from './scoring_learned.js';
+export { SystemFreezeController, defaultIsHollowayToken, asFreezeControllable } from './freeze.js';
+export type {
+  FreezeState,
+  QuarantineRecord,
+  SystemFreezeControllerOptions,
+} from './freeze.js';
+export {
+  createSovereignTokenRecognizer,
+  createSovereignFreezeController,
+  applySovereignFreezeOverride,
+  parseOverrideToken,
+  asHollowayOverrideToken,
+} from './holloway_bridge.js';
+export type { ApplySovereignFreezeOptions } from './holloway_bridge.js';
+export { KnollActiveRouter, DEFAULT_PROBE_SURFACES } from './active_router.js';
+export type {
+  HealthStatus,
+  HealthProbe,
+  HealthProbeResult,
+  HealthSample,
+  KnollActiveRouterOptions,
+} from './active_router.js';

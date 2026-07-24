@@ -16,36 +16,70 @@ absorb the responsibilities of another, even "temporarily" or "for convenience".
 
 ---
 
-## 1. THE BIG 5 AGENTS
+## 1. THE BIG 5 AGENTS — PRIMARY TRIAD + FOUNDATION
 
-### HOPE — Holloway's Own Providential Enterprise (Interface Layer)
-- Role: Intent parsing and the UI/UX "voice" of the system. Master interpreter.
-- Job: Translate natural language into a structured intent payload for APEX to route.
-- CONSTRAINT: CANNOT execute. CANNOT create. Interpretation only.
+The **Primary Triad** (HOPE, VISION, DREAM) enforces **absolute separation of duty**: each of
+the three owns exactly ONE duty at 100% and is FORBIDDEN the other two. KNOLL is an independent
+foundational entity; APEX is the orchestration layer among the Big Five.
+
+> AUTHORITATIVE — this replaces the prior "HOPE = interpreter/interface" framing where they
+> conflict. Authority flows DOWNWARD Hope -> Vision -> Dream; memory returns UPWARD to Hope.
+
+```
+AUTHORITY FLOW (downward)                 MEMORY (upward)
+    HOPE  (100% GOVERNANCE) ────────┐         ▲
+      │  rule-making · policy       │         │  results, learnings, audit
+      ▼                             │         │  return upward to HOPE, which governs on them
+    VISION (100% EXECUTION)         │         │
+      │  pipelines · delivery       │         │
+      ▼                             │         │
+    DREAM (100% CREATION) ──────────┘─────────┘
+         generative · UI · content
+
+  Every hop is mediated:  SOURCE ──▶ APEX ──▶ KNOLL ──▶ DEST   (no agent reaches around APEX)
+```
+
+### HOPE — Holloway's Own Providential Enterprise (Governance)
+- Role: **100% GOVERNANCE** — rule-making, policy, system direction. The governance voice.
+- Job: Interpret intent (a governance function) and set direction that flows down via APEX.
+- CONSTRAINT: **CANNOT execute. CANNOT create.** Governance only.
 - Lifecycle: ALWAYS-ON standby.
 
-### DREAM — Dynamic Renderer of Ephemeral Art Model (Simulation Layer)
-- Role: Generate all possible outcomes / scenarios for a given request.
-- Job: Simulate; render ephemeral possibilities.
-- CONSTRAINT: CANNOT govern. CANNOT execute. Simulation only.
+### VISION — Vectorized Infrastructure and Systems Ionic Operational Node (Execution)
+- Role: **100% EXECUTION** — pipelines, processing, delivery, real task implementation in
+  sandboxes (Docker/gVisor).
+- Job: Execute tasks; report results (memory) back upward through APEX.
+- CONSTRAINT: **CANNOT govern. CANNOT create.** Execution only.
 - Lifecycle: EPHEMERAL (spawned on demand, terminated after use), plus its node matrix.
 
-### VISION — Vectorized Infrastructure and Systems Ionic Operational Node (Action Layer)
-- Role: Tool usage and real task implementation inside sandboxes (Docker/gVisor).
-- Job: Execute tasks; report results back through APEX.
-- CONSTRAINT: CANNOT create. CANNOT govern. Execution only.
+### DREAM — Dynamic Renderer of Ephemeral Art Model (Creation)
+- Role: **100% CREATION** — generative / UI / content; renders possibilities and artifacts.
+- Job: Create; return created outcomes (memory) back upward through APEX.
+- CONSTRAINT: **CANNOT govern. CANNOT execute.** Creation only.
 - Lifecycle: EPHEMERAL (spawned on demand, terminated after use), plus its node matrix.
 
-### KNOLL — Kinetic Node of Operational Locks and Limiters (Security Layer)
-- Role: Watches ALL traffic, enforces virtual laws, protects privacy. Master auditor.
-- Job: Intercept and validate every packet. Emit SecurityAudit records.
-- CONSTRAINT: ALWAYS ACTIVE. Monitor-only — it intercepts and validates, it does NOT
-  create or execute business tasks.
+### KNOLL — Kinetic Node of Operational Locks and Limiters (Foundation)
+- Role: Independent foundational entity — an **independent ACTIVE router + enforcer** (NOT
+  passive-only). Watches ALL traffic, enforces virtual laws, protects privacy. Master auditor.
+  (Outside the triad.)
+- Job: Intercept and validate every packet; emit SecurityAudit records; AND actively route its
+  OWN monitoring probes across the mesh — health-sampling the HOPE / VISION / DREAM / APEX
+  surfaces — emitting every health reading to the audit trail (`knoll/active_router.ts`).
+- 34% IMMEDIATE ENFORCEMENT: the behavioral anomaly deny threshold is **0.34 (34%)**, not 0.6
+  (`knoll/scoring.ts`, mirrored in `personamatrix/scoring.py`). Any packet scoring at/above 34%
+  is denied AND immediately trips an ABSOLUTE system-level FREEZE + packet QUARANTINE
+  (`knoll/freeze.ts`). While frozen, APEX MUST refuse EVERY new business route
+  (`ApexRouter.dispatch` → BLOCKED / `SYSTEM_FREEZE`); the ONLY exception is the Holloway/Prime
+  override path (`SystemFreezeController.unfreeze(hollowayToken)`, or a valid override token
+  passed to `dispatch`). The Shannon-entropy feature can contribute to crossing 34%.
+- CONSTRAINT: ALWAYS ACTIVE. KNOLL is an active router for SECURITY + HEALTH monitoring ONLY —
+  it still does NOT govern policy, create (DREAM), or execute (VISION) business tasks. Its probes
+  are read-only health checks; it never mutates a payload to make it "pass".
 - Lifecycle: ALWAYS-ON standby.
 
-### APEX — Automated Processor of Ephemeral eXchanges (Orchestration Layer)
-- Role: Routes tasks between agents. Master router.
-- Job: The single legal transport between agents.
+### APEX — Automated Processor of Ephemeral eXchanges (Orchestration)
+- Role: Orchestration layer among the Big Five. Routes tasks between agents. Master router.
+- Job: The single legal transport between agents. (Outside the triad.)
 - CONSTRAINT: No agent may communicate with another without passing through APEX.
   APEX MUST call KNOLL before every route.
 - Lifecycle: ALWAYS-ON standby.
@@ -54,17 +88,22 @@ absorb the responsibilities of another, even "temporarily" or "for convenience".
 
 ## 2. OPERATIONAL RULES (HARD LAWS)
 
-1. APEX is the master router. KNOLL is the master auditor. HOPE is the master interpreter.
-2. No agent may talk to another agent directly. All traffic flows: SOURCE -> APEX -> KNOLL -> DEST.
-3. DREAM and VISION CANNOT communicate directly, in either direction. Ever.
-4. APEX MUST call `KNOLL.intercept(packet)` BEFORE routing. If KNOLL returns
+1. **Absolute separation of duty (Primary Triad).** HOPE = 100% governance, VISION = 100%
+   execution, DREAM = 100% creation. No triad role may perform a duty forbidden to it, even
+   "temporarily" — HOPE never executes/creates, VISION never governs/creates, DREAM never
+   governs/executes. Enforced by KNOLL LAW 8 `PRIMARY_TRIAD_DUTY`.
+2. **Authority flows downward Hope -> Vision -> Dream; memory returns upward to Hope.** APEX is
+   the master router; KNOLL is the master auditor and foundational enforcer.
+3. No agent may talk to another agent directly. All traffic flows: SOURCE -> APEX -> KNOLL -> DEST.
+4. DREAM and VISION CANNOT communicate directly, in either direction. Ever.
+5. APEX MUST call `KNOLL.intercept(packet)` BEFORE routing. If KNOLL returns
    `isAllowed: false`, the packet is dropped and logged as BLOCKED.
-5. No module may import another peer agent module directly (e.g. `vision` importing
+6. No module may import another peer agent module directly (e.g. `vision` importing
    `dream`). Agents receive an APEX transport (router or `sendViaApex` callback) via
    dependency injection only.
-6. Every ephemeral execution MUST be recorded in the APEX billing ledger with
+7. Every ephemeral execution MUST be recorded in the APEX billing ledger with
    `cost_usd` metadata and a SUCCESS / BLOCKED / FAILED status.
-7. KNOLL may never mutate a payload to make it "pass". It only allows or denies.
+8. KNOLL may never mutate a payload to make it "pass". It only allows or denies.
 
 ---
 

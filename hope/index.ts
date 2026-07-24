@@ -44,6 +44,36 @@ export type {
   RecallOptions,
 } from './memory.js';
 
+// Reflected Hopes: per-user, isolated mirror containers (opt-in; cannot contaminate Core/Prime).
+export {
+  ReflectedHope,
+  ReflectedHopeRegistry,
+  CoreHopeStore,
+  reflectedId,
+  containerPath,
+  isReflectedPath,
+  isCoreOrPrimePath,
+  assertIsolation,
+  CORE_HOPE_ROOT,
+  PRIME_HOPE_ROOT,
+  REFLECTED_ROOT,
+  OptInConsent,
+  DEFAULT_OPT_IN,
+  TacticalIntelException,
+} from './reflected/index.js';
+export type {
+  ReflectedObservation,
+  RecordOptions,
+  ReflectedHopeOptions,
+  ReflectedHopeRegistryOptions,
+  ConsentState,
+  OptInConsentOptions,
+  IntelPurpose,
+  IntelExceptionEntry,
+  TacticalIntelExceptionOptions,
+  ManipulationContext,
+} from './reflected/index.js';
+
 // Forward-facing console (interpretation/documentation/voice only; routes only if injected).
 export {
   HopeConsole,

@@ -9,6 +9,14 @@
  * The scorer is stateful: it tracks a per-source sliding window of request timestamps
  * (rate) and an accumulating reputation risk (sources that keep tripping the scorer get
  * more suspicious). It remains monitor-only — it returns a verdict; it mutates no packet.
+ *
+ * ENFORCEMENT THRESHOLD (KNOLL active-router change): the default deny threshold is 0.34
+ * (34%). This is intentionally aggressive — KNOLL is an INDEPENDENT ACTIVE ROUTER, not a
+ * passive observer. Any packet whose behavioral anomaly score reaches 34% is denied AND
+ * escalated by KNOLL into an immediate system-level FREEZE + packet QUARANTINE (see
+ * knoll/freeze.ts, wired in knoll/validator.ts). The Shannon-entropy feature
+ * (features.ts `intentEntropy`) is one of the contributors that can push a high-entropy
+ * exfil-shaped blob across this 34% line.
  */
 import { AgentRole, type RoutingPacket } from '../config/routing_schema.js';
 import { extractFeatures, type BehavioralFeatures, type ScoringContext } from './features.js';
@@ -27,9 +35,13 @@ export interface BehavioralScore {
 export type FeatureWeights = Record<keyof BehavioralFeatures, number>;
 
 export interface BehavioralScorerOptions {
-  /** Deny threshold. score >= threshold → anomalous (deny). Default 0.6. */
+  /**
+   * Deny threshold. score >= threshold → anomalous (deny + immediate freeze/quarantine).
+   * Default 0.34 (34%). Lowered from the legacy 0.6 when KNOLL became an independent active
+   * router: at 34% KNOLL denies the packet and trips a system-level freeze.
+   */
   threshold?: number;
-  /** Flag (log-but-allow) threshold. Default 0.4. */
+  /** Flag (log-but-allow) threshold. Kept below the deny threshold. Default 0.2. */
   flagThreshold?: number;
   /** Per-feature weights; defaults sum to 1.0. */
   weights?: Partial<FeatureWeights>;
@@ -41,12 +53,16 @@ export interface BehavioralScorerOptions {
   now?: () => number;
 }
 
+// Weights sum to 1.0. `intentEntropy` was raised (0.10 → 0.20, pulling from the low-signal
+// `rate` and `payloadSize` features) so a Shannon-entropy SPIKE — a high-entropy exfil-shaped
+// blob — can meaningfully contribute to crossing the 34% deny threshold. `maliciousHits` stays
+// the dominant hard signal.
 const DEFAULT_WEIGHTS: FeatureWeights = {
-  rate: 0.15,
-  intentEntropy: 0.1,
+  rate: 0.1,
+  intentEntropy: 0.2,
   maliciousHits: 0.3,
   endpointRisk: 0.15,
-  payloadSize: 0.1,
+  payloadSize: 0.05,
   priorityAbuse: 0.1,
   sourceReputation: 0.1,
 };
@@ -63,8 +79,9 @@ export class BehavioralScorer {
   private readonly reputation = new Map<AgentRole, number>();
 
   constructor(options: BehavioralScorerOptions = {}) {
-    this.threshold = options.threshold ?? 0.6;
-    this.flagThreshold = options.flagThreshold ?? 0.4;
+    // 0.34 (34%) deny threshold — KNOLL active-router enforcement (was 0.6). See file header.
+    this.threshold = options.threshold ?? 0.34;
+    this.flagThreshold = options.flagThreshold ?? 0.2;
     this.weights = { ...DEFAULT_WEIGHTS, ...options.weights };
     this.rateWindowMs = options.rateWindowMs ?? 1000;
     this.rateSoftCap = options.rateSoftCap ?? 20;

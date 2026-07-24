@@ -89,10 +89,16 @@ export class ApexRouter {
    * and (optionally) notifies the observer. Observation happens AFTER the verdict and can
    * never influence it.
    */
-  dispatch(packet: RoutingPacket, costUsd?: number): DispatchResult {
-    if (!this.observer) return this.gatedDispatch(packet, costUsd);
+  /**
+   * @param hollowayToken Optional Holloway/Prime override. Accepted forms:
+   *   - legacy shape string (`holloway_…` / `prime_…`),
+   *   - signed `HollowayOverrideToken` object, or its JSON serialization.
+   * While KNOLL has the system frozen, only a recognized override may pass this gate.
+   */
+  dispatch(packet: RoutingPacket, costUsd?: number, hollowayToken?: unknown): DispatchResult {
+    if (!this.observer) return this.gatedDispatch(packet, costUsd, hollowayToken);
     const start = performance.now();
-    const result = this.gatedDispatch(packet, costUsd);
+    const result = this.gatedDispatch(packet, costUsd, hollowayToken);
     this.emit(packet, result, performance.now() - start);
     return result;
   }
@@ -119,11 +125,12 @@ export class ApexRouter {
   /**
    * Dispatch a packet. Order is fixed and non-negotiable:
    *   1. defensive structural check,
+   *   1b. KNOLL system-freeze check — refuse ALL new business routes while frozen,
    *   2. KNOLL.intercept — the mandatory gate,
    *   3. only if allowed: deliver to the destination handler,
    *   4. always: write a ledger entry (SUCCESS / BLOCKED / FAILED) with cost_usd.
    */
-  private gatedDispatch(packet: RoutingPacket, costUsd?: number): DispatchResult {
+  private gatedDispatch(packet: RoutingPacket, costUsd?: number, hollowayToken?: unknown): DispatchResult {
     const packetId = isRoutingPacket(packet) ? packet.header.packetId : 'unknown-packet';
 
     // Step 1: defensive structural guard (KNOLL will also check authoritatively).
@@ -140,6 +147,29 @@ export class ApexRouter {
         status: 'BLOCKED',
         cost_usd: 0,
         knollSignature: 'no-token',
+      });
+      return { status: 'BLOCKED', packetId, knoll: verdict, cost_usd: 0 };
+    }
+
+    // Step 1b: KNOLL active-router freeze gate. When KNOLL has tripped the system freeze (a 34%+
+    // behavioral anomaly), APEX MUST refuse EVERY new business route — no create, no execute —
+    // until a Holloway/Prime override lifts it. The ONLY exception is a caller presenting a valid
+    // Holloway/Prime override token on this dispatch.
+    const freeze = this.knoll.freeze;
+    if (freeze.isFrozen() && !freeze.isHollowayToken(hollowayToken)) {
+      const state = freeze.state();
+      const verdict: KnollValidationResponse = {
+        isAllowed: false,
+        reasoning: `system frozen by KNOLL — new routes refused (cause: ${state.reason ?? 'behavioral anomaly'})`,
+        enforcedConstraints: ['SYSTEM_FREEZE'],
+      };
+      this.ledger.logRequest({
+        packetId,
+        source: packet.header.source,
+        destination: packet.header.destination,
+        status: 'BLOCKED',
+        cost_usd: 0,
+        knollSignature: signature(packet, verdict),
       });
       return { status: 'BLOCKED', packetId, knoll: verdict, cost_usd: 0 };
     }
@@ -215,8 +245,8 @@ export class ApexRouter {
    * call sites can already `await` routing; a later phase can back this with a real task
    * queue (see persistence/redis_router_stub.ts) without changing callers.
    */
-  async dispatchAsync(packet: RoutingPacket, costUsd?: number): Promise<DispatchResult> {
-    return Promise.resolve(this.dispatch(packet, costUsd));
+  async dispatchAsync(packet: RoutingPacket, costUsd?: number, hollowayToken?: string): Promise<DispatchResult> {
+    return Promise.resolve(this.dispatch(packet, costUsd, hollowayToken));
   }
 
   /** Expose the KNOLL audit trail (read path) without exposing KNOLL's write surface. */
