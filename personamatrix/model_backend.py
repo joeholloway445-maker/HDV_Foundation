@@ -38,6 +38,11 @@ DEFAULT_MODEL_ID = "mistralai/Mistral-7B-Instruct-v0.2"
 # Recognized backend names for the env/factory selector.
 BACKEND_STUB = "stub"
 BACKEND_TRANSFORMERS = "transformers"
+BACKEND_OLLAMA = "ollama"
+
+# Default Ollama model — small enough for CPU KVM boxes; override with PERSONAMATRIX_MODEL_ID.
+DEFAULT_OLLAMA_MODEL_ID = "llama3.2:3b"
+DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434"
 
 
 @dataclass
@@ -240,6 +245,114 @@ class TransformersBackend(ModelBackend):
         )
 
 
+class OllamaBackend(ModelBackend):
+    """Real inference via a co-located Ollama server (OpenAI-compatible + native /api/generate).
+
+    Standard-library only (``urllib``). Ideal for Hostinger/CPU boxes where ``torch`` is too
+    heavy but Ollama already serves ``llama3.2:3b`` (or any pulled model). Generated text is
+    folded through the same filter transform as TransformersBackend so scoring semantics match.
+    """
+
+    name = BACKEND_OLLAMA
+
+    def __init__(
+        self,
+        model_id: str = DEFAULT_OLLAMA_MODEL_ID,
+        *,
+        base_url: Optional[str] = None,
+        timeout_s: float = 120.0,
+        max_tokens: int = 64,
+    ) -> None:
+        super().__init__(model_id=model_id)
+        self.base_url = (
+            base_url
+            or os.environ.get("PERSONAMATRIX_OLLAMA_URL")
+            or os.environ.get("OLLAMA_HOST")
+            or DEFAULT_OLLAMA_BASE_URL
+        ).rstrip("/")
+        # OLLAMA_HOST sometimes is host:port without scheme.
+        if "://" not in self.base_url:
+            self.base_url = f"http://{self.base_url}"
+        self.timeout_s = timeout_s
+        self.max_tokens = max_tokens
+
+    @classmethod
+    def is_available(cls, base_url: Optional[str] = None) -> bool:
+        """True when an Ollama /api/tags endpoint responds."""
+        import urllib.error
+        import urllib.request
+
+        root = (
+            base_url
+            or os.environ.get("PERSONAMATRIX_OLLAMA_URL")
+            or os.environ.get("OLLAMA_HOST")
+            or DEFAULT_OLLAMA_BASE_URL
+        ).rstrip("/")
+        if "://" not in root:
+            root = f"http://{root}"
+        try:
+            req = urllib.request.Request(f"{root}/api/tags", method="GET")
+            with urllib.request.urlopen(req, timeout=2.0) as resp:
+                return 200 <= resp.status < 300
+        except (urllib.error.URLError, TimeoutError, OSError):
+            return False
+
+    def generate(self, request: GenerationRequest) -> GenerationResult:
+        import json
+        import urllib.error
+        import urllib.request
+
+        prompt = (
+            "You are an ephemeral matrix persona. Reply in ONE short sentence "
+            f"(max 40 words) addressing this task:\n{request.prompt()}"
+        )
+        body = json.dumps(
+            {
+                "model": self.model_id,
+                "prompt": prompt,
+                "stream": False,
+                "options": {"num_predict": self.max_tokens, "temperature": 0.4},
+            }
+        ).encode("utf-8")
+        req = urllib.request.Request(
+            f"{self.base_url}/api/generate",
+            data=body,
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
+                payload = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            err_body = exc.read().decode("utf-8", errors="replace")
+            raise ModelBackendUnavailableError(
+                f"Ollama generate failed ({exc.code}) at {self.base_url}: {err_body}"
+            ) from exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            raise ModelBackendUnavailableError(
+                f"Ollama unreachable at {self.base_url}: {exc}"
+            ) from exc
+
+        text = str(payload.get("response") or "").strip()
+        if not text:
+            text = f"(empty ollama response for {request.persona_id})"
+        seed = deterministic_seed(text)
+        score = _filtered_score(seed, request.filters)
+        return GenerationResult(
+            score=score,
+            text=text,
+            backend=self.name,
+            model_id=self.model_id,
+            metadata={
+                "base_url": self.base_url,
+                "prompt": request.prompt(),
+                "seed": seed,
+                "eval_count": payload.get("eval_count"),
+                "total_duration": payload.get("total_duration"),
+            },
+        )
+
+
 class ModelBackendUnavailableError(RuntimeError):
     """Raised when a requested backend cannot run (e.g. transformers/torch missing)."""
 
@@ -272,9 +385,12 @@ def get_backend(
         return StubBackend(model_id=resolved_model_id)
     if name == BACKEND_TRANSFORMERS:
         return TransformersBackend(model_id=resolved_model_id, **kwargs)
+    if name == BACKEND_OLLAMA:
+        ollama_model = model_id or os.environ.get("PERSONAMATRIX_MODEL_ID") or DEFAULT_OLLAMA_MODEL_ID
+        return OllamaBackend(model_id=ollama_model, **kwargs)
     raise UnknownBackendError(
         f"Unknown PERSONAMATRIX_BACKEND {name!r}; expected "
-        f"{BACKEND_STUB!r} or {BACKEND_TRANSFORMERS!r}."
+        f"{BACKEND_STUB!r}, {BACKEND_TRANSFORMERS!r}, or {BACKEND_OLLAMA!r}."
     )
 
 

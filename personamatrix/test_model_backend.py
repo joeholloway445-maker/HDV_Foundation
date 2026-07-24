@@ -26,11 +26,13 @@ if _REPO_ROOT not in sys.path:
 from personamatrix import (  # noqa: E402
     BACKEND_STUB,
     BACKEND_TRANSFORMERS,
+    BACKEND_OLLAMA,
     DEFAULT_MODEL_ID,
     GenerationRequest,
     ModelBackendUnavailableError,
     StubBackend,
     TransformersBackend,
+    OllamaBackend,
     UnknownBackendError,
     execute,
     filter_director,
@@ -105,6 +107,16 @@ def test_filter_director_shares_backend() -> None:
     results = filter_director("DREAM", "DREAM-mgr-00-node-00", payloads, backend=backend)
     assert len(results) == 10
     assert all(r.output["model_id"] == "acme/batch-7b" for r in results)
+
+
+def test_ollama_backend_factory_and_availability() -> None:
+    """Ollama backend is selectable offline; is_available is False when no server."""
+    backend = get_backend(backend="ollama", model_id="llama3.2:3b", base_url="http://127.0.0.1:9")
+    assert backend.name == BACKEND_OLLAMA
+    assert backend.model_id == "llama3.2:3b"
+    # Nothing listening on :9 → not available.
+    assert OllamaBackend.is_available("http://127.0.0.1:9") is False
+    print("    [ollama] factory ok; unreachable host correctly reports unavailable")
 
 
 def test_transformers_backend_optional() -> None:
@@ -186,6 +198,7 @@ def _run() -> int:
         ("test_execute_backward_compatible_default", test_execute_backward_compatible_default, False),
         ("test_execute_accepts_injected_backend", test_execute_accepts_injected_backend, False),
         ("test_filter_director_shares_backend", test_filter_director_shares_backend, False),
+        ("test_ollama_backend_factory_and_availability", test_ollama_backend_factory_and_availability, False),
         ("test_transformers_backend_optional", test_transformers_backend_optional, False),
     ]
     passed = 0

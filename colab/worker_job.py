@@ -48,6 +48,7 @@ if _SCRIPT_DIR not in sys.path:
 from personamatrix import (  # noqa: E402
     StubBackend,
     TransformersBackend,
+    OllamaBackend,
     compute_active_parameters,
     filter_director,
     get_backend,
@@ -81,23 +82,41 @@ def _truthy(value: str) -> bool:
 
 
 def select_backend() -> ModelBackend:
-    """Pick the inference backend: honor an explicit ``PERSONAMATRIX_BACKEND``, otherwise use a
-    real ``TransformersBackend`` when it is importable, else the deterministic ``StubBackend``.
+    """Pick the inference backend.
 
-    Never raises for the auto path — a failed transformers load degrades to the stub so the
-    worker always produces a valid report.
+    Priority:
+      1. Explicit ``PERSONAMATRIX_BACKEND`` (stub | transformers | ollama)
+      2. Reachable Ollama (co-located real inference on CPU/GPU boxes)
+      3. Transformers when torch is importable
+      4. Deterministic StubBackend (offline fallback)
+
+    Never raises for the auto path — failed real backends degrade so the worker still reports.
     """
     explicit = os.environ.get("PERSONAMATRIX_BACKEND")
     if explicit and explicit.strip():
-        # Explicit selection: let get_backend surface a clear error for a bad name/missing dep.
-        return get_backend(explicit)
+        backend = get_backend(explicit)
+        print(f"[worker] backend: {backend.name} ({backend.model_id}) — explicit")
+        return backend
+
+    ollama_url = (
+        os.environ.get("PERSONAMATRIX_OLLAMA_URL")
+        or os.environ.get("OLLAMA_HOST")
+        or "http://127.0.0.1:11434"
+    )
+    if OllamaBackend.is_available(ollama_url):
+        model = os.environ.get("PERSONAMATRIX_MODEL_ID") or "llama3.2:3b"
+        backend = OllamaBackend(model_id=model, base_url=ollama_url)
+        print(f"[worker] backend: ollama ({backend.model_id} @ {backend.base_url}) — REAL inference")
+        return backend
+
     if TransformersBackend.is_available():
         try:
             backend = TransformersBackend()
             print(f"[worker] backend: transformers ({backend.model_id}) — real GPU/CPU inference")
             return backend
         except ModelBackendUnavailableError as exc:  # pragma: no cover - needs partial install
-            print(f"[worker] transformers unavailable, falling back to stub: {exc}", file=sys.stderr)
+            print(f"[worker] transformers unavailable, falling back: {exc}", file=sys.stderr)
+
     backend = StubBackend()
     print(f"[worker] backend: stub ({backend.model_id}) — deterministic, offline")
     return backend

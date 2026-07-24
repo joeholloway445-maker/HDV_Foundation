@@ -26,6 +26,11 @@ FROM node:22-bookworm-slim AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 
+# curl is used by live persona inference (nodes/persona.ts → Ollama /api/generate).
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends curl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
 # Bring in the built app (node_modules includes tsx + the generated Prisma client).
 COPY --from=builder /app ./
 
