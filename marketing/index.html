@@ -3,364 +3,189 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>HDV Foundation — 14.3 quadrillion parameters of addressable capacity</title>
-<meta name="description" content="14.3 quadrillion parameters of addressable capacity — ~12,380× a ~1.16T class and ~2,867× a 5T frontier class at 7B. Ride it for ~$9.99 Colab + ~$5 HDV ≈ $15/mo. Join the waitlist." />
+<title>HopeDreamVision — HDV Foundation</title>
+<meta name="description" content="HopeDreamVision — a governed agent matrix. Talk to HOPE. KNOLL gates. APEX routes." />
 <meta name="color-scheme" content="dark" />
-<meta property="og:title" content="HDV Foundation — 14.3 quadrillion" />
-<meta property="og:description" content="14.3Q addressable capacity — ~12,380× a ~1.16T class, ~2,867× a 5T class. ~$15/mo to ride. Join the waitlist." />
+<meta property="og:title" content="HopeDreamVision — HDV Foundation" />
+<meta property="og:description" content="A governed agent matrix. Talk to HOPE. One road in." />
 <meta property="og:type" content="website" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,600;9..144,900&family=Sora:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,900&family=Sora:wght@400;500;600&display=swap" rel="stylesheet" />
 <style>
   :root {
     --void: #05070f;
     --deep: #090d1c;
-    --mid:  #0d1730;
-    --ink:      #eef1fb;
-    --ink-soft: rgba(238, 241, 251, 0.72);
-    --ink-faint:rgba(238, 241, 251, 0.46);
-    --amber:      #ffce7a;
+    --ink: #eef1fb;
+    --ink-soft: rgba(238, 241, 251, 0.70);
+    --ink-faint: rgba(238, 241, 251, 0.42);
+    --amber: #ffce7a;
     --amber-deep: #f0a541;
-    --aqua:      #6ee7d0;
-    --aqua-deep: #2fb9a8;
-    --line:      rgba(255, 206, 122, 0.20);
+    --aqua: #6ee7d0;
+    --line: rgba(255, 206, 122, 0.22);
     --line-soft: rgba(238, 241, 251, 0.10);
-    --panel:     rgba(13, 23, 48, 0.55);
-    --panel-2:   rgba(238, 241, 251, 0.035);
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
-  html { scroll-behavior: smooth; }
   body {
+    min-height: 100vh;
     color: var(--ink);
     font-family: 'Sora', ui-sans-serif, system-ui, sans-serif;
     font-size: 17px;
-    line-height: 1.62;
+    line-height: 1.55;
     background: var(--void);
     -webkit-font-smoothing: antialiased;
-    overflow-x: hidden;
   }
-
-  /* ---------- atmospheric field ---------- */
-  .field { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
-  .field::before {
-    content: ""; position: absolute; inset: -20%;
+  .field {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden;
     background:
-      radial-gradient(60% 55% at 12% 6%, rgba(240, 165, 65, 0.30), transparent 60%),
-      radial-gradient(55% 50% at 92% 2%, rgba(47, 185, 168, 0.30), transparent 58%),
-      radial-gradient(75% 60% at 50% 118%, rgba(110, 231, 208, 0.10), transparent 62%),
-      linear-gradient(160deg, var(--void) 0%, var(--deep) 45%, var(--mid) 100%);
+      radial-gradient(55% 50% at 18% 12%, rgba(240, 165, 65, 0.28), transparent 62%),
+      radial-gradient(50% 45% at 88% 8%, rgba(47, 185, 168, 0.26), transparent 58%),
+      linear-gradient(165deg, var(--void), var(--deep) 70%);
   }
   .field .aurora {
-    position: absolute; inset: -30%;
-    background:
-      conic-gradient(from 200deg at 30% 20%, rgba(255,206,122,0.12), transparent 25%, rgba(110,231,208,0.14) 55%, transparent 80%);
-    filter: blur(60px);
-    animation: drift 26s ease-in-out infinite alternate;
+    position: absolute; inset: -35%;
+    background: conic-gradient(from 210deg at 35% 25%, rgba(255,206,122,0.14), transparent 28%, rgba(110,231,208,0.12) 58%, transparent 82%);
+    filter: blur(70px);
+    animation: drift 28s ease-in-out infinite alternate;
     mix-blend-mode: screen;
-    opacity: 0.9;
-  }
-  .field .grain {
-    position: absolute; inset: 0; opacity: 0.5;
-    background-image:
-      radial-gradient(1.3px 1.3px at 18% 28%, rgba(255,206,122,0.35), transparent),
-      radial-gradient(1px 1px at 72% 16%, rgba(110,231,208,0.30), transparent),
-      radial-gradient(1.4px 1.4px at 42% 72%, rgba(238,241,251,0.20), transparent),
-      radial-gradient(1px 1px at 86% 62%, rgba(255,206,122,0.22), transparent),
-      radial-gradient(1px 1px at 9% 82%, rgba(238,241,251,0.16), transparent);
   }
   @keyframes drift {
-    0%   { transform: translate3d(-4%, -2%, 0) rotate(0deg) scale(1.05); }
-    100% { transform: translate3d(4%, 3%, 0)  rotate(8deg) scale(1.15); }
+    from { transform: translate3d(-3%, -2%, 0) rotate(0deg) scale(1.05); }
+    to   { transform: translate3d(3%, 3%, 0) rotate(7deg) scale(1.12); }
   }
 
-  .wrap { position: relative; z-index: 1; max-width: 1120px; margin: 0 auto; padding: 0 clamp(1.2rem, 5vw, 2.6rem); }
-
-  /* ---------- nav ---------- */
-  header.nav {
-    position: sticky; top: 0; z-index: 30;
-    backdrop-filter: blur(12px);
-    background: linear-gradient(180deg, rgba(5,7,15,0.78), rgba(5,7,15,0.18));
-    border-bottom: 1px solid var(--line-soft);
+  .shell { position: relative; z-index: 1; min-height: 100vh; display: flex; flex-direction: column; }
+  .bar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 1.1rem clamp(1.2rem, 4vw, 2.4rem);
   }
-  .nav .bar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.8rem 0; }
-  .brandmark { display: inline-flex; align-items: baseline; gap: 0.5rem; text-decoration: none; }
-  .brandmark b { font-family: 'Fraunces', serif; font-weight: 900; font-size: 1.1rem; letter-spacing: -0.01em;
-    background: linear-gradient(180deg, var(--amber), var(--amber-deep)); -webkit-background-clip: text; background-clip: text; color: transparent; }
-  .brandmark span { font-family: 'IBM Plex Mono', monospace; font-size: 0.66rem; letter-spacing: 0.3em; text-transform: uppercase; color: var(--ink-faint); }
-  .nav-links { display: flex; align-items: center; gap: 1.5rem; }
-  .nav-links a { color: var(--ink-soft); text-decoration: none; font-size: 0.85rem; letter-spacing: 0.02em; }
-  .nav-links a:hover { color: var(--amber); }
-  .nav-cta { display: inline-flex; align-items: center; gap: 0.45rem; border: 1px solid var(--line); border-radius: 999px;
-    padding: 0.42rem 0.95rem; color: var(--amber); font-size: 0.82rem; letter-spacing: 0.02em; transition: border-color .3s, transform .3s; }
-  .nav-cta:hover { border-color: rgba(255,206,122,0.6); transform: translateY(-1px); }
-  @media (max-width: 780px){ .nav-links a:not(.nav-cta){ display: none; } }
+  .bar a { color: var(--ink-soft); text-decoration: none; font-size: 0.85rem; }
+  .bar a:hover { color: var(--amber); }
 
-  /* ---------- hero ---------- */
-  .hero { min-height: calc(100vh - 64px); display: flex; flex-direction: column; justify-content: center;
-    padding: clamp(2.5rem, 8vh, 6rem) 0 clamp(2rem, 6vh, 4rem); }
-  .hero-in > * { opacity: 0; transform: translateY(22px); animation: rise 1s cubic-bezier(.2,.7,.2,1) forwards; }
-  .hero-in > *:nth-child(1){ animation-delay: .05s; }
-  .hero-in > *:nth-child(2){ animation-delay: .18s; }
-  .hero-in > *:nth-child(3){ animation-delay: .32s; }
-  .hero-in > *:nth-child(4){ animation-delay: .46s; }
+  .hero {
+    flex: 1;
+    display: flex; flex-direction: column; justify-content: center;
+    padding: clamp(2rem, 8vh, 5rem) clamp(1.2rem, 4vw, 2.4rem) clamp(3rem, 10vh, 6rem);
+    max-width: 920px;
+  }
+  .hero > * {
+    opacity: 0; transform: translateY(18px);
+    animation: rise 0.9s cubic-bezier(.2,.7,.2,1) forwards;
+  }
+  .hero > *:nth-child(1) { animation-delay: .04s; }
+  .hero > *:nth-child(2) { animation-delay: .16s; }
+  .hero > *:nth-child(3) { animation-delay: .28s; }
+  .hero > *:nth-child(4) { animation-delay: .40s; }
   @keyframes rise { to { opacity: 1; transform: none; } }
 
-  .signal { display: flex; align-items: center; gap: 0.9rem; margin: 0 0 1.6rem; }
-  .signal .monogram {
-    font-family: 'Fraunces', serif; font-weight: 900; font-size: clamp(2.6rem, 7vw, 4.4rem); line-height: 0.85;
+  .brand {
+    margin: 0 0 1.4rem;
+    font-family: 'Fraunces', serif;
+    font-weight: 900;
+    font-size: clamp(2.8rem, 9vw, 5.6rem);
+    line-height: 0.92;
     letter-spacing: -0.03em;
-    background: linear-gradient(165deg, var(--amber) 0%, var(--amber-deep) 60%, #c9832f 100%);
+    background: linear-gradient(165deg, var(--amber) 0%, var(--amber-deep) 55%, #c9832f 100%);
     -webkit-background-clip: text; background-clip: text; color: transparent;
-    animation: breathe 8s ease-in-out infinite; transform-origin: left center;
+    animation: breathe 9s ease-in-out infinite;
+    transform-origin: left center;
   }
-  .signal .lock { display: flex; flex-direction: column; gap: 0.15rem; }
-  .signal .lock .fdn { font-family: 'Fraunces', serif; font-weight: 600; font-style: italic; font-size: clamp(1.1rem, 3vw, 1.5rem); color: var(--ink); line-height: 1; }
-  .signal .lock .sub { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; letter-spacing: 0.26em; text-transform: uppercase; color: var(--aqua); }
-  @keyframes breathe { 0%,100% { transform: scale(1); filter: brightness(1); } 50% { transform: scale(1.012); filter: brightness(1.08); } }
+  .brand small {
+    display: block;
+    margin-top: 0.35rem;
+    font-family: 'Sora', sans-serif;
+    font-weight: 500;
+    font-size: clamp(0.85rem, 2vw, 1.05rem);
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--aqua);
+    background: none; -webkit-background-clip: unset; background-clip: unset;
+  }
+  @keyframes breathe {
+    0%, 100% { filter: brightness(1); transform: scale(1); }
+    50% { filter: brightness(1.06); transform: scale(1.01); }
+  }
 
-  .mega { margin: 0; line-height: 0.82; display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 0.06em; }
-  .mega .num {
-    font-family: 'Fraunces', Georgia, serif; font-weight: 900; letter-spacing: -0.045em;
-    font-size: clamp(4.4rem, 20vw, 15rem); line-height: 0.78;
-    background: linear-gradient(158deg, var(--amber) 0%, var(--amber-deep) 52%, var(--aqua-deep) 128%);
-    -webkit-background-clip: text; background-clip: text; color: transparent;
-    animation: breathe 8s ease-in-out infinite; transform-origin: left center;
-    text-shadow: 0 0 80px rgba(255, 206, 122, 0.10);
-  }
-  .mega .word {
-    font-family: 'Fraunces', serif; font-weight: 600; font-style: italic;
-    font-size: clamp(1.7rem, 6.2vw, 4.2rem); letter-spacing: -0.01em; line-height: 0.9;
+  h1 {
+    margin: 0;
+    font-family: 'Fraunces', serif;
+    font-weight: 500;
+    font-style: italic;
+    font-size: clamp(1.55rem, 4.2vw, 2.35rem);
+    line-height: 1.2;
+    letter-spacing: -0.015em;
     color: var(--ink);
+    max-width: 18ch;
   }
+  .support {
+    margin: 1.1rem 0 0;
+    max-width: 42ch;
+    color: var(--ink-soft);
+    font-size: clamp(1rem, 2vw, 1.15rem);
+  }
+  .cta { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 2.2rem; }
+  .btn {
+    display: inline-flex; align-items: center; text-decoration: none;
+    font-size: 0.92rem; font-weight: 600; letter-spacing: 0.01em;
+    padding: 0.85rem 1.45rem; border-radius: 999px;
+    transition: transform .25s, box-shadow .25s, border-color .25s;
+  }
+  .btn-primary {
+    color: #17130a;
+    background: linear-gradient(180deg, var(--amber), var(--amber-deep));
+    box-shadow: 0 14px 36px -14px rgba(255, 206, 122, 0.65);
+  }
+  .btn-primary:hover { transform: translateY(-2px); }
+  .btn-ghost {
+    color: var(--ink);
+    border: 1px solid var(--line);
+    background: transparent;
+  }
+  .btn-ghost:hover { border-color: rgba(255,206,122,0.55); transform: translateY(-2px); }
 
-  .support { max-width: 58ch; color: var(--ink-soft); font-size: clamp(1.05rem, 2.1vw, 1.28rem); margin: 1.5rem 0 0; line-height: 1.55; }
-  .support b { color: var(--ink); font-weight: 500; }
-  .support .rx { font-family: 'Fraunces', serif; font-weight: 900; font-style: italic;
-    background: linear-gradient(120deg, var(--aqua), var(--amber)); -webkit-background-clip: text; background-clip: text; color: transparent; }
-  .support .approx { font-family: 'IBM Plex Mono', monospace; color: var(--amber); font-weight: 500; }
+  .foot {
+    padding: 1.2rem clamp(1.2rem, 4vw, 2.4rem) 1.8rem;
+    color: var(--ink-faint);
+    font-size: 0.78rem;
+    display: flex; flex-wrap: wrap; gap: 0.75rem 1.4rem;
+    justify-content: space-between;
+  }
+  .foot a { color: var(--ink-soft); text-decoration: none; }
+  .foot a:hover { color: var(--amber); }
 
-  .cta-group { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 2.4rem; align-items: center; }
-  .btn { position: relative; display: inline-flex; align-items: center; gap: 0.5rem; text-decoration: none;
-    font-size: 0.9rem; letter-spacing: 0.02em; padding: 0.8rem 1.5rem; border-radius: 999px;
-    transition: transform .25s, box-shadow .25s, border-color .25s, background .25s; overflow: hidden; }
-  .btn-primary { color: #17130a; font-weight: 600; background: linear-gradient(180deg, var(--amber), var(--amber-deep));
-    border: 1px solid transparent; box-shadow: 0 12px 34px -12px rgba(255,206,122,0.6); }
-  .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 18px 44px -12px rgba(255,206,122,0.72); }
-  .btn-primary::after { content:""; position:absolute; top:0; left:-120%; width:60%; height:100%;
-    background: linear-gradient(100deg, transparent, rgba(255,255,255,0.5), transparent); transform: skewX(-18deg);
-    animation: sheen 5.5s ease-in-out infinite; }
-  @keyframes sheen { 0%, 60% { left:-120%; } 78% { left:130%; } 100% { left:130%; } }
-  .btn-ghost { color: var(--ink); border: 1px solid var(--line); background: rgba(238,241,251,0.02); }
-  .btn-ghost:hover { border-color: rgba(255,206,122,0.5); transform: translateY(-2px); }
-
-  /* ---------- sections ---------- */
-  section { padding: clamp(3.5rem, 9vw, 7rem) 0; position: relative; }
-  .kicker { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.32em; text-transform: uppercase; color: var(--aqua); margin: 0 0 0.9rem; }
-  h2 { font-family: 'Fraunces', serif; font-weight: 600; font-size: clamp(2rem, 5vw, 3.2rem); line-height: 1.05; letter-spacing: -0.02em; margin: 0 0 0.8rem; }
-  .lede { max-width: 64ch; color: var(--ink-soft); margin: 0 0 2.2rem; font-size: 1.05rem; }
-  .divider { height: 1px; background: linear-gradient(90deg, transparent, var(--line-soft), transparent); border: 0; margin: 0; }
-
-  .cap-table { width: 100%; border-collapse: collapse; font-family: 'IBM Plex Mono', monospace; font-size: 0.82rem; }
-  .cap-table th, .cap-table td { text-align: left; padding: 0.75rem 0.8rem; border-bottom: 1px solid var(--line-soft); }
-  .cap-table th { color: var(--aqua); text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.64rem; }
-  .cap-table td { color: var(--ink-soft); }
-  .cap-table .mult { color: var(--amber); font-weight: 500; }
-  .cap-table b { color: var(--ink); font-weight: 500; }
-  .cap-note { font-family: 'IBM Plex Mono', monospace; font-size: 0.74rem; color: var(--ink-faint); margin: 1.2rem 0 0; line-height: 1.65; max-width: 72ch; }
-  @media (max-width: 620px){ .cap-table { font-size: 0.72rem; } .cap-table th, .cap-table td { padding: 0.55rem 0.45rem; } }
-
-  /* ---------- pricing ---------- */
-  .prices { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
-  .price { display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line-soft); border-radius: 18px;
-    padding: 1.7rem 1.5rem; transition: transform .3s, border-color .3s; }
-  .price:hover { transform: translateY(-5px); border-color: var(--line); }
-  .price.feature { border-color: rgba(255,206,122,0.45); background: linear-gradient(180deg, rgba(255,206,122,0.07), var(--panel)); }
-  .price .tier { font-family:'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--aqua); }
-  .price.feature .tier { color: var(--amber); }
-  .price .amt { font-family:'Fraunces', serif; font-weight: 600; font-size: 2.1rem; margin: 0.5rem 0 0; line-height: 1; }
-  .price .amt small { font-family:'Sora', sans-serif; font-weight: 400; font-size: 0.8rem; color: var(--ink-faint); letter-spacing: 0; }
-  .price ul { list-style: none; padding: 0; margin: 1.1rem 0 1.4rem; display: grid; gap: 0.55rem; flex: 1; }
-  .price li { position: relative; padding-left: 1.3rem; font-size: 0.88rem; color: var(--ink-soft); }
-  .price li::before { content: "→"; position: absolute; left: 0; color: var(--aqua); }
-  .price .pick { margin-top: auto; text-align: center; text-decoration: none; border-radius: 999px; padding: 0.65rem 1rem;
-    font-size: 0.85rem; border: 1px solid var(--line); color: var(--ink); transition: border-color .25s, background .25s, transform .25s; }
-  .price .pick:hover { border-color: rgba(255,206,122,0.55); transform: translateY(-1px); }
-  .price.feature .pick { background: linear-gradient(180deg, var(--amber), var(--amber-deep)); color: #17130a; font-weight: 600; border-color: transparent; }
-  @media (max-width: 780px){ .prices { grid-template-columns: 1fr; } }
-
-  /* ---------- closing CTA ---------- */
-  .close { text-align: center; }
-  .close h2 { max-width: 22ch; margin-inline: auto; }
-  .close .cta-group { justify-content: center; }
-
-  /* ---------- footer ---------- */
-  footer.site { border-top: 1px solid var(--line-soft); padding: 2.8rem 0 3.6rem; color: var(--ink-faint); }
-  footer.site .row { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; align-items: center; }
-  footer.site a { color: var(--ink-soft); text-decoration: none; }
-  footer.site a:hover { color: var(--amber); }
-  .disclaimer { font-size: 0.76rem; max-width: 78ch; margin-top: 1.1rem; line-height: 1.65; }
-
-  /* ---------- reveal on scroll ---------- */
-  .reveal { opacity: 0; transform: translateY(20px); transition: opacity .8s ease, transform .8s ease; }
-  .reveal.in { opacity: 1; transform: none; }
-
-  @media (prefers-reduced-motion: reduce){
-    *{ animation: none !important; }
-    .hero-in > *{ opacity: 1 !important; transform: none !important; }
-    .reveal{ opacity: 1; transform: none; }
-    html{ scroll-behavior: auto; }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; }
+    .hero > * { opacity: 1 !important; transform: none !important; }
   }
 </style>
 </head>
 <body>
+  <div class="field" aria-hidden="true"><div class="aurora"></div></div>
+  <div class="shell">
+    <header class="bar">
+      <span aria-hidden="true"></span>
+      <a href="waitlist.html">Waitlist</a>
+    </header>
 
-<div class="field" aria-hidden="true">
-  <div class="aurora"></div>
-  <div class="grain"></div>
-</div>
-
-<header class="nav">
-  <div class="wrap bar">
-    <a class="brandmark" href="#top"><b>HDV</b><span>Foundation</span></a>
-    <nav class="nav-links">
-      <a href="#pricing">Pricing</a>
-      <a class="nav-cta" href="waitlist.html">Waitlist</a>
-    </nav>
-  </div>
-</header>
-
-<div class="wrap" id="top">
-
-  <section class="hero">
-    <div class="hero-in">
-      <div class="signal">
-        <div class="monogram">HDV</div>
-        <div class="lock">
-          <div class="fdn">Foundation</div>
-          <div class="sub">The Governed Matrix</div>
-        </div>
+    <main class="hero">
+      <p class="brand">HopeDreamVision<small>HDV Foundation</small></p>
+      <h1>One road in. The matrix listens.</h1>
+      <p class="support">Talk to HOPE. KNOLL gates every route. APEX is the only road through.</p>
+      <div class="cta">
+        <a class="btn btn-primary" href="https://ai.hopedreamvision.com">Open the app</a>
+        <a class="btn btn-ghost" href="waitlist.html">Join the waitlist</a>
       </div>
+    </main>
 
-      <h1 class="mega">
-        <span class="num">14.3</span>&nbsp;<span class="word">quadrillion</span>
-      </h1>
-
-      <p class="support">
-        <span class="rx">~12,380×</span> a ~1.16T class and <span class="rx">~2,867×</span> a 5T frontier class at 7B —
-        ride it for <b>$9.99 Colab</b> + <b>~$5 HDV</b> <span class="approx">≈ $15/mo</span>.
-      </p>
-
-      <div class="cta-group">
-        <a class="btn btn-primary" href="waitlist.html">Join the waitlist →</a>
-        <a class="btn btn-ghost" href="#pricing">See pricing</a>
-      </div>
-    </div>
-  </section>
-
-</div>
-
-<hr class="divider" />
-
-<div class="wrap">
-
-  <section id="capacity">
-    <p class="kicker reveal">Capacity outcomes</p>
-    <h2 class="reveal">What the matrix addresses</h2>
-    <p class="lede reveal">Same fixed topology — swap the persona weight class and capacity scales linearly. Capacity ratios, not intelligence benchmarks.</p>
-
-    <table class="cap-table reveal">
-      <thead>
-        <tr><th>Persona model</th><th>Addressable capacity</th><th>vs ~1.16T class</th><th>vs 5T class</th></tr>
-      </thead>
-      <tbody>
-        <tr><td><b>7B</b> (default)</td><td>~14.3 quadrillion</td><td class="mult">~12,380×</td><td>~2,867×</td></tr>
-        <tr><td>13B</td><td>~26.6 quadrillion</td><td class="mult">~22,990×</td><td>~5,325×</td></tr>
-        <tr><td>30B</td><td>~61.4 quadrillion</td><td class="mult">~53,057×</td><td>~12,288×</td></tr>
-      </tbody>
-    </table>
-
-    <p class="cap-note reveal">Against ~$100B-class frontier CapEx, a ~$15/mo seat delivers on the order of <b style="color:var(--ink)">~119M×</b> CapEx-vs-seat capital efficiency over ~56 months — an organizational CapEx story, not a subscription price comparison.</p>
-  </section>
-
-  <hr class="divider" />
-
-  <section id="pricing">
-    <p class="kicker reveal">Simple pricing</p>
-    <h2 class="reveal">Start free. Scale when you're ready.</h2>
-    <p class="lede reveal">Only active personas draw compute. Bring your own keys or ride managed Colab.</p>
-
-    <div class="prices">
-      <div class="price reveal">
-        <div class="tier">Free</div>
-        <div class="amt">$0<small>&nbsp;/ forever</small></div>
-        <ul>
-          <li>Self-host the open backbone</li>
-          <li>Full audit trail</li>
-          <li>Community support</li>
-        </ul>
-        <a class="pick" href="https://github.com/joeholloway445-maker/HDV_Foundation" target="_blank" rel="noopener">Start on GitHub</a>
-      </div>
-
-      <div class="price feature reveal">
-        <div class="tier">Starter</div>
-        <div class="amt">~$15<small>&nbsp;/ mo all-in</small></div>
-        <ul>
-          <li>$9.99 Colab + ~$5 HDV add-on</li>
-          <li>Managed gateway + audit trail</li>
-          <li>Email support</li>
-        </ul>
-        <a class="pick" href="waitlist.html">Join the waitlist</a>
-      </div>
-
-      <div class="price reveal">
-        <div class="tier">BYOK</div>
-        <div class="amt">$0<small>&nbsp;/ platform fee</small></div>
-        <ul>
-          <li>Bring your own model keys</li>
-          <li>Self-host free — pay only your provider</li>
-          <li>Unlimited governed calls on your inference</li>
-        </ul>
-        <a class="pick" href="waitlist.html">Join the waitlist</a>
-      </div>
-    </div>
-  </section>
-
-  <hr class="divider" />
-
-  <section id="contact" class="close">
-    <p class="kicker reveal" style="text-align:center">Ready when you are</p>
-    <h2 class="reveal">Join the waitlist for early access.</h2>
-    <p class="lede reveal" style="margin-inline:auto; text-align:center">14.3 quadrillion parameters of addressable capacity — ~$15/mo to ride.</p>
-    <div class="cta-group reveal">
-      <a class="btn btn-primary" href="waitlist.html">Join the waitlist →</a>
-      <a class="btn btn-ghost" href="https://github.com/joeholloway445-maker/HDV_Foundation" target="_blank" rel="noopener">Start free on GitHub</a>
-    </div>
-  </section>
-
-</div>
-
-<footer class="site">
-  <div class="wrap">
-    <div class="row">
-      <a class="brandmark" href="#top"><b>HDV</b><span>Foundation</span></a>
-      <div>
+    <footer class="foot">
+      <span>Governed · auditable · idle-cheap</span>
+      <span>
         <a href="https://github.com/joeholloway445-maker/HDV_Foundation" target="_blank" rel="noopener">GitHub</a>
-        &nbsp;·&nbsp; <a href="#pricing">Pricing</a>
-        &nbsp;·&nbsp; <a href="waitlist.html">Waitlist</a>
-        &nbsp;·&nbsp; MIT Licensed
-      </div>
-    </div>
-    <p class="disclaimer">The ~14.3-quadrillion figure is <b>addressable capacity</b> — not a single trained weight file. Only active personas consume compute. Pricing is an early sketch; final tiers may change.</p>
+        ·
+        <a href="waitlist.html">Waitlist</a>
+      </span>
+    </footer>
   </div>
-</footer>
-
-<script type="module">
-  const io = new IntersectionObserver((entries) => {
-    for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
-  }, { threshold: 0.12 });
-  document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
-</script>
 </body>
 </html>
