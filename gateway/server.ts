@@ -44,6 +44,7 @@ import { createProviderOrStub } from '../providers/index.js';
 import { SimulationEngine } from '../dream/index.js';
 import { ExecutionEngine } from '../vision/index.js';
 import { WaitlistStore, handleWaitlistSignup, handleWaitlistStats } from '../market/index.js';
+import { handleCompanionChat } from '../companion/index.js';
 import {
   MANAGERS_PER_AGENT,
   NODES_PER_MANAGER,
@@ -161,6 +162,12 @@ export class HopeGateway {
   readonly waitlist: WaitlistStore;
   /** HOPE intent-summary enricher (heuristic or LLM). Text only — never routes. */
   readonly enricher: IntentEnricher;
+  /**
+   * Shared LlmProvider instance used for companion chat (companion/), same env-driven
+   * offline-first construction as the enricher's provider. Undefined ⇒ deterministic fallback
+   * replies only (still fully functional offline).
+   */
+  private readonly companionProvider?: LlmProvider;
   private readonly readLimit: number;
   private readonly logger: GatewayLogger;
 
@@ -199,15 +206,14 @@ export class HopeGateway {
     this.documenter = options.documenter ?? new HopeDocumenter();
     this.voice = options.voice ?? new HopeVoice();
     // Provider enrichment is optional and offline-safe: stub by default, real model when
-    // HDV_LLM_* points at an OpenAI-compatible endpoint (e.g. co-located Ollama).
+    // HDV_LLM_* points at an OpenAI-compatible endpoint (e.g. co-located Ollama). Built once
+    // and shared with companion chat below so both surfaces hit the same configured backend.
+    const provider = options.provider === false ? undefined : options.provider ?? createProviderOrStub();
+    this.companionProvider = provider;
     if (options.enricher) {
       this.enricher = options.enricher;
-    } else if (options.provider === false) {
-      this.enricher = new IntentEnricher();
     } else {
-      this.enricher = new IntentEnricher({
-        provider: options.provider ?? createProviderOrStub(),
-      });
+      this.enricher = new IntentEnricher({ provider });
     }
     this.readLimit = options.readLimit ?? 50;
     this.middleware = new GatewayMiddleware(resolveSecurityConfig(options.security ?? {}));
@@ -636,6 +642,18 @@ export class HopeGateway {
     return handleWaitlistStats(this.waitlist);
   }
 
+  // -------------------------------------------------------------------------
+  // Companion chat (companion/). POST /v1/companion/chat is auth-exempt (public product
+  // surface — the FuckLike web client calls it directly with no key) but rate-limited. It
+  // never routes, gates, or executes — it only turns a persona + history into one reply via
+  // the same injected LlmProvider the HOPE enricher uses (offline stub ⇒ canned fallback).
+  // -------------------------------------------------------------------------
+
+  /** POST /v1/companion/chat — one in-character reply for a companion persona. */
+  async handleCompanionChat(body: unknown): Promise<GatewayResponse> {
+    return handleCompanionChat(body, { provider: this.companionProvider });
+  }
+
   /**
    * Route a parsed request to a handler. Async so a real body read can be awaited by the
    * server wrapper; handlers themselves are synchronous. This is the single mapping table.
@@ -665,6 +683,8 @@ export class HopeGateway {
     // --- Launch GTM waitlist. POST is public (auth-exempt, rate-limited); stats is protected.
     if (m === 'POST' && pathname === '/v1/waitlist') return this.handleWaitlistSignup(body, ipFromHeaders(headers));
     if (m === 'GET' && pathname === '/v1/waitlist/stats') return this.handleWaitlistStats();
+    // --- Companion chat. Public (auth-exempt, rate-limited) — the web client has no API key.
+    if (m === 'POST' && pathname === '/v1/companion/chat') return await this.handleCompanionChat(body);
     return { status: 404, body: { error: `no route for ${m} ${pathname}` } };
   }
 
