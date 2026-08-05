@@ -19,6 +19,7 @@ tags:
   - name: metrics
   - name: billing
   - name: waitlist
+  - name: companion
 components:
   securitySchemes:
     bearerAuth:
@@ -147,6 +148,47 @@ components:
         last7d: { type: integer }
         firstAt: { type: integer, nullable: true }
         lastAt: { type: integer, nullable: true }
+    CompanionPersona:
+      type: object
+      properties:
+        name: { type: string }
+        personality:
+          type: string
+          enum: [playful, romantic, bratty, dominant, soft, mysterious]
+        backstory: { type: string }
+      required: [name]
+    CompanionChatMessage:
+      type: object
+      properties:
+        role: { type: string, enum: [user, bot] }
+        text: { type: string }
+      required: [role, text]
+    CompanionChatRequest:
+      type: object
+      properties:
+        persona:
+          $ref: '#/components/schemas/CompanionPersona'
+        history:
+          type: array
+          items:
+            $ref: '#/components/schemas/CompanionChatMessage'
+          description: Trimmed transcript so far (last ~20 turns). Stateless — sent every call.
+        message:
+          type: string
+      required: [persona, message]
+    CompanionChatResponse:
+      type: object
+      properties:
+        reply:
+          type: string
+        source:
+          type: string
+          enum: [llm, fallback]
+          description: llm when HDV_LLM_PROVIDER produced the reply; fallback when it was canned.
+        model:
+          type: string
+          nullable: true
+      required: [reply, source]
     AllowanceRequest:
       type: object
       properties:
@@ -347,3 +389,31 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/WaitlistStats'
+  /v1/companion/chat:
+    post:
+      tags: [companion]
+      summary: One in-character companion reply
+      description: >
+        Auth-exempt but rate-limited (the web client calls this directly, with no API key).
+        Stateless: the client sends the persona + trimmed history on every call. Never routes
+        through APEX/KNOLL — it only calls the configured LlmProvider (or a deterministic
+        per-personality fallback when none is configured / it fails).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompanionChatRequest'
+      responses:
+        '200':
+          description: Reply generated (llm or fallback source).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompanionChatResponse'
+        '400':
+          description: Invalid request (e.g. missing persona.name or empty message).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'

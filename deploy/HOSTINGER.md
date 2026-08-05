@@ -32,6 +32,7 @@ server (no framework) that exposes:
 | GET    | `/v1/audit`         | Recent KNOLL verdicts (read-only)                     |
 | GET    | `/v1/matrix/stats`  | Node/persona topology + parameter accounting          |
 | GET    | `/v1/metrics`       | Observability snapshot (`?format=prometheus`)         |
+| POST   | `/v1/companion/chat`| One in-character companion reply (public, rate-limited; see `companion/`) |
 
 It binds `PORT` (default `8787`) on loopback; a reverse proxy (Caddy or nginx)
 terminates TLS on `443` and forwards to it.
