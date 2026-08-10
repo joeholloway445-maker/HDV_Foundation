@@ -96,3 +96,35 @@ product layer treats it the same as "no provider").
 npm run test:image-providers   # stub + local HTTP server tests (Google AI Studio + Colab tunnel shapes)
 npm run test:portrait          # companion/portrait_handlers.ts + gateway integration
 ```
+
+## Video providers (companion scenes/loops)
+
+One more sibling seam, one step further: `video_types.ts`'s `VideoProvider` takes a prompt
+**and a seed image** (image-to-video — used by `companion/scene_handlers.ts`,
+`POST /v1/companion/scene`) and returns `{ videoBase64, mimeType, model }`. The seed image is
+typically the output of `/v1/companion/portrait`. Same offline-first default
+(`StubVideoProvider` — honestly not a real playable video, see its doc comment; the product
+layer treats it the same as "no provider").
+
+| File | Purpose |
+| --- | --- |
+| `video_types.ts` | `VideoProvider` interface, `GenerateVideoOptions`, `VideoResult`. |
+| `video_stub.ts` | `StubVideoProvider` — deterministic, offline default. |
+| `colab_tunnel_video.ts` | `ColabTunnelVideoProvider` — talks to a self-hosted world/video model (e.g. LingBot-World) behind a tunnel; see `colab/08_scene_server.py`. |
+| `video_factory.ts` | `createVideoProvider` / `createVideoProviderOrStub` — build from env. |
+
+| Variable | Values / example | Default |
+| --- | --- | --- |
+| `HDV_VIDEO_PROVIDER` | `stub` \| `colab_tunnel` | `stub` |
+| `HDV_VIDEO_API_KEY` | The Colab scene server's shared-secret token | — |
+| `HDV_VIDEO_BASE_URL` | e.g. `https://xxxx.ngrok-free.app` (required for `colab_tunnel`) | — |
+| `HDV_VIDEO_MODEL` | Reported model id override | — |
+
+There is currently no `google_ai_studio`-equivalent hosted option for video — general-purpose
+video models exist commercially, but the whole point of this seam for FuckLike is an
+NSFW-capable path, which points at self-hosting via `colab_tunnel` regardless.
+
+```bash
+npm run test:video-providers   # stub + local HTTP server tests
+npm run test:scene             # companion/scene_handlers.ts + gateway integration
+```

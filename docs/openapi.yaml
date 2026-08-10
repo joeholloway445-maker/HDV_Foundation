@@ -226,6 +226,46 @@ components:
           type: string
           description: Present only when source is "unavailable" due to a real provider failure.
       required: [image, source]
+    SceneRequest:
+      type: object
+      properties:
+        persona:
+          type: object
+          properties:
+            name: { type: string }
+            age:
+              type: integer
+              minimum: 18
+              description: Required. Scenes are refused (400) for any persona under 18, regardless of provider.
+            personality:
+              type: string
+              enum: [playful, romantic, bratty, dominant, soft, mysterious]
+            backstory: { type: string }
+          required: [name, age]
+        seedImage:
+          type: string
+          description: Base64 image bytes, or a `data:<mime>;base64,<bytes>` URI (typically the output of /v1/companion/portrait).
+        actionString:
+          type: string
+          description: 'Optional compact keyboard-schedule camera control, e.g. "w-10,a-10,d-10". Omit for free-form motion.'
+      required: [persona, seedImage]
+    SceneResponse:
+      type: object
+      properties:
+        video:
+          type: string
+          nullable: true
+          description: A `data:<mimeType>;base64,<bytes>` URI, or null when unavailable.
+        source:
+          type: string
+          description: The provider name on success (e.g. colab_tunnel), or "unavailable".
+        model:
+          type: string
+          nullable: true
+        error:
+          type: string
+          description: Present only when source is "unavailable" due to a real provider failure.
+      required: [video, source]
     AllowanceRequest:
       type: object
       properties:
@@ -478,6 +518,35 @@ paths:
                 $ref: '#/components/schemas/PortraitResponse'
         '400':
           description: Invalid request (missing persona.name/age, or persona.age < 18).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/companion/scene:
+    post:
+      tags: [companion]
+      summary: Animate a companion portrait into a short scene/loop video
+      description: >
+        Auth-exempt but rate-limited, same posture as chat/portrait. Provider-agnostic —
+        HDV_VIDEO_PROVIDER selects a Colab-tunneled world model (e.g. LingBot-World). Refuses
+        (400) any persona under 18, regardless of provider. Never routes through APEX/KNOLL.
+        Video generation is slow (minutes, not seconds) — this is meant for generate-once,
+        cache-and-loop client-side, not live per-message calls.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SceneRequest'
+      responses:
+        '200':
+          description: Generation attempted — video on success, null + source "unavailable" otherwise.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SceneResponse'
+        '400':
+          description: Invalid request (missing persona.name/age/seedImage, or persona.age < 18).
           content:
             application/json:
               schema:

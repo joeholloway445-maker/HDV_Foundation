@@ -19,3 +19,12 @@ export {
 } from './portrait_types.js';
 export { handlePortraitRequest } from './portrait_handlers.js';
 export type { PortraitResponse, PortraitOptions } from './portrait_handlers.js';
+
+export {
+  parseSceneRequest,
+  SceneValidationError,
+  type ScenePersona,
+  type SceneRequestInput,
+} from './scene_types.js';
+export { handleSceneRequest } from './scene_handlers.js';
+export type { SceneResponse, SceneOptions } from './scene_handlers.js';

@@ -37,7 +37,12 @@ const ALWAYS_PUBLIC_PATHS = new Set<string>(['/v1/health', '/v1/billing/pricing'
  * the open endpoint can't be flooded. GET /v1/waitlist/stats is deliberately NOT listed — it
  * stays protected by the API key.
  */
-const AUTH_EXEMPT_PATHS = new Set<string>(['/v1/waitlist', '/v1/companion/chat', '/v1/companion/portrait']);
+const AUTH_EXEMPT_PATHS = new Set<string>([
+  '/v1/waitlist',
+  '/v1/companion/chat',
+  '/v1/companion/portrait',
+  '/v1/companion/scene',
+]);
 
 export interface GatewaySecurityConfig {
   /** API key required on protected routes. Empty/undefined ⇒ dev mode (auth disabled). */

@@ -60,3 +60,28 @@ export {
   ENV_IMAGE_MODEL,
 } from './image_factory.js';
 export type { ImageFactoryOptions } from './image_factory.js';
+
+// --- Video providers (sibling seam: prompt + seed image -> video, e.g. LingBot-World) -------
+export type {
+  VideoProvider,
+  GenerateVideoOptions,
+  VideoResult,
+  VideoProviderKind,
+} from './video_types.js';
+
+export { StubVideoProvider } from './video_stub.js';
+export type { StubVideoProviderOptions } from './video_stub.js';
+
+export { ColabTunnelVideoProvider, ColabTunnelVideoError } from './colab_tunnel_video.js';
+export type { ColabTunnelVideoOptions } from './colab_tunnel_video.js';
+
+export {
+  createVideoProvider,
+  createVideoProviderOrStub,
+  UnknownVideoProviderError,
+  ENV_VIDEO_PROVIDER,
+  ENV_VIDEO_API_KEY,
+  ENV_VIDEO_BASE_URL,
+  ENV_VIDEO_MODEL,
+} from './video_factory.js';
+export type { VideoFactoryOptions } from './video_factory.js';
