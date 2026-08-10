@@ -22,6 +22,7 @@
  *   POST /v1/auth/login    { email, password } → same shape, or 401 (public, rate-limited)
  *   POST /v1/auth/logout   X-HDV-Session header or { sessionToken } → { ok: true } (public)
  *   GET  /v1/auth/me       X-HDV-Session header → { userId, email }, or 401 (public)
+ *   GET  /v1/companion/memory ?companionId=... → read-only relationship memory lookup (public, rate-limited)
  *
  * KNOLL gates every routed packet; the gateway never bypasses APEX.
  *
@@ -32,10 +33,13 @@
  *   /v1/health is always public (auth- and rate-limit-exempt) for probes.
  *
  * Phase 5 durability + async intake (OFFLINE-FIRST — both default to OFF):
- *   DATABASE_URL     when set, the APEX ledger + KNOLL audit + auth accounts/sessions are
+ *   DATABASE_URL     when set, the APEX ledger + KNOLL audit + auth accounts/sessions — and
+ *                    companion/'s opt-in relationship memory (companion/memory.ts) — are
  *                    mirrored into Postgres via Prisma (createRepositories('prisma')). Rows are
  *                    HYDRATED on boot and FLUSHED + closed on SIGTERM/SIGINT. Unset ⇒ pure
- *                    in-memory (the default).
+ *                    in-memory (the default). Companion memory itself remains opt-in per
+ *                    request either way — it is only read/written when the client also
+ *                    supplies `companionId`.
  *   HDV_QUEUE=kafka  wires a Kafka-backed TaskQueue (persistence/kafka_real.ts) into the
  *                    ApexOrchestrator and starts a consumer that drains async `intake()` through
  *                    the SAME KNOLL-gated dispatch path. Requires the `kafkajs` package and a
@@ -127,6 +131,10 @@ async function main(): Promise<void> {
     securityAudit: repositories?.securityAudit,
     users: repositories?.user,
     sessions: repositories?.session,
+    // Companion relationship memory (companion/memory.ts): same DATABASE_URL-gated wiring as
+    // requestLog/securityAudit above. Undefined ⇒ HopeGateway falls back to a fresh in-memory
+    // repository.
+    memoryRepository: repositories?.companionMemory,
     queue,
   });
 
@@ -158,6 +166,7 @@ async function main(): Promise<void> {
     'POST /v1/companion/chat    (public — { persona: { name, personality? }, history?, message })',
     'POST /v1/companion/portrait (public — { persona: { name, age (18+), style?, personality? } })',
     'POST /v1/companion/scene   (public — { persona: { name, age (18+) }, seedImage, actionString? })',
+    'GET  /v1/companion/memory  (public — ?companionId=...; returns defaults if none saved yet)',
   ];
   const { config } = gateway.middleware;
   const authMode = config.apiKey ? 'ENABLED (X-HDV-Key / Bearer)' : 'DISABLED (dev mode — set HDV_API_KEY)';

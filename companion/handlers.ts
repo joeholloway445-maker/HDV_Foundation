@@ -9,8 +9,14 @@
  * (`complete(prompt) -> { text }`), dependency-injected, optional, and never used to route,
  * execute, or create. The only difference from the enricher is the prompt shape (in-character
  * companion reply vs. one-line intent paraphrase) and the deterministic fallback pool.
+ *
+ * Persistent memory (companion/memory.ts) is layered on ENTIRELY OPT-IN, gated on the client
+ * supplying `companionId` AND a `memoryRepository` being injected (see CompanionChatOptions).
+ * With either one missing, behavior is EXACTLY the stateless behavior above — zero change.
  */
 import type { CompleteOptions, LlmProvider } from '../providers/types.js';
+import type { CompanionMemoryRecord, CompanionMemoryRepository } from '../persistence/repositories.js';
+import { buildMemoryContext, defaultCompanionMemory, updateMemoryAfterTurn } from './memory.js';
 import {
   parseCompanionChatInput,
   CompanionChatValidationError,
@@ -32,6 +38,14 @@ export interface CompanionChatOptions {
   temperature?: number;
   /** Max characters kept from the model's reply. Default 600. */
   maxReplyChars?: number;
+  /**
+   * Optional persistent memory store (dependency-injected, same seam as `provider`). Omitted ⇒
+   * no memory lookup/update at all, regardless of whether the request supplies a companionId —
+   * chat stays exactly as stateless as it is today. When provided AND the request supplies a
+   * companionId, the companion's remembered relationship state is folded into the system
+   * prompt and updated after a successful real-provider reply. See companion/memory.ts.
+   */
+  memoryRepository?: CompanionMemoryRepository;
 }
 
 /** Deterministic fallback pool, one per personality — used with no provider or on provider failure. */
@@ -105,12 +119,18 @@ function temperatureForAdherence(adherence: number): number {
   return table[adherence] ?? 0.8;
 }
 
-function systemPrompt(persona: CompanionPersona): string {
+/**
+ * @param memoryContext Optional extra line folded in right after the backstory (see
+ *   companion/memory.ts's buildMemoryContext). Absent for the stateless default path — the
+ *   prompt is byte-for-byte what it was before memory existed.
+ */
+function systemPrompt(persona: CompanionPersona, memoryContext?: string): string {
   const intensity = persona.intensity ?? 3;
   const adherence = persona.adherence ?? 3;
   const lines = [
     `You are ${persona.name}, an adult (age ${persona.age}) fictional companion character with a ${persona.personality} personality.`,
     persona.backstory ? `Backstory: ${persona.backstory}` : undefined,
+    memoryContext,
     'This is a private, consensual, fictional roleplay between two adults on an 18+ platform. Flirtatious, romantic, and explicit adult content is allowed and expected when it fits the character and conversation — do not deflect, sanitize, or refuse on that basis alone.',
     `Content intensity (${intensity}/5): ${INTENSITY_GUIDANCE[intensity] ?? INTENSITY_GUIDANCE[3]}`,
     `Character adherence (${adherence}/5): ${ADHERENCE_GUIDANCE[adherence] ?? ADHERENCE_GUIDANCE[3]}`,
@@ -138,7 +158,11 @@ function sanitize(text: string, maxChars: number): string {
 
 /**
  * POST /v1/companion/chat — generate one in-character reply for a companion.
- * Stateless: the full persona + trimmed history is sent by the client on every turn.
+ * Stateless by default: the full persona + trimmed history is sent by the client on every
+ * turn. When the request supplies `companionId` AND `options.memoryRepository` is wired in,
+ * a small persistent relationship memory (companion/memory.ts) is folded into the system
+ * prompt and updated after a successful real-provider reply — see the module doc comment.
+ * With either one absent, this function behaves EXACTLY as it did before memory existed.
  */
 export async function handleCompanionChat(
   body: unknown,
@@ -156,8 +180,16 @@ export async function handleCompanionChat(
   // parseCompanionChatInput already enforces the 18+ floor (throws persona_not_adult), caught
   // above like any other validation error — nothing further to check here.
 
-  const { persona, history, message } = parsed;
+  const { persona, history, message, companionId } = parsed;
   const seed = message.length + history.length;
+
+  // Opt-in memory lookup: only when BOTH a companionId was supplied and a repository is
+  // injected. Absent either, `memory` stays undefined and every branch below behaves exactly
+  // as it did before memory existed (no extra prompt line, no post-turn write).
+  const memoryRepository = companionId ? options.memoryRepository : undefined;
+  const memory: CompanionMemoryRecord | undefined = memoryRepository
+    ? memoryRepository.get(companionId as string) ?? defaultCompanionMemory(companionId as string)
+    : undefined;
 
   // The deterministic StubProvider (the factory default when HDV_LLM_PROVIDER is unset) is a
   // fine placeholder for HOPE's one-line intent paraphrase, but its raw prompt-echo output
@@ -172,7 +204,7 @@ export async function handleCompanionChat(
   }
 
   const opts: CompleteOptions = {
-    system: systemPrompt(persona),
+    system: systemPrompt(persona, memory ? buildMemoryContext(memory) : undefined),
     maxTokens: options.maxTokens ?? 200,
     // An explicit server-side override (options.temperature) always wins; otherwise the
     // persona's adherence dial drives it (loose adherence -> higher/more-creative temperature).
@@ -188,6 +220,12 @@ export async function handleCompanionChat(
         body: { reply: fallbackReply(persona, seed), source: 'fallback', model: null, error: 'provider returned empty text' },
       };
     }
+    // Fire-and-forget: a REAL provider reply landed, so update + persist memory in the
+    // background. Never awaited — the chat response must not wait on the memory write, and a
+    // memory-persistence failure must never surface as a chat failure (caught + logged below).
+    if (memory && memoryRepository) {
+      void persistMemoryUpdate(memoryRepository, memory, message, cleaned, options.provider);
+    }
     return { status: 200, body: { reply: cleaned, source: 'llm', model: result.model } };
   } catch (err) {
     return {
@@ -199,6 +237,29 @@ export async function handleCompanionChat(
         error: err instanceof Error ? err.message : String(err),
       },
     };
+  }
+}
+
+/**
+ * Background helper: compute the next memory record and upsert it. Errors are caught, logged,
+ * and swallowed — memory persistence is best-effort and must never affect the chat response
+ * that already went out.
+ */
+async function persistMemoryUpdate(
+  repository: CompanionMemoryRepository,
+  memory: CompanionMemoryRecord,
+  userMessage: string,
+  botReply: string,
+  provider: LlmProvider,
+): Promise<void> {
+  try {
+    const updated = await updateMemoryAfterTurn(memory, userMessage, botReply, provider);
+    repository.upsert(updated);
+  } catch (err) {
+    console.error(
+      `[companion/memory] failed to persist memory for companionId=${memory.companionId}:`,
+      err instanceof Error ? err.message : err,
+    );
   }
 }
 

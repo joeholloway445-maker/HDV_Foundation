@@ -239,6 +239,17 @@ components:
           description: Trimmed transcript so far (last ~20 turns). Stateless — sent every call.
         message:
           type: string
+        companionId:
+          type: string
+          maxLength: 128
+          pattern: '^[A-Za-z0-9_-]+$'
+          description: >
+            Optional, ENTIRELY OPT-IN. An opaque, client-generated stable id for "which saved
+            companion is this" — NOT a real user id (there is no user-account system yet).
+            Alphanumeric plus "_"/"-" only. When present AND persistent memory is available
+            server-side, the companion's remembered relationship state (see CompanionMemory) is
+            folded into the reply and updated afterward. Omitted ⇒ chat is fully stateless, byte-
+            for-byte identical to calling this endpoint with no memory feature at all.
       required: [persona, message]
     CompanionChatResponse:
       type: object
@@ -253,6 +264,30 @@ components:
           type: string
           nullable: true
       required: [reply, source]
+    CompanionMemory:
+      type: object
+      description: >
+        Opt-in companion relationship memory (companion/memory.ts). One row per companionId.
+        Never 404s from GET /v1/companion/memory — an unknown companionId simply returns these
+        defaults (affectionLevel 50, empty summary, turnCount 0).
+      properties:
+        companionId:
+          type: string
+        affectionLevel:
+          type: integer
+          minimum: 0
+          maximum: 100
+          default: 50
+        summary:
+          type: string
+          description: Running relationship/fact summary, length-capped.
+        turnCount:
+          type: integer
+          default: 0
+        updatedAt:
+          type: integer
+          description: Epoch milliseconds.
+      required: [companionId, affectionLevel, summary, turnCount, updatedAt]
     PortraitPersona:
       type: object
       properties:
@@ -751,9 +786,12 @@ paths:
       summary: One in-character companion reply
       description: >
         Auth-exempt but rate-limited (the web client calls this directly, with no API key).
-        Stateless: the client sends the persona + trimmed history on every call. Never routes
-        through APEX/KNOLL — it only calls the configured LlmProvider (or a deterministic
-        per-personality fallback when none is configured / it fails).
+        Stateless by default: the client sends the persona + trimmed history on every call.
+        Optionally supply `companionId` to opt into persistent relationship memory (see
+        CompanionChatRequest.companionId and GET /v1/companion/memory) — omit it and behavior
+        is unchanged. Never routes through APEX/KNOLL — it only calls the configured
+        LlmProvider (or a deterministic per-personality fallback when none is configured / it
+        fails).
       requestBody:
         required: true
         content:
@@ -872,6 +910,41 @@ paths:
                 $ref: '#/components/schemas/SceneResponse'
         '400':
           description: Invalid request (missing persona.name/age/seedImage, or persona.age < 18).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/companion/memory:
+    get:
+      tags: [companion]
+      summary: Read a companion's remembered relationship state
+      description: >
+        Auth-exempt but rate-limited, same posture as chat/portrait/scene. Read-only —
+        never routes through APEX/KNOLL. Backed by an in-memory store by default, or Postgres
+        (via Prisma) when DATABASE_URL is set — see persistence/repositories.ts's
+        CompanionMemoryRepository. Never 404s: an unknown/never-seen companionId returns
+        fresh defaults so a frontend can render a "relationship level" UI immediately.
+      parameters:
+        - name: companionId
+          in: query
+          required: true
+          schema:
+            type: string
+            maxLength: 128
+            pattern: '^[A-Za-z0-9_-]+$'
+      responses:
+        '200':
+          description: The companion's memory record (existing or default).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  memory:
+                    $ref: '#/components/schemas/CompanionMemory'
+                required: [memory]
+        '400':
+          description: Missing companionId query parameter.
           content:
             application/json:
               schema:

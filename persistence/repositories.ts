@@ -2,10 +2,11 @@
  * persistence/repositories.ts — repository interfaces + in-memory implementations.
  *
  * Phase 2 persistence layer. These interfaces mirror the Prisma models in
- * `config/schema.prisma` exactly (RequestLog, NodeIdentity, SecurityAudit, and the new
- * IntentDocument). The in-memory implementations are drop-in defaults so the running
- * backbone never requires a real Postgres; a Phase 4 Prisma-backed implementation can
- * satisfy the same interfaces without touching call sites.
+ * `config/schema.prisma` exactly (RequestLog, NodeIdentity, SecurityAudit, IntentDocument,
+ * and CompanionMemory — companion/'s opt-in relationship memory, see companion/memory.ts).
+ * The in-memory implementations are drop-in defaults so the running backbone never requires
+ * a real Postgres; a Phase 4 Prisma-backed implementation can satisfy the same interfaces
+ * without touching call sites.
  *
  * This module imports ONLY from `config/` so it stays agent-neutral: APEX (ledger),
  * KNOLL (audit), and HOPE (intent archive) can all optionally wrap a repository without
@@ -80,6 +81,21 @@ export interface SessionRecord {
   expiresAt: number;
 }
 
+/**
+ * Mirrors the CompanionMemory model (companion/'s opt-in relationship memory — see
+ * companion/memory.ts). One row per client-supplied companionId; there is no user-account
+ * system yet, so this is an opaque client-generated id, not a real user id.
+ */
+export interface CompanionMemoryRecord {
+  companionId: string;
+  /** 0-100. */
+  affectionLevel: number;
+  /** Running relationship/fact summary, capped length. */
+  summary: string;
+  turnCount: number;
+  updatedAt: number;
+}
+
 // ---------------------------------------------------------------------------
 // Repository interfaces
 // ---------------------------------------------------------------------------
@@ -129,6 +145,13 @@ export interface SessionRepository {
   create(record: SessionRecord): SessionRecord;
   findByToken(token: string): SessionRecord | undefined;
   delete(token: string): void;
+  clear(): void;
+}
+
+export interface CompanionMemoryRepository {
+  get(companionId: string): CompanionMemoryRecord | undefined;
+  upsert(record: CompanionMemoryRecord): CompanionMemoryRecord;
+  all(): readonly CompanionMemoryRecord[];
   clear(): void;
 }
 
@@ -253,6 +276,24 @@ export class InMemorySessionRepository implements SessionRepository {
   }
   delete(token: string): void {
     this.rows.delete(token);
+  }
+  clear(): void {
+    this.rows.clear();
+  }
+}
+
+export class InMemoryCompanionMemoryRepository implements CompanionMemoryRepository {
+  private readonly rows = new Map<string, CompanionMemoryRecord>();
+
+  get(companionId: string): CompanionMemoryRecord | undefined {
+    return this.rows.get(companionId);
+  }
+  upsert(record: CompanionMemoryRecord): CompanionMemoryRecord {
+    this.rows.set(record.companionId, record);
+    return record;
+  }
+  all(): readonly CompanionMemoryRecord[] {
+    return Array.from(this.rows.values());
   }
   clear(): void {
     this.rows.clear();

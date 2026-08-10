@@ -13,12 +13,14 @@ export type {
   IntentDocumentRecord,
   UserRecord,
   SessionRecord,
+  CompanionMemoryRecord,
   RequestLogRepository,
   NodeIdentityRepository,
   SecurityAuditRepository,
   IntentArchiveRepository,
   UserRepository,
   SessionRepository,
+  CompanionMemoryRepository,
 } from './repositories.js';
 export {
   InMemoryRequestLogRepository,
@@ -27,6 +29,7 @@ export {
   InMemoryIntentArchiveRepository,
   InMemoryUserRepository,
   InMemorySessionRepository,
+  InMemoryCompanionMemoryRepository,
   newRowId,
 } from './repositories.js';
 
@@ -40,6 +43,7 @@ export {
   PrismaIntentArchiveRepository,
   PrismaUserRepository,
   PrismaSessionRepository,
+  PrismaCompanionMemoryRepository,
   createPrismaRepositories,
 } from './prisma_repos.js';
 export type { PrismaRepositoryBundle, PrismaBundleOptions } from './prisma_repos.js';

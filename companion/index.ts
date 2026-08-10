@@ -11,6 +11,8 @@ export * from './types.js';
 export { handleCompanionChat, handleCompanionChatStream } from './handlers.js';
 export type { CompanionResponse, CompanionChatOptions, CompanionChatStreamEvents } from './handlers.js';
 
+export { buildMemoryContext, updateMemoryAfterTurn, defaultCompanionMemory } from './memory.js';
+
 export {
   parsePortraitRequest,
   PortraitValidationError,
