@@ -1,38 +1,53 @@
 # ---
-# Big 5 Matrix -- Colab: Companion Portrait Server (v0.1.0)
+# Big 5 Matrix -- Colab: Companion Portrait Server (v0.2.0)
 # ML LAB ONLY: GPU image generation. Simulation/compute only.
 # RESTRICTION: no webcam, no microphone, no physical-world I/O.
 #
 # Notebook-style (`# %%` cell markers) so it opens cleanly in Colab/Jupyter. Unlike the other
-# colab/*.py files, this one is NOT meant to also run top-to-bottom as a plain script — the
+# colab/*.py files, this one is NOT meant to also run top-to-bottom as a plain script -- the
 # server cell blocks (it's a server), so run cells in order and leave the last cell running.
 #
 # WHAT THIS IS
 # ------------
-# A minimal FastAPI server exposing ONE endpoint that speaks the exact contract HDV's
+# A FastAPI server exposing ONE endpoint that speaks the exact contract HDV's
 # ColabTunnelImageProvider expects (providers/colab_tunnel_image.ts):
 #
 #   POST /generate
-#   body: { "prompt": str, "negative_prompt"?: str, "width"?: int, "height"?: int,
-#           "steps"?: int, "seed"?: int }
+#   body: { "prompt": str, "style"?: str, "negative_prompt"?: str, "width"?: int,
+#           "height"?: int, "steps"?: int, "seed"?: int }
 #   200 -> { "image_base64": str, "mime_type": "image/png", "model": str }
 #
-# This is the SAME pattern as Ollama (deploy/OLLAMA.md): a plain HTTP endpoint the gateway
-# calls. The gateway never knows or cares which checkpoint is loaded here -- that's the whole
-# point of the provider seam (providers/image_types.ts). It never touches APEX/KNOLL/routing.
+# `style` (from PortraitPersona.style -- FuckLike/web's own "Realistic" / "Anime" create-form
+# option) picks WHICH checkpoint runs this request -- see MODEL_ROUTES below. This is the
+# SAME pattern as Ollama (deploy/OLLAMA.md): a plain HTTP endpoint the gateway calls. The
+# gateway never knows or cares which checkpoint(s) are loaded here -- that's the whole point
+# of the provider seam (providers/image_types.ts). It never touches APEX/KNOLL/routing.
 #
-# CHOOSING A MODEL (do this before going live)
-# ---------------------------------------------
-# MODEL_ID below defaults to a small, well-known, SFW-safe base checkpoint purely so this
-# scaffold runs out of the box on a free Colab T4 GPU for wiring/testing. Swap MODEL_ID (and
-# LORA_PATH, if you're using a LoRA) for whatever checkpoint you've selected once you're ready
-# to go live -- nothing else in this file needs to change. `diffusers` loads any standard
-# Stable Diffusion / SDXL-format checkpoint from a Hugging Face repo id or a local/Drive path.
+# MODELS -- v0.2.0 defaults, VERIFY BEFORE GOING LIVE
+# -----------------------------------------------------
+# realistic -> RealVisXL (SG161222 on Hugging Face) -- a well-established, actively maintained
+#              publisher; the version pin below is a reasonable default but check for a newer
+#              tag on https://huggingface.co/SG161222 before relying on it.
+# anime     -> Pony Diffusion V6 XL -- canonically hosted on Civitai, NOT confidently pinned to
+#              a Hugging Face repo id here (mirrors exist but naming/versioning drifts). Grab
+#              the exact repo id (if you find an HF mirror) or the direct .safetensors download
+#              URL from the model's Civitai page and set PORTRAIT_MODEL_ANIME below -- the
+#              loader (Cell 2) handles either a Hugging Face repo id OR a direct .safetensors
+#              path/URL automatically. Leave it empty and the server will refuse anime requests
+#              with a clear error until you set it, rather than silently loading the wrong thing.
+#
+# Both are SDXL-family (~3.5B params) -- night-and-day lighter than LingBot-World's ~18.5B.
+# A single one comfortably fits a free Colab T4 (16GB) in fp16; having BOTH loaded
+# simultaneously is tighter but still very plausible, especially on Colab Pro. Default
+# behavior here is lazy-load-and-swap (keeps only the most recently used style's pipeline in
+# VRAM) so it works on the smallest GPU tier; set PRELOAD_ALL=1 once you've confirmed your GPU
+# has headroom for both at once, to avoid the swap latency on style changes.
 #
 # COLAB SETUP (do this first in Colab)
 # -------------------------------------
-#   Runtime -> Change runtime type -> Hardware accelerator: GPU (T4 is enough to start).
-#   !pip install -q diffusers transformers accelerate fastapi uvicorn pyngrok
+#   Runtime -> Change runtime type -> Hardware accelerator: GPU (T4 is enough for either model
+#   alone; more headroom needed for PRELOAD_ALL=1).
+#   !pip install -q diffusers transformers accelerate safetensors fastapi uvicorn pyngrok
 #
 # EXPOSING IT TO THE INTERNET (so the gateway can reach it)
 # -----------------------------------------------------------
@@ -45,8 +60,8 @@
 #   HDV_IMAGE_PROVIDER=colab_tunnel
 #   HDV_IMAGE_BASE_URL=<the https://....ngrok-free.app URL this notebook prints>
 #   HDV_IMAGE_API_KEY=<same value as PORTRAIT_SERVER_TOKEN below>
-#   Then restart the gateway. No frontend changes -- FuckLike/web already calls
-#   POST /v1/companion/portrait and never talks to this server directly.
+#   Then restart the gateway. No frontend changes -- FuckLike/web already sends persona.style
+#   with every POST /v1/companion/portrait call and never talks to this server directly.
 #
 # CAVEAT: free Colab sessions are NOT persistent -- the notebook (and the tunnel URL) dies
 # when the runtime disconnects/recycles. That's fine for development; for production uptime,
@@ -56,50 +71,106 @@
 
 # %% [markdown]
 # # 07 - Companion Portrait Server
-# 1. Install deps + load a diffusion pipeline on the GPU.
-# 2. Define the `/generate` endpoint (the exact contract `ColabTunnelImageProvider` expects).
-# 3. Open a tunnel and print the URL to paste into `HDV_IMAGE_BASE_URL`.
-# 4. Run the server (blocks -- leave this cell running while the tunnel is in use).
+# 1. Configure the realistic/anime model routes.
+# 2. Define the lazy-loading pipeline loader (HF repo id OR direct .safetensors).
+# 3. Define the `/generate` endpoint (the exact contract `ColabTunnelImageProvider` expects).
+# 4. Open a tunnel and print the URL to paste into `HDV_IMAGE_BASE_URL`.
+# 5. Run the server (blocks -- leave this cell running while the tunnel is in use).
 
 # %%
-# --- Cell 1: config -- EDIT THESE when you've picked a checkpoint ---
+# --- Cell 1: config -- EDIT / VERIFY before going live (see the header comment above) ---
 import os
 
-# Swap for your chosen checkpoint once selected. Any diffusers-compatible SD/SDXL repo id or
-# local path works unchanged by the rest of this file.
-MODEL_ID = os.environ.get("PORTRAIT_MODEL_ID", "stabilityai/stable-diffusion-xl-base-1.0")
-# Optional: path to a LoRA weights file/repo to layer on top of MODEL_ID. Leave empty to skip.
-LORA_PATH = os.environ.get("PORTRAIT_LORA_PATH", "")
+MODEL_ROUTES = {
+    "realistic": os.environ.get("PORTRAIT_MODEL_REALISTIC", "SG161222/RealVisXL_V4.0"),
+    "anime": os.environ.get("PORTRAIT_MODEL_ANIME", ""),  # set this -- see header comment
+}
+DEFAULT_STYLE = "realistic"  # used when persona.style is missing or doesn't match a route
+
+# Optional: path/URL to a LoRA weights file to layer on top of a given style's checkpoint.
+# Keyed the same as MODEL_ROUTES; leave a value empty/unset to skip for that style.
+LORA_ROUTES = {
+    "realistic": os.environ.get("PORTRAIT_LORA_REALISTIC", ""),
+    "anime": os.environ.get("PORTRAIT_LORA_ANIME", ""),
+}
+
 # Shared-secret bearer token this server requires on every request. MUST match
 # HDV_IMAGE_API_KEY in the gateway's .env -- an ngrok URL is public, this is the only lock.
 PORTRAIT_SERVER_TOKEN = os.environ.get("PORTRAIT_SERVER_TOKEN", "change-me-before-going-live")
-DEFAULT_WIDTH = 768
-DEFAULT_HEIGHT = 768
+DEFAULT_WIDTH = 1024
+DEFAULT_HEIGHT = 1024
 DEFAULT_STEPS = 30
+# Load every configured route's checkpoint at startup and keep them all resident (needs more
+# VRAM headroom). Default 0 = lazy-load-and-swap, keeping only the most recently used one.
+PRELOAD_ALL = os.environ.get("PRELOAD_ALL", "0") == "1"
 
-print(f"Model: {MODEL_ID}")
-print(f"LoRA: {LORA_PATH or '(none)'}")
+for style, model_id in MODEL_ROUTES.items():
+    print(f"{style}: {model_id or '(not set)'}" + (f"  + LoRA {LORA_ROUTES[style]}" if LORA_ROUTES.get(style) else ""))
 
 # %%
-# --- Cell 2: load the pipeline on the GPU ---
+# --- Cell 2: lazy-loading pipeline loader (HF repo id OR a direct .safetensors path/URL) ---
+import gc
+
 import torch
-from diffusers import DiffusionPipeline
+from diffusers import StableDiffusionXLPipeline
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 if DEVICE == "cpu":
     print("WARNING: no GPU detected -- this will be extremely slow. Runtime -> Change runtime type -> GPU.")
 
-pipe = DiffusionPipeline.from_pretrained(
-    MODEL_ID,
-    torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
-)
-pipe = pipe.to(DEVICE)
+_loaded_pipelines: dict[str, StableDiffusionXLPipeline] = {}
 
-if LORA_PATH:
-    pipe.load_lora_weights(LORA_PATH)
-    print(f"Loaded LoRA: {LORA_PATH}")
 
-print("Pipeline ready on", DEVICE)
+def _load_one(style: str) -> StableDiffusionXLPipeline:
+    model_id = MODEL_ROUTES.get(style)
+    if not model_id:
+        raise RuntimeError(
+            f"No model configured for style={style!r}. Set MODEL_ROUTES[{style!r}] "
+            f"(env var PORTRAIT_MODEL_{style.upper()}) to a Hugging Face repo id or a direct "
+            f".safetensors path/URL -- see this file's header comment for where to find one."
+        )
+    dtype = torch.float16 if DEVICE == "cuda" else torch.float32
+    print(f"Loading {style} -> {model_id} ...")
+    if model_id.endswith(".safetensors"):
+        pipe = StableDiffusionXLPipeline.from_single_file(model_id, torch_dtype=dtype)
+    else:
+        pipe = StableDiffusionXLPipeline.from_pretrained(model_id, torch_dtype=dtype)
+    pipe = pipe.to(DEVICE)
+
+    lora = LORA_ROUTES.get(style)
+    if lora:
+        pipe.load_lora_weights(lora)
+        print(f"  + LoRA: {lora}")
+
+    print(f"  ready on {DEVICE}")
+    return pipe
+
+
+def get_pipeline(style: str) -> StableDiffusionXLPipeline:
+    """Lazy-load-and-swap by default (VRAM-friendly on a single GPU); PRELOAD_ALL=1 keeps
+    every configured route resident so style switches never pay a reload cost."""
+    if style in _loaded_pipelines:
+        return _loaded_pipelines[style]
+
+    if not PRELOAD_ALL:
+        # Evict whatever's currently loaded before loading the new one.
+        for old_style, old_pipe in list(_loaded_pipelines.items()):
+            del old_pipe
+            del _loaded_pipelines[old_style]
+        gc.collect()
+        if DEVICE == "cuda":
+            torch.cuda.empty_cache()
+
+    _loaded_pipelines[style] = _load_one(style)
+    return _loaded_pipelines[style]
+
+
+if PRELOAD_ALL:
+    for _style in MODEL_ROUTES:
+        if MODEL_ROUTES[_style]:
+            get_pipeline(_style)
+else:
+    print("Lazy-load-and-swap mode -- the first request for each style will load its checkpoint.")
 
 # %%
 # --- Cell 3: the /generate endpoint -- this IS the ColabTunnelImageProvider contract ---
@@ -114,6 +185,7 @@ app = FastAPI(title="HDV Companion Portrait Server")
 
 class GenerateRequest(BaseModel):
     prompt: str
+    style: str | None = None
     negative_prompt: str | None = None
     width: int | None = None
     height: int | None = None
@@ -129,7 +201,7 @@ class GenerateResponse(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"ok": True, "model": MODEL_ID, "device": DEVICE}
+    return {"ok": True, "routes": {k: bool(v) for k, v in MODEL_ROUTES.items()}, "device": DEVICE}
 
 
 @app.post("/generate", response_model=GenerateResponse)
@@ -139,6 +211,12 @@ def generate(req: GenerateRequest, authorization: str | None = Header(default=No
     expected = f"Bearer {PORTRAIT_SERVER_TOKEN}"
     if authorization != expected:
         raise HTTPException(status_code=401, detail="unauthorized")
+
+    style = req.style if req.style in MODEL_ROUTES else DEFAULT_STYLE
+    try:
+        pipe = get_pipeline(style)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
 
     generator = None
     if req.seed is not None:
@@ -158,7 +236,7 @@ def generate(req: GenerateRequest, authorization: str | None = Header(default=No
     image.save(buf, format="PNG")
     image_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
 
-    return GenerateResponse(image_base64=image_b64, mime_type="image/png", model=MODEL_ID)
+    return GenerateResponse(image_base64=image_b64, mime_type="image/png", model=MODEL_ROUTES[style])
 
 
 print("FastAPI app defined: GET /health, POST /generate")

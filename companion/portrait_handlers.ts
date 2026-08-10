@@ -68,7 +68,10 @@ export async function handlePortraitRequest(
   }
 
   try {
-    const result = await options.provider.generate(buildPrompt(persona), options.generateOptions);
+    const result = await options.provider.generate(buildPrompt(persona), {
+      ...options.generateOptions,
+      style: persona.style,
+    });
     return {
       status: 200,
       body: {

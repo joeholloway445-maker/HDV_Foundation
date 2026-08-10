@@ -18,6 +18,14 @@
 
 /** Per-call options. All optional; providers pick sensible defaults. */
 export interface GenerateImageOptions {
+  /**
+   * Free-form visual style hint (e.g. "realistic" | "anime"), passed through from
+   * companion/portrait_types.ts's PortraitPersona.style. Providers that host more than one
+   * checkpoint (e.g. colab/07_portrait_server.py routing realistic vs. anime personas to
+   * different models) use this to pick which one to run; providers with a single fixed model
+   * are free to ignore it.
+   */
+  style?: string;
   /** Things to steer the image away from (not all providers support this). */
   negativePrompt?: string;
   /** Output width in pixels. */

@@ -130,6 +130,18 @@ test('handlePortraitRequest returns a data URI on success and never routes/execu
   assert.equal(res.body.model, 'fake-image-1');
 });
 
+test('handlePortraitRequest forwards persona.style to the provider for checkpoint routing', async () => {
+  const provider = new FakeImageProvider((_prompt, opts) => {
+    assert.equal(opts?.style, 'anime');
+    return { imageBase64: 'QUJD', mimeType: 'image/png', model: 'fake-image-1' };
+  });
+  const res = await handlePortraitRequest(
+    { persona: { name: 'Nova', age: 24, style: 'anime' } },
+    { provider },
+  );
+  assert.equal(res.status, 200);
+});
+
 test('handlePortraitRequest falls back to "unavailable" (not a crash) when the provider throws', async () => {
   const provider = new FakeImageProvider(async () => {
     throw new Error('gpu warming up');
