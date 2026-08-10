@@ -15,7 +15,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
 
-import { parseSceneRequest, SceneValidationError, handleSceneRequest } from '../companion/index.js';
+import {
+  parseSceneRequest,
+  SceneValidationError,
+  handleSceneRequest,
+  buildActionString,
+} from '../companion/index.js';
+import { COMPANION_PERSONALITIES } from '../companion/types.js';
 import { HopeGateway } from '../gateway/index.js';
 import { StubVideoProvider } from '../providers/index.js';
 import type { GenerateVideoOptions, VideoProvider, VideoResult } from '../providers/video_types.js';
@@ -170,6 +176,43 @@ test('handleSceneRequest folds persona.appearance into the prompt when provided'
       persona: { name: 'Jordyn', age: 24, personality: 'romantic', appearance: 'gorgeous, thick, light brunette hair' },
       seedImage: VALID_SEED,
     },
+    { provider },
+  );
+  assert.equal(res.status, 200);
+});
+
+test('buildActionString sums to exactly the requested frame count for every personality', () => {
+  for (const personality of COMPANION_PERSONALITIES) {
+    const actionString = buildActionString(personality, 81);
+    const segments = actionString.split(',');
+    const total = segments.reduce((sum, seg) => sum + Number(seg.split('-').pop()), 0);
+    assert.equal(total, 81, `${personality}: expected segments to sum to 81, got ${total} ("${actionString}")`);
+    for (const seg of segments) {
+      const [keys] = seg.split('-');
+      assert.ok(/^(none|[wasdijkl]+)$/.test(keys), `${personality}: bad segment "${seg}"`);
+    }
+  }
+});
+
+test('handleSceneRequest derives an actionString from persona.personality when the client omits one', async () => {
+  const provider = new FakeVideoProvider((_prompt, _seedImage, opts) => {
+    assert.equal(opts?.actionString, buildActionString('mysterious'));
+    return { videoBase64: 'QUJD', mimeType: 'video/mp4', model: 'fake-video-1' };
+  });
+  const res = await handleSceneRequest(
+    { persona: { name: 'Nova', age: 24, personality: 'mysterious' }, seedImage: VALID_SEED },
+    { provider },
+  );
+  assert.equal(res.status, 200);
+});
+
+test('handleSceneRequest still honors an explicit client-supplied actionString', async () => {
+  const provider = new FakeVideoProvider((_prompt, _seedImage, opts) => {
+    assert.equal(opts?.actionString, 'w-10');
+    return { videoBase64: 'QUJD', mimeType: 'video/mp4', model: 'fake-video-1' };
+  });
+  const res = await handleSceneRequest(
+    { persona: { name: 'Luna', age: 23 }, seedImage: VALID_SEED, actionString: 'w-10' },
     { provider },
   );
   assert.equal(res.status, 200);

@@ -19,7 +19,8 @@
 # Optional local LLM (co-located inference, no vendor key leaves the box):
 #   docker compose -f deploy/docker-compose.prod.yml --profile local-llm up -d
 #   # then in .env: HDV_LLM_PROVIDER=openai_compatible
-#   #               HDV_LLM_BASE_URL=http://ollama:11434/v1   HDV_LLM_MODEL=llama3.1:8b
+#   #               HDV_LLM_BASE_URL=http://ollama:11434/v1   HDV_LLM_MODEL=llama3.2:3b
+#   # (companion/chat wants a roleplay-capable model instead — see deploy/OLLAMA.md §6)
 
 services:
   gateway:

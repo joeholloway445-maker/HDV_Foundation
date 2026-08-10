@@ -27,7 +27,8 @@ export interface SceneRequestInput {
   seedImage: unknown;
   /**
    * Optional compact keyboard-schedule camera control, e.g. "w-10,a-10,d-10". See
-   * colab/08_scene_server.py for the format. Omit for free-form motion.
+   * colab/08_scene_server.py for the format. Omit to have scene_handlers.ts derive one from
+   * persona.personality instead (action_string.ts) — never actually free-form by default.
    */
   actionString?: unknown;
 }

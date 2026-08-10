@@ -3,9 +3,14 @@
  *
  * Mirrors companion/portrait_handlers.ts one layer up the stack: image+prompt -> video via the
  * injected VideoProvider, same dependency-injected/optional/never-routes posture.
+ *
+ * The LingBot camera schedule (actionString) defaults to a personality-derived one
+ * (action_string.ts) rather than always being null/free-form when the client omits it — see
+ * that module for the LingBot-World action_string format this is built against.
  */
 import type { GenerateVideoOptions, VideoProvider } from '../providers/video_types.js';
 import { parseSceneRequest, SceneValidationError, type ScenePersona } from './scene_types.js';
+import { buildActionString } from './action_string.js';
 
 export interface SceneResponse {
   status: number;
@@ -53,10 +58,15 @@ export async function handleSceneRequest(body: unknown, options: SceneOptions = 
     return { status: 200, body: { video: null, source: 'unavailable', model: null } };
   }
 
+  // Tie the LingBot action tools to the prompt: a client can still supply an explicit
+  // actionString for full manual control, but by default the camera schedule is derived from
+  // persona.personality (see action_string.ts) instead of always being null/free-form motion.
+  const effectiveActionString = actionString ?? buildActionString(persona.personality);
+
   try {
     const result = await options.provider.generate(buildPrompt(persona), seedImage, {
       ...options.generateOptions,
-      actionString,
+      actionString: effectiveActionString,
     });
     return {
       status: 200,

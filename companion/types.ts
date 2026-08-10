@@ -8,6 +8,12 @@
  * injected LlmProvider text transducer HOPE's enricher uses (hope/enricher.ts), with a
  * companion-flavoured prompt instead of an interpretation one. No provider ⇒ deterministic
  * canned replies, so the endpoint stays fully functional offline.
+ *
+ * HARD SAFETY FLOOR (not model-dependent, enforced here regardless of which LlmProvider is
+ * configured): a chat reply may only be generated for a persona whose stated age is 18 or
+ * older. Same floor as companion/portrait_types.ts and companion/scene_types.ts — chat is the
+ * one companion surface capable of open-ended (including explicit) text, so this is enforced
+ * here too, not just on the image/video endpoints.
  */
 
 /** A single turn in the visible chat transcript. */
@@ -39,6 +45,8 @@ export interface CompanionPersona {
   name: string;
   personality: CompanionPersonality;
   backstory?: string;
+  /** Required. Must be >= 18 — see the module-level safety floor note above. */
+  age: number;
 }
 
 /** Raw request body shape (from FuckLike/web/app.js). Only `persona.name` + `message` required. */
@@ -62,6 +70,7 @@ const MAX_MESSAGE_CHARS = 4000;
 const MAX_HISTORY_TURNS = 20;
 const MAX_NAME_CHARS = 80;
 const MAX_BACKSTORY_CHARS = 2000;
+const MIN_ADULT_AGE = 18;
 
 /** Parse + validate a raw body into a typed persona/history/message triple. */
 export function parseCompanionChatInput(body: unknown): {
@@ -90,6 +99,18 @@ export function parseCompanionChatInput(body: unknown): {
   if (!name) {
     throw new CompanionChatValidationError('"persona.name" must be a non-empty string');
   }
+
+  const age = typeof p.age === 'number' ? p.age : Number(p.age);
+  if (!Number.isFinite(age) || !Number.isInteger(age)) {
+    throw new CompanionChatValidationError('"persona.age" must be a whole number');
+  }
+  if (age < MIN_ADULT_AGE) {
+    throw new CompanionChatValidationError(
+      `companion chat requires an adult persona (age >= ${MIN_ADULT_AGE})`,
+      'persona_not_adult',
+    );
+  }
+
   const personality = normalisePersonality(p.personality);
   const backstory =
     typeof p.backstory === 'string' && p.backstory.trim()
@@ -98,7 +119,7 @@ export function parseCompanionChatInput(body: unknown): {
 
   const history = normaliseHistory(b.history);
 
-  return { persona: { name, personality, backstory }, history, message };
+  return { persona: { name, personality, backstory, age }, history, message };
 }
 
 function normalisePersonality(value: unknown): CompanionPersonality {

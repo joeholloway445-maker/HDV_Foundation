@@ -104,7 +104,7 @@ PROMPT_LIBRARY = [
         "portrait_suffix": "",
         "generate_scene": True,
         "scene_action": "Gentle, natural idle motion -- subtle breathing, occasional blinking, calm expression.",
-        "action_string": None,  # free-form motion, no explicit camera path
+        "action_string": None,  # None -> derived from persona.personality, see build_action_string()
     },
     {
         "slug": "smiling",
@@ -223,6 +223,36 @@ def build_scene_prompt(persona: dict, prompt_entry: dict) -> str:
     return " ".join(lines)
 
 
+# Mirrors companion/action_string.ts (kept in sync by hand -- ties the LingBot camera schedule
+# to persona.personality instead of leaving it null/free-form). Format verified against the
+# real parser in lingbot-world's wan/utils/wasd_ijkl_to_c2ws.py: comma-separated
+# "<keys>-<frames>" segments applied in order (w/a/s/d translate, i/j/k/l pitch/yaw, "none"
+# holds still); the total must sum to exactly --frame_num (81 below).
+MOTION_CELLS = {
+    "playful": ["w-3", "none-2", "d-3", "none-2", "i-2", "none-2", "k-2", "none-2", "a-3", "none-2"],
+    "romantic": ["none-10", "i-4", "none-10", "k-4"],
+    "bratty": ["j-4", "none-1", "l-4", "none-1", "j-3", "none-3"],
+    "dominant": ["none-35", "w-6", "none-35"],
+    "soft": ["none-15", "i-2", "none-15", "k-2"],
+    "mysterious": ["l-15", "none-5"],
+}
+
+
+def build_action_string(personality: str, total_frames: int = 81) -> str:
+    cell = MOTION_CELLS.get(personality, MOTION_CELLS["playful"])
+    cell_frames = sum(int(seg.rsplit("-", 1)[-1]) for seg in cell)
+
+    segments: list[str] = []
+    used = 0
+    while cell_frames > 0 and used + cell_frames <= total_frames:
+        segments.extend(cell)
+        used += cell_frames
+    remainder = total_frames - used
+    if remainder > 0:
+        segments.append(f"none-{remainder}")
+    return ",".join(segments)
+
+
 def generate_scene(persona: dict, prompt_entry: dict, seed_image_path: str, out_path: str) -> None:
     if os.path.exists(out_path):
         return  # resumable: already done
@@ -241,7 +271,7 @@ def generate_scene(persona: dict, prompt_entry: dict, seed_image_path: str, out_
         "--t5_cpu",
         "--convert_model_dtype",
     ]
-    action_string = prompt_entry.get("action_string")
+    action_string = prompt_entry.get("action_string") or build_action_string(persona["personality"])
     if action_string:
         cmd += ["--action_string", action_string, "--action_path", f"{LINGBOT_DIR}/examples/05", "--allow_act2cam"]
 
