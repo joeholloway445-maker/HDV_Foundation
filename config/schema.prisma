@@ -63,3 +63,24 @@ model IntentDocument {
   documentedAt         DateTime @default(now())
   clarificationNeeded  Boolean  @default(false)
 }
+
+/// Real account identity (auth/). One row per registered email+password account. NO email
+/// verification and NO password-reset flow yet — both are deliberate follow-ups, not part of
+/// this minimal-but-correct first pass (see auth/service.ts). `passwordHash` is never the raw
+/// password: it is `scrypt` salt:hash (see auth/service.ts hashPassword/verifyPassword).
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+}
+
+/// A logged-in session token (auth/). One row per active login; `logout` deletes the row,
+/// `getUserBySession` rejects (and lazily deletes) rows past `expiresAt`. Tokens are
+/// cryptographically random (crypto.randomBytes) and used as-is as the primary key.
+model Session {
+  token     String   @id
+  userId    String
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+}

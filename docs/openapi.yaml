@@ -18,6 +18,7 @@ tags:
   - name: health
   - name: metrics
   - name: billing
+  - name: auth
   - name: waitlist
   - name: companion
 components:
@@ -34,6 +35,16 @@ components:
       schema:
         type: string
       description: Tenant identifier for tenant-scoped routes (defaults to "demo").
+    SessionHeader:
+      name: X-HDV-Session
+      in: header
+      required: false
+      schema:
+        type: string
+      description: >-
+        Bearer session token minted by POST /v1/auth/signup or /v1/auth/login. Required (401
+        otherwise) for GET /v1/auth/me; POST /v1/auth/logout also accepts it in a
+        `{ sessionToken }` JSON body as a fallback.
   schemas:
     Error:
       type: object
@@ -148,6 +159,43 @@ components:
         last7d: { type: integer }
         firstAt: { type: integer, nullable: true }
         lastAt: { type: integer, nullable: true }
+    User:
+      type: object
+      description: Public-safe account view. NEVER includes passwordHash.
+      properties:
+        userId: { type: string, format: uuid }
+        email: { type: string, format: email }
+      required: [userId, email]
+    AuthSignupRequest:
+      type: object
+      properties:
+        email: { type: string, format: email }
+        password:
+          type: string
+          minLength: 8
+          description: Minimum 8 characters. No other complexity rules in this pass.
+      required: [email, password]
+    AuthLoginRequest:
+      type: object
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+      required: [email, password]
+    AuthResponse:
+      type: object
+      description: Returned by both signup and login. Never includes the password or its hash.
+      properties:
+        userId: { type: string, format: uuid }
+        email: { type: string, format: email }
+        sessionToken:
+          type: string
+          description: Opaque bearer token — send back via the X-HDV-Session header.
+      required: [userId, email, sessionToken]
+    AuthLogoutRequest:
+      type: object
+      description: Optional fallback body when the X-HDV-Session header isn't used.
+      properties:
+        sessionToken: { type: string }
     CompanionPersona:
       type: object
       properties:
@@ -533,6 +581,129 @@ paths:
                 additionalProperties: true
         '404':
           description: Unknown or expired sessionId.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/auth/signup:
+    post:
+      tags: [auth]
+      summary: Create a new email+password account
+      description: >-
+        Auth-exempt (public — this route IS the auth system) but rate-limited, with a stricter,
+        dedicated per-IP cap on top of the generic gateway limiter (brute-force defense; see
+        HDV_AUTH_RATE_LIMIT in gateway/middleware.ts). NOT wired into billing/checkout's
+        X-HDV-Tenant resolution yet — see the TODO in gateway/server.ts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthSignupRequest'
+      responses:
+        '200':
+          description: Account created; a fresh session token is returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Missing fields, malformed email, or a password under 8 characters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: An account with that email already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Signup-specific rate limit exceeded for this IP.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/auth/login:
+    post:
+      tags: [auth]
+      summary: Authenticate an existing account
+      description: >-
+        Auth-exempt (public) but rate-limited with the same stricter, dedicated per-IP cap as
+        signup. An unknown email and a wrong password return the EXACT SAME 401 message
+        ("invalid email or password") — this never reveals which, so a caller can't enumerate
+        registered emails.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthLoginRequest'
+      responses:
+        '200':
+          description: Authenticated; a fresh session token is returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Missing/malformed email or password fields.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Invalid email or password (identical message either way).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Login-specific rate limit exceeded for this IP.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/auth/logout:
+    post:
+      tags: [auth]
+      summary: Invalidate a session token
+      description: Auth-exempt (public — authenticates via its OWN session token, not HDV_API_KEY). Idempotent — always 200, even for an unknown/already-expired token.
+      parameters:
+        - $ref: '#/components/parameters/SessionHeader'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthLogoutRequest'
+      responses:
+        '200':
+          description: Session invalidated (or was already invalid — always ok).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                required: [ok]
+  /v1/auth/me:
+    get:
+      tags: [auth]
+      summary: Resolve the current session to its account
+      description: Auth-exempt (public — authenticates via its OWN session token, not HDV_API_KEY).
+      parameters:
+        - $ref: '#/components/parameters/SessionHeader'
+      responses:
+        '200':
+          description: The account for a valid, unexpired session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          description: Missing, invalid, or expired session.
           content:
             application/json:
               schema:

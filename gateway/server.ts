@@ -35,7 +35,11 @@ import type {
   RequestLogRepository,
   SecurityAuditRepository,
   TaskQueue,
+  UserRepository,
+  SessionRepository,
 } from '../persistence/index.js';
+import { InMemoryUserRepository, InMemorySessionRepository } from '../persistence/index.js';
+import { AuthService, AuthError } from '../auth/index.js';
 import { MetricsCollector, PacketTracer, combineObservers } from '../observability/index.js';
 import { BillingService, isPlanTier, type PlanTier } from '../billing/index.js';
 import { IntentInterpreter, HopeDocumenter, HopeVoice, IntentEnricher } from '../hope/index.js';
@@ -151,6 +155,19 @@ export interface HopeGatewayOptions {
    * (defaults to the offline stub). Pass `false` to force "unavailable" responses.
    */
   videoProvider?: VideoProvider | false;
+  /**
+   * Account/auth layer (auth/) — email+password signup/login and bearer session tokens,
+   * surfaced at POST /v1/auth/{signup,login,logout} and GET /v1/auth/me. Provide a pre-wired
+   * AuthService, or leave it undefined and instead pass `users`/`sessions` repositories (e.g.
+   * Postgres-backed via persistence/factory.ts) — defaults to fresh in-memory repositories.
+   * NOT wired into billing/checkout's tenant resolution in this pass — see the TODO next to
+   * handleBillingCheckout.
+   */
+  auth?: AuthService;
+  /** UserRepository backing the default AuthService. Ignored when `auth` is provided. */
+  users?: UserRepository;
+  /** SessionRepository backing the default AuthService. Ignored when `auth` is provided. */
+  sessions?: SessionRepository;
 }
 
 interface HopeResultRecord {
@@ -174,6 +191,8 @@ export class HopeGateway {
   readonly tracer: PacketTracer;
   /** PRODUCT metering layer surfaced under GET/POST /v1/billing/*. */
   readonly billing: BillingService;
+  /** Account/auth layer surfaced under POST/GET /v1/auth/*. See HopeGatewayOptions.auth. */
+  readonly auth: AuthService;
   /** Launch GTM waitlist surfaced under POST /v1/waitlist and GET /v1/waitlist/stats. */
   readonly waitlist: WaitlistStore;
   /** HOPE intent-summary enricher (heuristic or LLM). Text only — never routes. */
@@ -213,6 +232,15 @@ export class HopeGateway {
     // PRODUCT metering plugs into the SAME read-only observer seam as metrics/tracing, so every
     // gated dispatch is attributed to a tenant allowance without ever touching routing or KNOLL.
     this.billing = options.billing ?? new BillingService();
+    // Account/auth layer: in-memory repositories by default (zero external dependencies,
+    // matching every other repository in persistence/); pass `users`/`sessions` for a
+    // Postgres-backed AuthService, or a fully pre-wired `auth` to override entirely.
+    this.auth =
+      options.auth ??
+      new AuthService({
+        users: options.users ?? new InMemoryUserRepository(),
+        sessions: options.sessions ?? new InMemorySessionRepository(),
+      });
     // Launch waitlist: a standalone GTM capture surface, wholly independent of routing/KNOLL.
     this.waitlist = options.waitlist ?? new WaitlistStore();
     const observer = combineObservers(
@@ -734,6 +762,79 @@ export class HopeGateway {
   }
 
   // -------------------------------------------------------------------------
+  // Auth (auth/) — POST /v1/auth/{signup,login,logout}, GET /v1/auth/me. All four are
+  // auth-exempt (see AUTH_EXEMPT_PATHS in gateway/middleware.ts) — they ARE the account
+  // system, so they can't require the operator's HDV_API_KEY to reach them. signup/login
+  // additionally carry a stricter, dedicated per-IP rate limit (brute-force defense).
+  //
+  // NOT WIRED into billing/checkout's tenant resolution in this pass: X-HDV-Tenant keeps
+  // working exactly as it does today (anonymous, client-supplied) so the existing billing
+  // tests are unaffected by this change.
+  // TODO(auth-billing): once clients migrate to real accounts, billing/checkout and
+  // billing/checkout/settle should require a valid X-HDV-Session and derive tenantId from
+  // the authenticated user instead of trusting a client-supplied X-HDV-Tenant header. That is
+  // a breaking change for anonymous checkout and is deliberately left as a separate follow-up
+  // — not implemented here.
+  // -------------------------------------------------------------------------
+
+  /**
+   * POST /v1/auth/signup — { email, password } → { userId, email, sessionToken }. The password
+   * hash is never returned (or stored anywhere but passwordHash). Email format is validated
+   * loosely (must look like local@domain.tld); password must be 8+ characters.
+   */
+  handleAuthSignup(body: unknown): GatewayResponse {
+    const { email, password } = extractCredentials(body);
+    if (email === undefined || password === undefined) {
+      return { status: 400, body: { error: 'body must be JSON: { email, password }' } };
+    }
+    try {
+      const { user, sessionToken } = this.auth.signup(email, password);
+      return { status: 200, body: { userId: user.userId, email: user.email, sessionToken } };
+    } catch (err) {
+      return authErrorResponse(err);
+    }
+  }
+
+  /**
+   * POST /v1/auth/login — { email, password } → same shape as signup, or 401 with a single
+   * generic message ("invalid email or password") for BOTH an unknown email and a wrong
+   * password — this never reveals which, so a caller can't enumerate registered emails.
+   */
+  handleAuthLogin(body: unknown): GatewayResponse {
+    const { email, password } = extractCredentials(body);
+    if (email === undefined || password === undefined) {
+      return { status: 400, body: { error: 'body must be JSON: { email, password }' } };
+    }
+    try {
+      const { user, sessionToken } = this.auth.login(email, password);
+      return { status: 200, body: { userId: user.userId, email: user.email, sessionToken } };
+    } catch (err) {
+      return authErrorResponse(err);
+    }
+  }
+
+  /**
+   * POST /v1/auth/logout — session token via the X-HDV-Session header (preferred) or a JSON
+   * body { sessionToken }. Idempotent: always 200, even for an unknown/already-expired token.
+   */
+  handleAuthLogout(
+    body: unknown,
+    headers?: Record<string, string | string[] | undefined>,
+  ): GatewayResponse {
+    this.auth.logout(sessionTokenFromRequest(headers, body));
+    return { status: 200, body: { ok: true } };
+  }
+
+  /** GET /v1/auth/me — X-HDV-Session header → { userId, email }, or 401 if missing/invalid/expired. */
+  handleAuthMe(headers?: Record<string, string | string[] | undefined>): GatewayResponse {
+    const user = this.auth.getUserBySession(sessionTokenFromRequest(headers, undefined));
+    if (!user) {
+      return { status: 401, body: { error: 'invalid, missing, or expired session' } };
+    }
+    return { status: 200, body: { userId: user.userId, email: user.email } };
+  }
+
+  // -------------------------------------------------------------------------
   // Launch GTM waitlist (market/). POST /v1/waitlist is auth-exempt (public form) but
   // rate-limited; GET /v1/waitlist/stats is protected. Neither routes, gates, or executes —
   // they only capture inbound interest and report privacy-safe aggregate stats.
@@ -811,6 +912,11 @@ export class HopeGateway {
     if (m === 'POST' && pathname === '/v1/billing/checkout') return this.handleBillingCheckout(tenantFromHeaders(headers), body);
     if (m === 'GET' && pathname === '/v1/billing/checkout') return this.handleBillingCheckoutGet(query.get('session_id'));
     if (m === 'POST' && pathname === '/v1/billing/checkout/settle') return this.handleBillingCheckoutSettle(body);
+    // --- Auth. Public/auth-exempt (they ARE the auth system); signup/login rate-limited tighter.
+    if (m === 'POST' && pathname === '/v1/auth/signup') return this.handleAuthSignup(body);
+    if (m === 'POST' && pathname === '/v1/auth/login') return this.handleAuthLogin(body);
+    if (m === 'POST' && pathname === '/v1/auth/logout') return this.handleAuthLogout(body, headers);
+    if (m === 'GET' && pathname === '/v1/auth/me') return this.handleAuthMe(headers);
     // --- Launch GTM waitlist. POST is public (auth-exempt, rate-limited); stats is protected.
     if (m === 'POST' && pathname === '/v1/waitlist') return this.handleWaitlistSignup(body, ipFromHeaders(headers));
     if (m === 'GET' && pathname === '/v1/waitlist/stats') return this.handleWaitlistStats();
@@ -979,6 +1085,42 @@ function ipFromHeaders(headers?: Record<string, string | string[] | undefined>):
   if (!headers) return undefined;
   const ip = clientIp(headers, undefined);
   return ip === 'unknown' ? undefined : ip;
+}
+
+/** Pull { email, password } string fields out of a JSON body; undefined if absent/wrong type. */
+function extractCredentials(body: unknown): { email: string | undefined; password: string | undefined } {
+  if (body === null || typeof body !== 'object') return { email: undefined, password: undefined };
+  const b = body as Record<string, unknown>;
+  const email = typeof b.email === 'string' ? b.email : undefined;
+  const password = typeof b.password === 'string' ? b.password : undefined;
+  return { email, password };
+}
+
+/** Map a thrown AuthError to its HTTP status; any other error is a 400 (defensive fallback). */
+function authErrorResponse(err: unknown): GatewayResponse {
+  if (err instanceof AuthError) {
+    const status = err.code === 'duplicate_email' ? 409 : err.code === 'invalid_credentials' ? 401 : 400;
+    return { status, body: { error: err.message } };
+  }
+  return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+}
+
+/** Session bearer token from the X-HDV-Session header (preferred), or a JSON body { sessionToken }. */
+function sessionTokenFromRequest(
+  headers: Record<string, string | string[] | undefined> | undefined,
+  body: unknown,
+): string | undefined {
+  if (headers) {
+    const raw = headers['x-hdv-session'];
+    const value = Array.isArray(raw) ? raw[0] : raw;
+    const trimmed = value?.trim();
+    if (trimmed && trimmed.length > 0) return trimmed;
+  }
+  if (body !== null && typeof body === 'object' && 'sessionToken' in (body as Record<string, unknown>)) {
+    const t = (body as { sessionToken?: unknown }).sessionToken;
+    if (typeof t === 'string' && t.trim().length > 0) return t.trim();
+  }
+  return undefined;
 }
 
 /** Resolve the billing tenant from the X-HDV-Tenant header (default "demo"). */

@@ -63,6 +63,23 @@ export interface IntentDocumentRecord {
   clarificationNeeded: boolean;
 }
 
+/** Mirrors the User model (auth/) — one row per registered email+password account. */
+export interface UserRecord {
+  id: string;
+  email: string;
+  /** `scrypt` salt:hash encoding — see auth/service.ts. NEVER the raw password. */
+  passwordHash: string;
+  createdAt: number;
+}
+
+/** Mirrors the Session model (auth/) — one row per active login. */
+export interface SessionRecord {
+  token: string;
+  userId: string;
+  createdAt: number;
+  expiresAt: number;
+}
+
 // ---------------------------------------------------------------------------
 // Repository interfaces
 // ---------------------------------------------------------------------------
@@ -95,6 +112,23 @@ export interface IntentArchiveRepository {
   get(id: string): IntentDocumentRecord | undefined;
   all(): readonly IntentDocumentRecord[];
   needingClarification(): readonly IntentDocumentRecord[];
+  clear(): void;
+}
+
+/** Account identity (auth/). Email is the natural key; findByEmail must be case-normalized
+ *  by the caller (AuthService lower-cases before every read/write). */
+export interface UserRepository {
+  create(record: UserRecord): UserRecord;
+  findByEmail(email: string): UserRecord | undefined;
+  findById(id: string): UserRecord | undefined;
+  clear(): void;
+}
+
+/** Session tokens (auth/). Token is the primary key. */
+export interface SessionRepository {
+  create(record: SessionRecord): SessionRecord;
+  findByToken(token: string): SessionRecord | undefined;
+  delete(token: string): void;
   clear(): void;
 }
 
@@ -179,6 +213,46 @@ export class InMemoryIntentArchiveRepository implements IntentArchiveRepository 
   }
   needingClarification(): readonly IntentDocumentRecord[] {
     return this.all().filter((r) => r.clarificationNeeded);
+  }
+  clear(): void {
+    this.rows.clear();
+  }
+}
+
+export class InMemoryUserRepository implements UserRepository {
+  private readonly rows = new Map<string, UserRecord>(); // keyed by id
+  private readonly byEmail = new Map<string, string>(); // email -> id
+
+  create(record: UserRecord): UserRecord {
+    this.rows.set(record.id, record);
+    this.byEmail.set(record.email, record.id);
+    return record;
+  }
+  findByEmail(email: string): UserRecord | undefined {
+    const id = this.byEmail.get(email);
+    return id === undefined ? undefined : this.rows.get(id);
+  }
+  findById(id: string): UserRecord | undefined {
+    return this.rows.get(id);
+  }
+  clear(): void {
+    this.rows.clear();
+    this.byEmail.clear();
+  }
+}
+
+export class InMemorySessionRepository implements SessionRepository {
+  private readonly rows = new Map<string, SessionRecord>();
+
+  create(record: SessionRecord): SessionRecord {
+    this.rows.set(record.token, record);
+    return record;
+  }
+  findByToken(token: string): SessionRecord | undefined {
+    return this.rows.get(token);
+  }
+  delete(token: string): void {
+    this.rows.delete(token);
   }
   clear(): void {
     this.rows.clear();

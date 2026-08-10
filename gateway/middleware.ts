@@ -8,6 +8,9 @@
  *   - Optional API-key auth (X-HDV-Key or Authorization: Bearer <key>) against HDV_API_KEY.
  *     When HDV_API_KEY is unset the gateway runs in DEV MODE (auth disabled).
  *   - Per-IP in-memory rate limiting (HDV_RATE_LIMIT, default 60/min) → 429 when exceeded.
+ *     POST /v1/auth/{signup,login} carry a SECOND, stricter per-IP limiter on top of the
+ *     generic one (HDV_AUTH_RATE_LIMIT, default 10/min) — a shared VPS is a realistic
+ *     credential-stuffing target and the generic limit is sized for normal traffic, not that.
  *   - CORS headers (HDV_CORS_ORIGIN, default "*").
  *   - Structured request logging (method, path, status, duration) that NEVER logs secrets.
  *
@@ -23,6 +26,15 @@ export const DEFAULT_RATE_LIMIT = 60;
 export const RATE_LIMIT_WINDOW_MS = 60_000;
 /** Default CORS origin when HDV_CORS_ORIGIN is unset. */
 export const DEFAULT_CORS_ORIGIN = '*';
+/**
+ * Default requests-per-window for POST /v1/auth/signup and /v1/auth/login specifically, when
+ * HDV_AUTH_RATE_LIMIT is unset/invalid. Deliberately much stricter than DEFAULT_RATE_LIMIT: the
+ * generic per-IP limiter is shared across every route and sized for normal traffic, not
+ * credential-stuffing — a shared VPS is a realistic target for exactly that. This is a SECOND,
+ * additive limiter (same RateLimiter mechanism, its own bucket set) checked only for those two
+ * paths; the generic limiter still applies to them too.
+ */
+export const DEFAULT_AUTH_RATE_LIMIT = 10;
 
 /**
  * Paths that must always stay reachable (auth- and rate-limit-exempt): health probes and the
@@ -50,7 +62,25 @@ const AUTH_EXEMPT_PATHS = new Set<string>([
   // client-callable — see the handler's doc comment in gateway/server.ts.
   '/v1/billing/checkout',
   '/v1/billing/checkout/settle',
+  // Auth (auth/) — these four routes ARE the auth system, so they can't require the HDV_API_KEY
+  // gate themselves (a client has no session/key yet when calling signup/login, and logout/me
+  // authenticate via their OWN X-HDV-Session bearer token, not the operator's HDV_API_KEY). All
+  // four stay rate-limited (see AUTH_RATE_LIMITED_PATHS below for signup/login's tighter cap).
+  // NOT wired into billing/checkout's X-HDV-Tenant resolution yet — see the TODO in
+  // gateway/server.ts by handleBillingCheckout.
+  '/v1/auth/signup',
+  '/v1/auth/login',
+  '/v1/auth/logout',
+  '/v1/auth/me',
 ]);
+
+/**
+ * The brute-force-sensitive subset of AUTH_EXEMPT_PATHS: signup and login accept a password
+ * guess directly, so they get their OWN, stricter per-IP limiter in addition to the generic one
+ * (see DEFAULT_AUTH_RATE_LIMIT). logout/me don't guess credentials, so the generic limiter alone
+ * covers them.
+ */
+const AUTH_RATE_LIMITED_PATHS = new Set<string>(['/v1/auth/signup', '/v1/auth/login']);
 
 export interface GatewaySecurityConfig {
   /** API key required on protected routes. Empty/undefined ⇒ dev mode (auth disabled). */
@@ -61,6 +91,8 @@ export interface GatewaySecurityConfig {
   windowMs: number;
   /** Value for the Access-Control-Allow-Origin header. */
   corsOrigin: string;
+  /** Max requests per window per client IP, specifically for POST /v1/auth/{signup,login}. */
+  authRateLimit: number;
 }
 
 export interface SecurityOverrides {
@@ -68,6 +100,7 @@ export interface SecurityOverrides {
   rateLimit?: number;
   windowMs?: number;
   corsOrigin?: string;
+  authRateLimit?: number;
 }
 
 /**
@@ -87,8 +120,10 @@ export function resolveSecurityConfig(
     overrides.corsOrigin ?? (env.HDV_CORS_ORIGIN && env.HDV_CORS_ORIGIN.trim().length > 0
       ? env.HDV_CORS_ORIGIN.trim()
       : DEFAULT_CORS_ORIGIN);
+  const authRateLimit =
+    overrides.authRateLimit ?? parsePositiveInt(env.HDV_AUTH_RATE_LIMIT) ?? DEFAULT_AUTH_RATE_LIMIT;
 
-  return { apiKey, rateLimit, windowMs, corsOrigin };
+  return { apiKey, rateLimit, windowMs, corsOrigin, authRateLimit };
 }
 
 /** A single request's cross-cutting inputs, decoupled from node:http for testability. */
@@ -179,10 +214,13 @@ export class RateLimiter {
 export class GatewayMiddleware {
   readonly config: GatewaySecurityConfig;
   private readonly limiter: RateLimiter;
+  /** Second, stricter limiter for POST /v1/auth/{signup,login} — see AUTH_RATE_LIMITED_PATHS. */
+  private readonly authLimiter: RateLimiter;
 
   constructor(config: GatewaySecurityConfig) {
     this.config = config;
     this.limiter = new RateLimiter(config.rateLimit, config.windowMs);
+    this.authLimiter = new RateLimiter(config.authRateLimit, config.windowMs);
   }
 
   /** True when no API key is configured (dev mode — auth disabled). */
@@ -205,7 +243,7 @@ export class GatewayMiddleware {
     return {
       'access-control-allow-origin': this.config.corsOrigin,
       'access-control-allow-methods': 'GET, POST, OPTIONS',
-      'access-control-allow-headers': 'Content-Type, Authorization, X-HDV-Key, X-HDV-Tenant',
+      'access-control-allow-headers': 'Content-Type, Authorization, X-HDV-Key, X-HDV-Tenant, X-HDV-Session',
       'access-control-max-age': '600',
       vary: 'Origin',
     };
@@ -244,6 +282,30 @@ export class GatewayMiddleware {
           },
         };
       }
+
+      // Extra-strict, additive limiter for the credential-guessing surface (signup/login).
+      if (AUTH_RATE_LIMITED_PATHS.has(req.pathname)) {
+        const authRl = this.authLimiter.hit(req.ip, now);
+        if (Number.isFinite(authRl.remaining)) {
+          headers['x-ratelimit-auth-limit'] = String(authRl.limit);
+          headers['x-ratelimit-auth-remaining'] = String(authRl.remaining);
+        }
+        if (!authRl.allowed) {
+          const retryAfter = Math.max(1, Math.ceil((authRl.resetAt - now) / 1000));
+          headers['retry-after'] = String(retryAfter);
+          return {
+            headers,
+            response: {
+              status: 429,
+              body: {
+                error: 'rate limit exceeded for authentication endpoints',
+                limit: authRl.limit,
+                retryAfterSeconds: retryAfter,
+              },
+            },
+          };
+        }
+      }
     }
 
     // ...then auth (health + auth-exempt public writes exempt, dev mode exempt).
@@ -276,6 +338,7 @@ export class GatewayMiddleware {
 
   resetRateLimiter(): void {
     this.limiter.reset();
+    this.authLimiter.reset();
   }
 }
 
