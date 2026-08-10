@@ -13,6 +13,7 @@ export {
   clientIp,
   defaultLogger,
   DEFAULT_RATE_LIMIT,
+  DEFAULT_AUTH_RATE_LIMIT,
   RATE_LIMIT_WINDOW_MS,
   DEFAULT_CORS_ORIGIN,
 } from './middleware.js';

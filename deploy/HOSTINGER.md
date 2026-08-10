@@ -36,6 +36,10 @@ server (no framework) that exposes:
 | POST   | `/v1/companion/chat/stream`| Same reply, streamed token-by-token as Server-Sent Events (public, rate-limited; see `companion/` + `providers/README.md`'s `completeStream`) |
 | POST   | `/v1/companion/portrait`| One companion portrait image (public, rate-limited; see `companion/` + `providers/image_*`) |
 | POST   | `/v1/companion/scene`| One companion scene/loop video from an existing portrait (public, rate-limited; see `providers/video_*` + `colab/08_scene_server.py`) |
+| POST   | `/v1/auth/signup`   | Create an email+password account → `{ userId, email, sessionToken }` (public; stricter dedicated rate limit — see `HDV_AUTH_RATE_LIMIT` below) |
+| POST   | `/v1/auth/login`    | Authenticate → same response shape, or `401` with a single generic message either way (public; same stricter rate limit) |
+| POST   | `/v1/auth/logout`   | Invalidate a session (`X-HDV-Session` header or `{ sessionToken }` body); public, idempotent |
+| GET    | `/v1/auth/me`       | Resolve the current session → `{ userId, email }`, or `401` if missing/invalid/expired (public — authenticates via its own `X-HDV-Session`, not `HDV_API_KEY`) |
 
 It binds `PORT` (default `8787`) on loopback; a reverse proxy (Caddy or nginx)
 terminates TLS on `443` and forwards to it.
@@ -168,9 +172,11 @@ Edit `.env` (add the gateway/production keys — these are read by `gateway/` an
 PORT=8787                       # loopback bind; the proxy forwards to this
 HDV_API_KEY=<paste openssl rand -hex 32 output>   # REQUIRED in prod (enables auth)
 HDV_RATE_LIMIT=120              # requests/min per client IP before 429
+HDV_AUTH_RATE_LIMIT=10          # stricter requests/min per IP, POST /v1/auth/{signup,login} only
 HDV_CORS_ORIGIN=https://yourdomain.com   # tighten from "*" to your site origin
 
 # --- Persistence (optional; in-memory is the default) -------------------------
+# Also durably stores accounts/sessions (auth/) once User/Session tables are pushed.
 DATABASE_URL="postgresql://big5:CHANGE_ME@localhost:5432/big5_matrix?schema=public"
 REDIS_URL="redis://localhost:6379"
 
@@ -185,6 +191,11 @@ Key rules:
 
 - **`HDV_API_KEY` must be set in production.** Unset ⇒ the gateway runs in dev mode with
   auth disabled. `/v1/health` stays public either way for probes.
+- **`/v1/auth/*` is its own account system, not gated by `HDV_API_KEY`.** signup/login/logout/me
+  are always reachable (they ARE the auth system); signup and login carry their own stricter,
+  dedicated `HDV_AUTH_RATE_LIMIT` on top of the generic limiter. Real accounts are NOT yet wired
+  into billing/checkout's `X-HDV-Tenant` resolution — that stays anonymous/client-supplied until
+  a deliberate follow-up (see the TODO in `gateway/server.ts`).
 - **`HDV_CORS_ORIGIN`** should be your actual site origin, not `*`, once the marketing
   page / product calls the API from a browser.
 - The providers block is **optional and offline-first** — with `HDV_LLM_PROVIDER=stub` the

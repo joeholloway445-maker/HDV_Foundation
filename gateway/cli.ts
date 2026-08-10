@@ -18,6 +18,10 @@
  *   POST /v1/companion/chat { persona, history?, message } → one in-character reply (public, rate-limited)
  *   POST /v1/companion/portrait { persona } → one portrait image (public, rate-limited)
  *   POST /v1/companion/scene { persona, seedImage, actionString? } → one scene/loop video (public, rate-limited)
+ *   POST /v1/auth/signup   { email, password } → { userId, email, sessionToken } (public, rate-limited)
+ *   POST /v1/auth/login    { email, password } → same shape, or 401 (public, rate-limited)
+ *   POST /v1/auth/logout   X-HDV-Session header or { sessionToken } → { ok: true } (public)
+ *   GET  /v1/auth/me       X-HDV-Session header → { userId, email }, or 401 (public)
  *
  * KNOLL gates every routed packet; the gateway never bypasses APEX.
  *
@@ -28,9 +32,10 @@
  *   /v1/health is always public (auth- and rate-limit-exempt) for probes.
  *
  * Phase 5 durability + async intake (OFFLINE-FIRST — both default to OFF):
- *   DATABASE_URL     when set, the APEX ledger + KNOLL audit are mirrored into Postgres via
- *                    Prisma (createRepositories('prisma')). Rows are HYDRATED on boot and
- *                    FLUSHED + closed on SIGTERM/SIGINT. Unset ⇒ pure in-memory (the default).
+ *   DATABASE_URL     when set, the APEX ledger + KNOLL audit + auth accounts/sessions are
+ *                    mirrored into Postgres via Prisma (createRepositories('prisma')). Rows are
+ *                    HYDRATED on boot and FLUSHED + closed on SIGTERM/SIGINT. Unset ⇒ pure
+ *                    in-memory (the default).
  *   HDV_QUEUE=kafka  wires a Kafka-backed TaskQueue (persistence/kafka_real.ts) into the
  *                    ApexOrchestrator and starts a consumer that drains async `intake()` through
  *                    the SAME KNOLL-gated dispatch path. Requires the `kafkajs` package and a
@@ -81,7 +86,7 @@ async function main(): Promise<void> {
   const dbUrl = databaseUrl();
   if (dbUrl) {
     repositories = createRepositories('prisma');
-    console.log('Persistence: prisma (Postgres) — hydrating ledger + audit from the database…');
+    console.log('Persistence: prisma (Postgres) — hydrating ledger + audit + accounts from the database…');
     try {
       await repositories.hydrate();
       console.log('Persistence: hydrate complete.');
@@ -120,6 +125,8 @@ async function main(): Promise<void> {
   const gateway = new HopeGateway({
     requestLog: repositories?.requestLog,
     securityAudit: repositories?.securityAudit,
+    users: repositories?.user,
+    sessions: repositories?.session,
     queue,
   });
 
@@ -142,6 +149,10 @@ async function main(): Promise<void> {
     'GET  /v1/billing/usage     (X-HDV-Tenant, default "demo")',
     'GET  /v1/billing/estimate  ({ activeParams, durationSec, model? } or query)',
     'POST /v1/billing/allowance ({ tier?, includedAllowanceUsd?, hardCapUsd? })',
+    'POST /v1/auth/signup       (public, rate-limited — { email, password })',
+    'POST /v1/auth/login        (public, rate-limited — { email, password })',
+    'POST /v1/auth/logout       (public — X-HDV-Session header or { sessionToken })',
+    'GET  /v1/auth/me           (public — X-HDV-Session header → { userId, email })',
     'POST /v1/waitlist          (public — { email, name?, company?, interestedTier?, useCase? })',
     'GET  /v1/waitlist/stats    (protected — privacy-safe aggregate signup stats)',
     'POST /v1/companion/chat    (public — { persona: { name, personality? }, history?, message })',

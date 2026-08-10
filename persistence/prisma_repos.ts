@@ -29,10 +29,14 @@ import type {
   NodeIdentityRecord,
   SecurityAuditRecord,
   IntentDocumentRecord,
+  UserRecord,
+  SessionRecord,
   RequestLogRepository,
   NodeIdentityRepository,
   SecurityAuditRepository,
   IntentArchiveRepository,
+  UserRepository,
+  SessionRepository,
 } from './repositories.js';
 
 // ---------------------------------------------------------------------------
@@ -352,16 +356,141 @@ function asStringArray(value: unknown): string[] {
 }
 
 // ---------------------------------------------------------------------------
+// User (auth/ account identity)
+// ---------------------------------------------------------------------------
+
+export class PrismaUserRepository implements UserRepository {
+  private readonly rows = new Map<string, UserRecord>(); // by id
+  private readonly byEmail = new Map<string, string>(); // email -> id
+
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly writes: WriteQueue,
+  ) {}
+
+  async hydrate(): Promise<void> {
+    const found = await this.prisma.user.findMany();
+    this.rows.clear();
+    this.byEmail.clear();
+    for (const r of found) {
+      const record: UserRecord = {
+        id: r.id,
+        email: r.email,
+        passwordHash: r.passwordHash,
+        createdAt: r.createdAt.getTime(),
+      };
+      this.rows.set(record.id, record);
+      this.byEmail.set(record.email, record.id);
+    }
+  }
+
+  create(record: UserRecord): UserRecord {
+    this.rows.set(record.id, record);
+    this.byEmail.set(record.email, record.id);
+    this.writes.enqueue(async () => {
+      await this.prisma.user.create({
+        data: {
+          id: record.id,
+          email: record.email,
+          passwordHash: record.passwordHash,
+          createdAt: new Date(record.createdAt),
+        },
+      });
+    });
+    return record;
+  }
+
+  findByEmail(email: string): UserRecord | undefined {
+    const id = this.byEmail.get(email);
+    return id === undefined ? undefined : this.rows.get(id);
+  }
+
+  findById(id: string): UserRecord | undefined {
+    return this.rows.get(id);
+  }
+
+  clear(): void {
+    this.rows.clear();
+    this.byEmail.clear();
+    this.writes.enqueue(async () => {
+      await this.prisma.user.deleteMany({});
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Session (auth/ session tokens)
+// ---------------------------------------------------------------------------
+
+export class PrismaSessionRepository implements SessionRepository {
+  private readonly rows = new Map<string, SessionRecord>();
+
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly writes: WriteQueue,
+  ) {}
+
+  async hydrate(): Promise<void> {
+    const found = await this.prisma.session.findMany();
+    this.rows.clear();
+    for (const r of found) {
+      this.rows.set(r.token, {
+        token: r.token,
+        userId: r.userId,
+        createdAt: r.createdAt.getTime(),
+        expiresAt: r.expiresAt.getTime(),
+      });
+    }
+  }
+
+  create(record: SessionRecord): SessionRecord {
+    this.rows.set(record.token, record);
+    this.writes.enqueue(async () => {
+      await this.prisma.session.create({
+        data: {
+          token: record.token,
+          userId: record.userId,
+          createdAt: new Date(record.createdAt),
+          expiresAt: new Date(record.expiresAt),
+        },
+      });
+    });
+    return record;
+  }
+
+  findByToken(token: string): SessionRecord | undefined {
+    return this.rows.get(token);
+  }
+
+  delete(token: string): void {
+    this.rows.delete(token);
+    this.writes.enqueue(async () => {
+      // deleteMany (not delete) so an already-gone/unknown token never throws into the queue.
+      await this.prisma.session.deleteMany({ where: { token } });
+    });
+  }
+
+  clear(): void {
+    this.rows.clear();
+    this.writes.enqueue(async () => {
+      await this.prisma.session.deleteMany({});
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Bundle + factory
 // ---------------------------------------------------------------------------
 
-/** A cohesive set of the four repositories plus lifecycle helpers. */
+/** A cohesive set of the six repositories plus lifecycle helpers. */
 export interface PrismaRepositoryBundle {
   readonly prisma: PrismaClient;
   readonly requestLog: PrismaRequestLogRepository;
   readonly nodeIdentity: PrismaNodeIdentityRepository;
   readonly securityAudit: PrismaSecurityAuditRepository;
   readonly intentArchive: PrismaIntentArchiveRepository;
+  readonly user: PrismaUserRepository;
+  readonly session: PrismaSessionRepository;
   /** Load existing rows from Postgres into every in-memory projection. */
   hydrate(): Promise<void>;
   /** Await all pending Postgres writes across every repository. */
@@ -390,6 +519,8 @@ export function createPrismaRepositories(options: PrismaBundleOptions = {}): Pri
   const nodeIdentity = new PrismaNodeIdentityRepository(prisma, writes);
   const securityAudit = new PrismaSecurityAuditRepository(prisma, writes);
   const intentArchive = new PrismaIntentArchiveRepository(prisma, writes);
+  const user = new PrismaUserRepository(prisma, writes);
+  const session = new PrismaSessionRepository(prisma, writes);
 
   return {
     prisma,
@@ -397,12 +528,16 @@ export function createPrismaRepositories(options: PrismaBundleOptions = {}): Pri
     nodeIdentity,
     securityAudit,
     intentArchive,
+    user,
+    session,
     async hydrate() {
       await Promise.all([
         requestLog.hydrate(),
         nodeIdentity.hydrate(),
         securityAudit.hydrate(),
         intentArchive.hydrate(),
+        user.hydrate(),
+        session.hydrate(),
       ]);
     },
     async flush() {

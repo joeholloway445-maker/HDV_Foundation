@@ -12,24 +12,30 @@ import type {
   NodeIdentityRepository,
   SecurityAuditRepository,
   IntentArchiveRepository,
+  UserRepository,
+  SessionRepository,
 } from './repositories.js';
 import {
   InMemoryRequestLogRepository,
   InMemoryNodeIdentityRepository,
   InMemorySecurityAuditRepository,
   InMemoryIntentArchiveRepository,
+  InMemoryUserRepository,
+  InMemorySessionRepository,
 } from './repositories.js';
 import { createPrismaRepositories, type PrismaBundleOptions } from './prisma_repos.js';
 
 export type RepositoryMode = 'memory' | 'prisma';
 
-/** Backend-agnostic view of the four repositories plus lifecycle helpers. */
+/** Backend-agnostic view of the six repositories plus lifecycle helpers. */
 export interface RepositoryBundle {
   readonly mode: RepositoryMode;
   readonly requestLog: RequestLogRepository;
   readonly nodeIdentity: NodeIdentityRepository;
   readonly securityAudit: SecurityAuditRepository;
   readonly intentArchive: IntentArchiveRepository;
+  readonly user: UserRepository;
+  readonly session: SessionRepository;
   /** Prisma: load rows from Postgres into the projection. Memory: no-op. */
   hydrate(): Promise<void>;
   /** Prisma: await pending Postgres writes. Memory: no-op. */
@@ -56,6 +62,8 @@ export function createRepositories(
       nodeIdentity: bundle.nodeIdentity,
       securityAudit: bundle.securityAudit,
       intentArchive: bundle.intentArchive,
+      user: bundle.user,
+      session: bundle.session,
       hydrate: () => bundle.hydrate(),
       flush: () => bundle.flush(),
       close: () => bundle.close(),
@@ -68,6 +76,8 @@ export function createRepositories(
     nodeIdentity: new InMemoryNodeIdentityRepository(),
     securityAudit: new InMemorySecurityAuditRepository(),
     intentArchive: new InMemoryIntentArchiveRepository(),
+    user: new InMemoryUserRepository(),
+    session: new InMemorySessionRepository(),
     hydrate: async () => {},
     flush: async () => {},
     close: async () => {},
