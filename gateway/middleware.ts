@@ -32,12 +32,12 @@ const ALWAYS_PUBLIC_PATHS = new Set<string>(['/v1/health', '/v1/billing/pricing'
 
 /**
  * Paths that skip AUTH but are still RATE-LIMITED. Public write surfaces that anonymous visitors
- * must reach (the marketing waitlist signup, companion chat) live here: no key is required so
- * the form/client works with auth enabled, but the per-IP limiter still applies so the open
- * endpoint can't be flooded. GET /v1/waitlist/stats is deliberately NOT listed — it stays
- * protected by the API key.
+ * must reach (the marketing waitlist signup, companion chat/portrait) live here: no key is
+ * required so the form/client works with auth enabled, but the per-IP limiter still applies so
+ * the open endpoint can't be flooded. GET /v1/waitlist/stats is deliberately NOT listed — it
+ * stays protected by the API key.
  */
-const AUTH_EXEMPT_PATHS = new Set<string>(['/v1/waitlist', '/v1/companion/chat']);
+const AUTH_EXEMPT_PATHS = new Set<string>(['/v1/waitlist', '/v1/companion/chat', '/v1/companion/portrait']);
 
 export interface GatewaySecurityConfig {
   /** API key required on protected routes. Empty/undefined ⇒ dev mode (auth disabled). */

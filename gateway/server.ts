@@ -44,7 +44,9 @@ import { createProviderOrStub } from '../providers/index.js';
 import { SimulationEngine } from '../dream/index.js';
 import { ExecutionEngine } from '../vision/index.js';
 import { WaitlistStore, handleWaitlistSignup, handleWaitlistStats } from '../market/index.js';
-import { handleCompanionChat } from '../companion/index.js';
+import { handleCompanionChat, handlePortraitRequest } from '../companion/index.js';
+import { createImageProviderOrStub } from '../providers/image_factory.js';
+import type { ImageProvider } from '../providers/image_types.js';
 import {
   MANAGERS_PER_AGENT,
   NODES_PER_MANAGER,
@@ -135,6 +137,12 @@ export interface HopeGatewayOptions {
   provider?: LlmProvider | false;
   /** Optional IntentEnricher. When omitted, one is built from `provider` (or env). */
   enricher?: IntentEnricher;
+  /**
+   * Optional image provider for companion portraits (image only — never routes). When omitted,
+   * the gateway builds one from HDV_IMAGE_* env via createImageProviderOrStub (defaults to the
+   * offline stub). Pass `false` to force "unavailable" responses (no provider at all).
+   */
+  imageProvider?: ImageProvider | false;
 }
 
 interface HopeResultRecord {
@@ -168,6 +176,12 @@ export class HopeGateway {
    * replies only (still fully functional offline).
    */
   private readonly companionProvider?: LlmProvider;
+  /**
+   * Shared ImageProvider instance used for companion portraits (companion/portrait_*), same
+   * env-driven offline-first construction as companionProvider. Undefined ⇒ "unavailable"
+   * response only (still fully functional offline — no crash, no placeholder pixel shown).
+   */
+  private readonly imageProvider?: ImageProvider;
   private readonly readLimit: number;
   private readonly logger: GatewayLogger;
 
@@ -215,6 +229,10 @@ export class HopeGateway {
     } else {
       this.enricher = new IntentEnricher({ provider });
     }
+    // Companion portraits: same offline-first construction, independent of the text provider
+    // (an operator may run Ollama for text and a Colab-tunnel model for images, or vice versa).
+    this.imageProvider =
+      options.imageProvider === false ? undefined : options.imageProvider ?? createImageProviderOrStub();
     this.readLimit = options.readLimit ?? 50;
     this.middleware = new GatewayMiddleware(resolveSecurityConfig(options.security ?? {}));
     this.logger = options.logger === false ? () => {} : options.logger ?? defaultLogger;
@@ -655,6 +673,17 @@ export class HopeGateway {
   }
 
   /**
+   * POST /v1/companion/portrait — one portrait image for a companion persona. Same
+   * auth-exempt-but-rate-limited posture as chat; same offline-safe "unavailable" response
+   * when no ImageProvider is configured. Provider-agnostic: HDV_IMAGE_PROVIDER selects
+   * Google AI Studio (SFW) or a Colab tunnel (self-hosted, e.g. NSFW-capable) with no
+   * frontend changes required either way.
+   */
+  async handlePortraitRequest(body: unknown): Promise<GatewayResponse> {
+    return handlePortraitRequest(body, { provider: this.imageProvider });
+  }
+
+  /**
    * Route a parsed request to a handler. Async so a real body read can be awaited by the
    * server wrapper; handlers themselves are synchronous. This is the single mapping table.
    * `headers` is optional (only billing routes read it, for X-HDV-Tenant) so existing callers
@@ -685,6 +714,8 @@ export class HopeGateway {
     if (m === 'GET' && pathname === '/v1/waitlist/stats') return this.handleWaitlistStats();
     // --- Companion chat. Public (auth-exempt, rate-limited) — the web client has no API key.
     if (m === 'POST' && pathname === '/v1/companion/chat') return await this.handleCompanionChat(body);
+    // --- Companion portrait. Same public posture as chat.
+    if (m === 'POST' && pathname === '/v1/companion/portrait') return await this.handlePortraitRequest(body);
     return { status: 404, body: { error: `no route for ${m} ${pathname}` } };
   }
 

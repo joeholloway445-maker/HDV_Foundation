@@ -9,3 +9,13 @@
 export * from './types.js';
 export { handleCompanionChat } from './handlers.js';
 export type { CompanionResponse, CompanionChatOptions } from './handlers.js';
+
+export {
+  parsePortraitRequest,
+  PortraitValidationError,
+  type PortraitPersona,
+  type PortraitStyle,
+  type PortraitRequestInput,
+} from './portrait_types.js';
+export { handlePortraitRequest } from './portrait_handlers.js';
+export type { PortraitResponse, PortraitOptions } from './portrait_handlers.js';

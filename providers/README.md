@@ -68,3 +68,31 @@ const { intent: enriched, summary } = await enricher.enrichIntent(intent);
 npm run demo:providers    # offline stub demo (set HDV_LLM_* to try a real backend)
 npm run test:providers    # provider + enricher tests (stub + local HTTP server + fetch mock)
 ```
+
+## Image providers (companion portraits)
+
+Sibling seam, same rules, different medium: `image_types.ts`'s `ImageProvider` is a pure
+prompt-to-image transducer (`generate(prompt, opts) -> { imageBase64, mimeType, model }`),
+used by `companion/portrait_handlers.ts` (`POST /v1/companion/portrait`). Same offline-first
+default (`StubImageProvider` — a real, tiny, deterministic PNG, never shown to end users; the
+product layer treats it the same as "no provider").
+
+| File | Purpose |
+| --- | --- |
+| `image_types.ts` | `ImageProvider` interface, `GenerateImageOptions`, `ImageResult`. |
+| `image_stub.ts` | `StubImageProvider` — deterministic, offline default (dependency-free PNG encoder). |
+| `google_ai_studio_image.ts` | `GoogleAiStudioImageProvider` — Imagen via the Generative Language API. SFW only (Google's safety filters apply). |
+| `colab_tunnel_image.ts` | `ColabTunnelImageProvider` — talks to a self-hosted model behind a tunnel; see `colab/07_portrait_server.py`. |
+| `image_factory.ts` | `createImageProvider` / `createImageProviderOrStub` — build from env. |
+
+| Variable | Values / example | Default |
+| --- | --- | --- |
+| `HDV_IMAGE_PROVIDER` | `stub` \| `google_ai_studio` \| `colab_tunnel` | `stub` |
+| `HDV_IMAGE_API_KEY` | Google AI Studio key, or the Colab server's shared-secret token | — |
+| `HDV_IMAGE_BASE_URL` | e.g. `https://xxxx.ngrok-free.app` (required for `colab_tunnel`) | — |
+| `HDV_IMAGE_MODEL` | e.g. `imagen-3.0-generate-002` (required for `google_ai_studio`) | — |
+
+```bash
+npm run test:image-providers   # stub + local HTTP server tests (Google AI Studio + Colab tunnel shapes)
+npm run test:portrait          # companion/portrait_handlers.ts + gateway integration
+```

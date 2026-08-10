@@ -189,6 +189,43 @@ components:
           type: string
           nullable: true
       required: [reply, source]
+    PortraitPersona:
+      type: object
+      properties:
+        name: { type: string }
+        age:
+          type: integer
+          minimum: 18
+          description: Required. Portraits are refused (400) for any persona under 18, regardless of provider.
+        style: { type: string, description: 'Free-form visual style, e.g. "realistic" or "anime".' }
+        personality:
+          type: string
+          enum: [playful, romantic, bratty, dominant, soft, mysterious]
+        backstory: { type: string }
+      required: [name, age]
+    PortraitRequest:
+      type: object
+      properties:
+        persona:
+          $ref: '#/components/schemas/PortraitPersona'
+      required: [persona]
+    PortraitResponse:
+      type: object
+      properties:
+        image:
+          type: string
+          nullable: true
+          description: A `data:<mimeType>;base64,<bytes>` URI, or null when unavailable.
+        source:
+          type: string
+          description: The provider name on success (e.g. google_ai_studio, colab_tunnel), or "unavailable".
+        model:
+          type: string
+          nullable: true
+        error:
+          type: string
+          description: Present only when source is "unavailable" due to a real provider failure.
+      required: [image, source]
     AllowanceRequest:
       type: object
       properties:
@@ -413,6 +450,34 @@ paths:
                 $ref: '#/components/schemas/CompanionChatResponse'
         '400':
           description: Invalid request (e.g. missing persona.name or empty message).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/companion/portrait:
+    post:
+      tags: [companion]
+      summary: One companion portrait image
+      description: >
+        Auth-exempt but rate-limited, same posture as /v1/companion/chat. Provider-agnostic —
+        HDV_IMAGE_PROVIDER selects Google AI Studio (SFW) or a self-hosted Colab-tunnel model
+        with no client changes. Refuses (400) any persona under 18, regardless of provider.
+        Never routes through APEX/KNOLL.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PortraitRequest'
+      responses:
+        '200':
+          description: Generation attempted — image on success, null + source "unavailable" otherwise.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PortraitResponse'
+        '400':
+          description: Invalid request (missing persona.name/age, or persona.age < 18).
           content:
             application/json:
               schema:
