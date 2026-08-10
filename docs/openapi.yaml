@@ -160,6 +160,18 @@ components:
           type: string
           enum: [playful, romantic, bratty, dominant, soft, mysterious]
         backstory: { type: string }
+        intensity:
+          type: integer
+          minimum: 1
+          maximum: 5
+          default: 3
+          description: How explicit/raunchy replies may get, 1 (sweet/PG) to 5 (maximally explicit). Clamped; malformed values default to 3.
+        adherence:
+          type: integer
+          minimum: 1
+          maximum: 5
+          default: 3
+          description: How strictly replies stick to the character sheet, 1 (loose improvisation) to 5 (strict script). Also drives LLM sampling temperature. Clamped; malformed values default to 3.
       required: [name, age]
     CompanionChatMessage:
       type: object
@@ -431,6 +443,96 @@ paths:
                 additionalProperties: true
         '400':
           description: Invalid allowance input.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/billing/checkout:
+    post:
+      tags: [billing]
+      summary: Start a (stub) Stripe Checkout session for a plan tier
+      description: >-
+        Auth-exempt (public — FuckLike/web has no account system, only an anonymous per-browser
+        tenant id). STUB by default (no STRIPE_SECRET_KEY): a fake, well-formed test-mode
+        session with no real charge. Returns a hosted `url` to redirect to.
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tier: { type: string, enum: [FREE, STARTER, PRO, ENTERPRISE, BYOK] }
+                interval: { type: string, enum: [month, year], default: month }
+                quantity: { type: integer, default: 1 }
+                customerEmail: { type: string }
+              required: [tier]
+      responses:
+        '200':
+          description: Checkout session created.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '400':
+          description: Invalid tier/input.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    get:
+      tags: [billing]
+      summary: Look up a (stub) checkout session by id
+      description: Auth-exempt (public), same posture as POST.
+      parameters:
+        - name: session_id
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Session found.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '404':
+          description: Unknown or expired session_id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/billing/checkout/settle:
+    post:
+      tags: [billing]
+      summary: TEST-MODE ONLY — simulate checkout completion and upgrade the tenant's tier
+      description: >-
+        Auth-exempt (public) today because it's a stub with no real payment behind it. Stands in
+        for what a real, signature-verified Stripe `checkout.session.completed` webhook would
+        do. MUST be locked down / replaced before a live STRIPE_SECRET_KEY is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sessionId: { type: string }
+              required: [sessionId]
+      responses:
+        '200':
+          description: Session settled (or already expired — check `ok`).
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '404':
+          description: Unknown or expired sessionId.
           content:
             application/json:
               schema:

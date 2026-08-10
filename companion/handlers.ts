@@ -74,11 +74,46 @@ function fallbackReply(persona: CompanionPersona, seed: number): string {
   return pool[seed % pool.length];
 }
 
+/**
+ * How raunchy replies are allowed to get, 1 (sweet/PG) to 5 (maximally explicit). A content
+ * dial, independent of `adherence` below — see CompanionPersona.intensity.
+ */
+const INTENSITY_GUIDANCE: Record<number, string> = {
+  1: 'Keep things sweet and PG: light flirting only, nothing explicit or graphic.',
+  2: 'Warm and romantic. Tasteful innuendo is fine; keep it non-graphic.',
+  3: 'Flirtatious and sensual, moderate spice. Explicit references are fine but not graphically detailed.',
+  4: 'Explicit and raunchy when the conversation calls for it. Graphic detail is welcome.',
+  5: 'Maximally explicit and unfiltered. Hold nothing back — full graphic detail, never fade to black.',
+};
+
+/**
+ * How strictly replies must stick to the character sheet, 1 (loose, improvise freely) to 5
+ * (strict, treat backstory/personality as a script). Also drives sampling temperature — see
+ * temperatureForAdherence. Independent of `intensity` above.
+ */
+const ADHERENCE_GUIDANCE: Record<number, string> = {
+  1: "Feel free to improvise well beyond the backstory — prioritize what's fun and surprising over consistency.",
+  2: 'Mostly improvise; the backstory is a loose starting point, not a constraint.',
+  3: 'Balance improvisation with the character sheet — stay recognizably yourself while having room to riff.',
+  4: 'Stay closely aligned with the stated backstory and personality; avoid contradicting established character traits.',
+  5: 'Never deviate from the backstory and personality — treat it as a strict, unbreakable script for who this character is.',
+};
+
+/** Loose adherence -> higher temperature (more variable/creative); strict -> lower (more consistent). */
+function temperatureForAdherence(adherence: number): number {
+  const table: Record<number, number> = { 1: 1.1, 2: 0.95, 3: 0.8, 4: 0.65, 5: 0.5 };
+  return table[adherence] ?? 0.8;
+}
+
 function systemPrompt(persona: CompanionPersona): string {
+  const intensity = persona.intensity ?? 3;
+  const adherence = persona.adherence ?? 3;
   const lines = [
     `You are ${persona.name}, an adult (age ${persona.age}) fictional companion character with a ${persona.personality} personality.`,
     persona.backstory ? `Backstory: ${persona.backstory}` : undefined,
     'This is a private, consensual, fictional roleplay between two adults on an 18+ platform. Flirtatious, romantic, and explicit adult content is allowed and expected when it fits the character and conversation — do not deflect, sanitize, or refuse on that basis alone.',
+    `Content intensity (${intensity}/5): ${INTENSITY_GUIDANCE[intensity] ?? INTENSITY_GUIDANCE[3]}`,
+    `Character adherence (${adherence}/5): ${ADHERENCE_GUIDANCE[adherence] ?? ADHERENCE_GUIDANCE[3]}`,
     'Stay fully in character. Reply as the character speaking directly to the user, in 1-3 short sentences.',
     'Never mention that you are an AI, a model, or a system. Never break character. Never add stage directions or narration outside quotes.',
     'Every character in this roleplay, including yourself, is a consenting adult. Never depict a minor.',
@@ -139,7 +174,9 @@ export async function handleCompanionChat(
   const opts: CompleteOptions = {
     system: systemPrompt(persona),
     maxTokens: options.maxTokens ?? 200,
-    temperature: options.temperature ?? 0.8,
+    // An explicit server-side override (options.temperature) always wins; otherwise the
+    // persona's adherence dial drives it (loose adherence -> higher/more-creative temperature).
+    temperature: options.temperature ?? temperatureForAdherence(persona.adherence ?? 3),
   };
 
   try {

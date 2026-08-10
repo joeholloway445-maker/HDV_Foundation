@@ -660,6 +660,79 @@ export class HopeGateway {
     };
   }
 
+  /**
+   * POST /v1/billing/checkout — start a (stub) Stripe Checkout session for a plan tier. Body:
+   * { tier, interval?, quantity?, customerEmail? }. Tenant via X-HDV-Tenant. Returns the hosted
+   * checkout `url` the client redirects to, plus the session id to poll/settle.
+   *
+   * STUB NOTE: with no STRIPE_SECRET_KEY configured (the default), this issues a fake but
+   * well-formed test-mode session — no network call, no real charge, safe to expose publicly
+   * today. Swapping in a real Stripe key later is a single-constructor change in
+   * billing/stripe_stub.ts; at that point checkout confirmation MUST move to a real,
+   * signature-verified Stripe webhook instead of the client-callable settle endpoint below.
+   */
+  handleBillingCheckout(tenantId: string, body: unknown): GatewayResponse {
+    if (body === null || typeof body !== 'object') {
+      return { status: 400, body: { error: 'body must be JSON: { tier, interval?, quantity?, customerEmail? }' } };
+    }
+    const b = body as Record<string, unknown>;
+    if (typeof b.tier !== 'string' || !isPlanTier(b.tier.trim().toUpperCase())) {
+      return { status: 400, body: { error: 'tier must be one of FREE, STARTER, PRO, ENTERPRISE, BYOK' } };
+    }
+    const interval = b.interval === 'year' ? 'year' : 'month';
+    const quantity = typeof b.quantity === 'number' && b.quantity > 0 ? Math.floor(b.quantity) : 1;
+    const customerEmail = typeof b.customerEmail === 'string' ? b.customerEmail.trim() || undefined : undefined;
+
+    try {
+      const session = this.billing.checkout.createCheckoutSession({
+        tier: b.tier.trim().toUpperCase(),
+        tenantId,
+        interval,
+        quantity,
+        customerEmail,
+      });
+      return {
+        status: 200,
+        body: { sessionId: session.id, url: session.url, livemode: session.livemode, session },
+      };
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+
+  /** GET /v1/billing/checkout?session_id=... — look up a (stub) checkout session's status. */
+  handleBillingCheckoutGet(sessionId: string | null): GatewayResponse {
+    if (!sessionId) return { status: 400, body: { error: 'session_id query param is required' } };
+    const session = this.billing.checkout.retrieveSession(sessionId);
+    if (!session) return { status: 404, body: { error: 'unknown or expired session_id' } };
+    return { status: 200, body: { session } };
+  }
+
+  /**
+   * POST /v1/billing/checkout/settle — TEST-MODE ONLY: simulate the customer completing payment
+   * (what a real `checkout.session.completed` Stripe webhook would confirm) and upgrade the
+   * tenant's allowance to the purchased tier. Body: { sessionId }. Do not expose this once a
+   * live STRIPE_SECRET_KEY is configured — replace with real webhook verification first.
+   */
+  handleBillingCheckoutSettle(body: unknown): GatewayResponse {
+    if (body === null || typeof body !== 'object') {
+      return { status: 400, body: { error: 'body must be JSON: { sessionId }' } };
+    }
+    const b = body as Record<string, unknown>;
+    if (typeof b.sessionId !== 'string' || !b.sessionId.trim()) {
+      return { status: 400, body: { error: '"sessionId" must be a non-empty string' } };
+    }
+    const session = this.billing.checkout.markSessionPaid(b.sessionId.trim());
+    if (!session) return { status: 404, body: { error: 'unknown or expired session_id' } };
+    if (session.status !== 'complete') {
+      return { status: 200, body: { ok: false, session, reason: 'session expired before settling' } };
+    }
+    const tenantId = session.tenantId || 'demo';
+    this.billing.store.setAllowance(tenantId, { tier: session.tier });
+    const balance = this.billing.store.balance(tenantId);
+    return { status: 200, body: { ok: true, session, tenantId, balance } };
+  }
+
   // -------------------------------------------------------------------------
   // Launch GTM waitlist (market/). POST /v1/waitlist is auth-exempt (public form) but
   // rate-limited; GET /v1/waitlist/stats is protected. Neither routes, gates, or executes —
@@ -735,6 +808,9 @@ export class HopeGateway {
     if (m === 'GET' && pathname === '/v1/billing/usage') return this.handleBillingUsage(tenantFromHeaders(headers), numParam(query.get('limit')));
     if (m === 'GET' && pathname === '/v1/billing/estimate') return this.handleBillingEstimate(tenantFromHeaders(headers), query, body);
     if (m === 'POST' && pathname === '/v1/billing/allowance') return this.handleBillingAllowance(tenantFromHeaders(headers), body);
+    if (m === 'POST' && pathname === '/v1/billing/checkout') return this.handleBillingCheckout(tenantFromHeaders(headers), body);
+    if (m === 'GET' && pathname === '/v1/billing/checkout') return this.handleBillingCheckoutGet(query.get('session_id'));
+    if (m === 'POST' && pathname === '/v1/billing/checkout/settle') return this.handleBillingCheckoutSettle(body);
     // --- Launch GTM waitlist. POST is public (auth-exempt, rate-limited); stats is protected.
     if (m === 'POST' && pathname === '/v1/waitlist') return this.handleWaitlistSignup(body, ipFromHeaders(headers));
     if (m === 'GET' && pathname === '/v1/waitlist/stats') return this.handleWaitlistStats();
