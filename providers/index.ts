@@ -32,3 +32,56 @@ export {
 export type { FactoryOptions } from './factory.js';
 
 export { redactSecret, redactFrom, REDACTED } from './redact.js';
+
+// --- Image providers (sibling seam: prompt -> image, same offline-first rules) -------------
+export type {
+  ImageProvider,
+  GenerateImageOptions,
+  ImageResult,
+  ImageProviderKind,
+} from './image_types.js';
+
+export { StubImageProvider } from './image_stub.js';
+export type { StubImageProviderOptions } from './image_stub.js';
+
+export { GoogleAiStudioImageProvider, GoogleAiStudioImageError } from './google_ai_studio_image.js';
+export type { GoogleAiStudioImageOptions } from './google_ai_studio_image.js';
+
+export { ColabTunnelImageProvider, ColabTunnelImageError } from './colab_tunnel_image.js';
+export type { ColabTunnelImageOptions } from './colab_tunnel_image.js';
+
+export {
+  createImageProvider,
+  createImageProviderOrStub,
+  UnknownImageProviderError,
+  ENV_IMAGE_PROVIDER,
+  ENV_IMAGE_API_KEY,
+  ENV_IMAGE_BASE_URL,
+  ENV_IMAGE_MODEL,
+} from './image_factory.js';
+export type { ImageFactoryOptions } from './image_factory.js';
+
+// --- Video providers (sibling seam: prompt + seed image -> video, e.g. LingBot-World) -------
+export type {
+  VideoProvider,
+  GenerateVideoOptions,
+  VideoResult,
+  VideoProviderKind,
+} from './video_types.js';
+
+export { StubVideoProvider } from './video_stub.js';
+export type { StubVideoProviderOptions } from './video_stub.js';
+
+export { ColabTunnelVideoProvider, ColabTunnelVideoError } from './colab_tunnel_video.js';
+export type { ColabTunnelVideoOptions } from './colab_tunnel_video.js';
+
+export {
+  createVideoProvider,
+  createVideoProviderOrStub,
+  UnknownVideoProviderError,
+  ENV_VIDEO_PROVIDER,
+  ENV_VIDEO_API_KEY,
+  ENV_VIDEO_BASE_URL,
+  ENV_VIDEO_MODEL,
+} from './video_factory.js';
+export type { VideoFactoryOptions } from './video_factory.js';

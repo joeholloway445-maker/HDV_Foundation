@@ -16,6 +16,8 @@
  *   POST /v1/waitlist      { "email": "..." }  → launch waitlist signup (public, rate-limited)
  *   GET  /v1/waitlist/stats aggregate signup stats (protected)
  *   POST /v1/companion/chat { persona, history?, message } → one in-character reply (public, rate-limited)
+ *   POST /v1/companion/portrait { persona } → one portrait image (public, rate-limited)
+ *   POST /v1/companion/scene { persona, seedImage, actionString? } → one scene/loop video (public, rate-limited)
  *
  * KNOLL gates every routed packet; the gateway never bypasses APEX.
  *
@@ -143,6 +145,8 @@ async function main(): Promise<void> {
     'POST /v1/waitlist          (public — { email, name?, company?, interestedTier?, useCase? })',
     'GET  /v1/waitlist/stats    (protected — privacy-safe aggregate signup stats)',
     'POST /v1/companion/chat    (public — { persona: { name, personality? }, history?, message })',
+    'POST /v1/companion/portrait (public — { persona: { name, age (18+), style?, personality? } })',
+    'POST /v1/companion/scene   (public — { persona: { name, age (18+) }, seedImage, actionString? })',
   ];
   const { config } = gateway.middleware;
   const authMode = config.apiKey ? 'ENABLED (X-HDV-Key / Bearer)' : 'DISABLED (dev mode — set HDV_API_KEY)';

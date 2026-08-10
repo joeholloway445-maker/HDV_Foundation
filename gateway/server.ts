@@ -44,7 +44,11 @@ import { createProviderOrStub } from '../providers/index.js';
 import { SimulationEngine } from '../dream/index.js';
 import { ExecutionEngine } from '../vision/index.js';
 import { WaitlistStore, handleWaitlistSignup, handleWaitlistStats } from '../market/index.js';
-import { handleCompanionChat } from '../companion/index.js';
+import { handleCompanionChat, handlePortraitRequest, handleSceneRequest } from '../companion/index.js';
+import { createImageProviderOrStub } from '../providers/image_factory.js';
+import type { ImageProvider } from '../providers/image_types.js';
+import { createVideoProviderOrStub } from '../providers/video_factory.js';
+import type { VideoProvider } from '../providers/video_types.js';
 import {
   MANAGERS_PER_AGENT,
   NODES_PER_MANAGER,
@@ -135,6 +139,18 @@ export interface HopeGatewayOptions {
   provider?: LlmProvider | false;
   /** Optional IntentEnricher. When omitted, one is built from `provider` (or env). */
   enricher?: IntentEnricher;
+  /**
+   * Optional image provider for companion portraits (image only — never routes). When omitted,
+   * the gateway builds one from HDV_IMAGE_* env via createImageProviderOrStub (defaults to the
+   * offline stub). Pass `false` to force "unavailable" responses (no provider at all).
+   */
+  imageProvider?: ImageProvider | false;
+  /**
+   * Optional video provider for companion scenes/loops (video only — never routes). When
+   * omitted, the gateway builds one from HDV_VIDEO_* env via createVideoProviderOrStub
+   * (defaults to the offline stub). Pass `false` to force "unavailable" responses.
+   */
+  videoProvider?: VideoProvider | false;
 }
 
 interface HopeResultRecord {
@@ -168,6 +184,18 @@ export class HopeGateway {
    * replies only (still fully functional offline).
    */
   private readonly companionProvider?: LlmProvider;
+  /**
+   * Shared ImageProvider instance used for companion portraits (companion/portrait_*), same
+   * env-driven offline-first construction as companionProvider. Undefined ⇒ "unavailable"
+   * response only (still fully functional offline — no crash, no placeholder pixel shown).
+   */
+  private readonly imageProvider?: ImageProvider;
+  /**
+   * Shared VideoProvider instance used for companion scenes/loops (companion/scene_*), same
+   * env-driven offline-first construction as imageProvider. Undefined ⇒ "unavailable" response
+   * only.
+   */
+  private readonly videoProvider?: VideoProvider;
   private readonly readLimit: number;
   private readonly logger: GatewayLogger;
 
@@ -215,6 +243,12 @@ export class HopeGateway {
     } else {
       this.enricher = new IntentEnricher({ provider });
     }
+    // Companion portraits: same offline-first construction, independent of the text provider
+    // (an operator may run Ollama for text and a Colab-tunnel model for images, or vice versa).
+    this.imageProvider =
+      options.imageProvider === false ? undefined : options.imageProvider ?? createImageProviderOrStub();
+    this.videoProvider =
+      options.videoProvider === false ? undefined : options.videoProvider ?? createVideoProviderOrStub();
     this.readLimit = options.readLimit ?? 50;
     this.middleware = new GatewayMiddleware(resolveSecurityConfig(options.security ?? {}));
     this.logger = options.logger === false ? () => {} : options.logger ?? defaultLogger;
@@ -655,6 +689,27 @@ export class HopeGateway {
   }
 
   /**
+   * POST /v1/companion/portrait — one portrait image for a companion persona. Same
+   * auth-exempt-but-rate-limited posture as chat; same offline-safe "unavailable" response
+   * when no ImageProvider is configured. Provider-agnostic: HDV_IMAGE_PROVIDER selects
+   * Google AI Studio (SFW) or a Colab tunnel (self-hosted, e.g. NSFW-capable) with no
+   * frontend changes required either way.
+   */
+  async handlePortraitRequest(body: unknown): Promise<GatewayResponse> {
+    return handlePortraitRequest(body, { provider: this.imageProvider });
+  }
+
+  /**
+   * POST /v1/companion/scene — animate an existing portrait (client-supplied seed image) into
+   * a short video/loop. Same auth-exempt-but-rate-limited posture; same offline-safe
+   * "unavailable" response when no VideoProvider is configured (e.g. LingBot-World via a
+   * Colab tunnel — see colab/08_scene_server.py).
+   */
+  async handleSceneRequest(body: unknown): Promise<GatewayResponse> {
+    return handleSceneRequest(body, { provider: this.videoProvider });
+  }
+
+  /**
    * Route a parsed request to a handler. Async so a real body read can be awaited by the
    * server wrapper; handlers themselves are synchronous. This is the single mapping table.
    * `headers` is optional (only billing routes read it, for X-HDV-Tenant) so existing callers
@@ -685,6 +740,10 @@ export class HopeGateway {
     if (m === 'GET' && pathname === '/v1/waitlist/stats') return this.handleWaitlistStats();
     // --- Companion chat. Public (auth-exempt, rate-limited) — the web client has no API key.
     if (m === 'POST' && pathname === '/v1/companion/chat') return await this.handleCompanionChat(body);
+    // --- Companion portrait. Same public posture as chat.
+    if (m === 'POST' && pathname === '/v1/companion/portrait') return await this.handlePortraitRequest(body);
+    // --- Companion scene/loop. Same public posture as chat and portrait.
+    if (m === 'POST' && pathname === '/v1/companion/scene') return await this.handleSceneRequest(body);
     return { status: 404, body: { error: `no route for ${m} ${pathname}` } };
   }
 
