@@ -602,6 +602,52 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /v1/companion/chat/stream:
+    post:
+      tags: [companion]
+      summary: One in-character companion reply, streamed token-by-token (SSE)
+      description: >
+        The streaming twin of POST /v1/companion/chat: identical request body, identical
+        validation (including the 18+ floor — a rejected persona gets a normal buffered 400
+        JSON error, exactly like the non-streaming route, BEFORE any event-stream framing is
+        written), and the same auth-exempt-but-rate-limited posture. The only difference is
+        delivery: the response is `text/event-stream` instead of one buffered JSON object.
+
+        OpenAPI 3.0 has no native SSE modeling, so the event shape is documented here instead
+        of as a schema. On success (200) the body is a sequence of `text/event-stream` frames,
+        each `data: <json>\n\n`:
+          - zero or more `{"delta": "<next chunk of text>"}` frames, in order — concatenating
+            every `delta` reconstructs the full reply (mirrors CompanionChatResponse.reply);
+          - exactly one final `{"done": true, "source": "llm"|"fallback", "model": string|null,
+            "error"?: string}` frame, then the connection closes.
+        When the configured LlmProvider implements streaming, real deltas are forwarded as the
+        model produces them. When there is no provider, the provider is the offline stub, or the
+        configured provider doesn't implement streaming, the SAME deterministic per-personality
+        fallback text POST /v1/companion/chat would have returned is sent as a single `delta`
+        frame followed by `done` — the SSE contract never changes shape based on what's
+        configured server-side.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompanionChatRequest'
+      responses:
+        '200':
+          description: >
+            SSE stream established. Body is `text/event-stream`: see the description above for
+            the frame shapes (`delta` chunks followed by one `done` frame).
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: 'Raw SSE bytes: repeated `data: {"delta":"..."}\n\n` frames, then one `data: {"done":true,...}\n\n` frame.'
+        '400':
+          description: Invalid request (e.g. missing persona.name, empty message, or persona.age < 18). No SSE framing is written — this is a normal buffered JSON error, same as POST /v1/companion/chat.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /v1/companion/portrait:
     post:
       tags: [companion]

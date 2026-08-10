@@ -33,6 +33,7 @@ server (no framework) that exposes:
 | GET    | `/v1/matrix/stats`  | Node/persona topology + parameter accounting          |
 | GET    | `/v1/metrics`       | Observability snapshot (`?format=prometheus`)         |
 | POST   | `/v1/companion/chat`| One in-character companion reply (public, rate-limited; see `companion/`) |
+| POST   | `/v1/companion/chat/stream`| Same reply, streamed token-by-token as Server-Sent Events (public, rate-limited; see `companion/` + `providers/README.md`'s `completeStream`) |
 | POST   | `/v1/companion/portrait`| One companion portrait image (public, rate-limited; see `companion/` + `providers/image_*`) |
 | POST   | `/v1/companion/scene`| One companion scene/loop video from an existing portrait (public, rate-limited; see `providers/video_*` + `colab/08_scene_server.py`) |
 

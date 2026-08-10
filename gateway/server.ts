@@ -44,7 +44,12 @@ import { createProviderOrStub } from '../providers/index.js';
 import { SimulationEngine } from '../dream/index.js';
 import { ExecutionEngine } from '../vision/index.js';
 import { WaitlistStore, handleWaitlistSignup, handleWaitlistStats } from '../market/index.js';
-import { handleCompanionChat, handlePortraitRequest, handleSceneRequest } from '../companion/index.js';
+import {
+  handleCompanionChat,
+  handleCompanionChatStream,
+  handlePortraitRequest,
+  handleSceneRequest,
+} from '../companion/index.js';
 import { createImageProviderOrStub } from '../providers/image_factory.js';
 import type { ImageProvider } from '../providers/image_types.js';
 import { createVideoProviderOrStub } from '../providers/video_factory.js';
@@ -62,6 +67,14 @@ import {
   computeParameterAccounting,
   MODEL_SIZE,
 } from '../nodes/index.js';
+
+/**
+ * POST /v1/companion/chat/stream — the SSE twin of POST /v1/companion/chat. Its own module-level
+ * constant (rather than a literal buried in `serve()`) because it's checked in TWO places: the
+ * `serve()` bypass below, and gateway/middleware.ts's AUTH_EXEMPT_PATHS (same public-but-rate-
+ * limited posture as /v1/companion/chat — no API key, but still rate-limited).
+ */
+export const COMPANION_CHAT_STREAM_PATH = '/v1/companion/chat/stream';
 
 export interface GatewayResponse {
   status: number;
@@ -762,6 +775,68 @@ export class HopeGateway {
   }
 
   /**
+   * POST /v1/companion/chat/stream — token-by-token SSE twin of POST /v1/companion/chat.
+   *
+   * PURELY ADDITIVE: this does not alter handleCompanionChat or the buffered /v1/companion/chat
+   * route in any way — they remain two independent handlers sharing only companion/handlers.ts's
+   * internal validation/prompt/fallback logic (via handleCompanionChatStream).
+   *
+   * Writes Server-Sent Events directly to `res`:
+   *   - one `data: {"delta":"..."}\n\n` frame per chunk of new text, in order;
+   *   - a final `data: {"done":true,"source":"llm"|"fallback","model":...}\n\n` frame.
+   * SSE headers are written lazily, on the FIRST event — so if validation fails
+   * (handleCompanionChatStream returns 400 before firing any event, e.g. the 18+ floor), this
+   * writes a normal buffered JSON 400 instead, exactly like /v1/companion/chat does. No provider,
+   * the stub provider, or a provider without `completeStream` all fall back to the SAME
+   * deterministic per-personality reply /v1/companion/chat uses (as one SSE chunk), so the SSE
+   * contract is identical regardless of whether a real provider is streaming.
+   *
+   * Returns the HTTP status actually written, for request logging — same as every other route.
+   */
+  async serveCompanionChatStream(
+    body: unknown,
+    res: http.ServerResponse,
+    responseHeaders: Record<string, string>,
+  ): Promise<number> {
+    let sseStarted = false;
+    const startSse = (): void => {
+      if (sseStarted) return;
+      sseStarted = true;
+      res.writeHead(200, {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache, no-transform',
+        connection: 'keep-alive',
+        ...responseHeaders,
+      });
+    };
+    const writeSseEvent = (data: Record<string, unknown>): void => {
+      startSse();
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    const result = await handleCompanionChatStream(
+      body,
+      { provider: this.companionProvider },
+      {
+        onDelta: (delta) => writeSseEvent({ delta }),
+        onDone: (info) => {
+          writeSseEvent({ done: true, ...info });
+          res.end();
+        },
+      },
+    );
+
+    // Validation (e.g. missing persona / message, or the 18+ floor) failed BEFORE any event
+    // fired — sseStarted is still false, so it's safe to answer with a normal buffered 400,
+    // matching /v1/companion/chat's contract for the same input.
+    if (result.status !== 200) {
+      writeJson(res, result.status, result.body ?? { error: 'invalid request' }, responseHeaders);
+      return result.status;
+    }
+    return 200;
+  }
+
+  /**
    * POST /v1/companion/portrait — one portrait image for a companion persona. Same
    * auth-exempt-but-rate-limited posture as chat; same offline-safe "unavailable" response
    * when no ImageProvider is configured. Provider-agnostic: HDV_IMAGE_PROVIDER selects
@@ -866,6 +941,18 @@ export class HopeGateway {
       if (guard.response) {
         writeJson(res, guard.response.status, guard.response.body, guard.headers);
         log(guard.response.status);
+        return;
+      }
+
+      // POST /v1/companion/chat/stream is the ONE route that bypasses the buffered
+      // GatewayResponse path below: it streams SSE frames directly to `res` as they're produced
+      // instead of computing a single { status, body } and writing it once. Carved out here,
+      // BEFORE the generic route() dispatch, so every other route's request handling — including
+      // the existing (buffered) POST /v1/companion/chat — is completely untouched.
+      if (method.toUpperCase() === 'POST' && url.pathname === COMPANION_CHAT_STREAM_PATH) {
+        const streamBody = await readJsonBody(req);
+        const status = await this.serveCompanionChatStream(streamBody, res, guard.headers);
+        log(status);
         return;
       }
 

@@ -5,6 +5,31 @@ text transducers: `complete(prompt, opts) -> { text, model, usage }`. They know 
 about agents, `RoutingPacket`s, APEX, KNOLL, or the ledger, and **must never** be used to
 execute, route, or create anything in the matrix. They only produce text.
 
+## Streaming (`completeStream`, optional)
+
+`LlmProvider` has one *optional* second method alongside `complete`:
+
+```ts
+completeStream?(prompt: string, opts?: CompleteOptions): AsyncIterable<{ delta: string }>;
+```
+
+It's the token-by-token twin of `complete`: instead of resolving once with the full text, it
+yields `{ delta }` chunks as the backend produces them — concatenating every `delta` in order
+reconstructs the same text `complete()` would have returned. It is **optional** because not
+every provider can support it (the offline `StubProvider` doesn't); callers MUST feature-detect
+it (`typeof provider.completeStream === 'function'`) rather than assume it exists, and fall back
+to `complete()` (or a canned reply) when it's absent. Same rules as `complete`: pure text
+in/out, no tool use, no routing, no side effects.
+
+`OpenAiCompatibleProvider` implements it by adding `stream: true` to the same request body
+`complete()` sends, then incrementally parsing the resulting `text/event-stream` response —
+`data: {"choices":[{"delta":{"content":"..."}}]}` frames, terminated by a literal
+`data: [DONE]` frame — exactly what Ollama and every OpenAI-compatible chat completions endpoint
+emits for a streaming request. It uses `fetch`'s `response.body` (a web `ReadableStream`), same
+as `complete()` uses `fetch` for the buffered call — no extra dependency. `companion/handlers.ts`'s
+`handleCompanionChatStream` (mounted at `POST /v1/companion/chat/stream`) is the one consumer
+today; see that file and `gateway/server.ts`'s `serveCompanionChatStream` for the SSE wiring.
+
 Design principles:
 
 - **Offline-first.** The default is the deterministic `StubProvider` — no network, no API key,
@@ -19,7 +44,7 @@ Design principles:
 | --- | --- |
 | `types.ts` | `LlmProvider` interface, `CompleteOptions`, `CompletionResult`, `LlmUsage`. |
 | `stub.ts` | `StubProvider` — deterministic, offline default. |
-| `openai_compatible.ts` | `OpenAiCompatibleProvider` — `fetch`-based OpenAI Chat Completions client. |
+| `openai_compatible.ts` | `OpenAiCompatibleProvider` — `fetch`-based OpenAI Chat Completions client (`complete`, plus streaming via `completeStream`). |
 | `factory.ts` | `createProvider` / `createProviderOrStub` — build from env. |
 | `index.ts` | Public surface. |
 

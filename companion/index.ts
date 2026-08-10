@@ -4,11 +4,12 @@
  * A thin PRODUCT surface: turn a persona + history into one in-character reply. It is NOT a
  * Big 5 agent — it never routes a RoutingPacket, never touches APEX/KNOLL/HOPE/DREAM/VISION.
  * The HOPE gateway mounts this handler as an additive, standalone route (POST
- * /v1/companion/chat), the same way market/ mounts the waitlist.
+ * /v1/companion/chat), the same way market/ mounts the waitlist. handleCompanionChatStream is
+ * the token-by-token twin, mounted at POST /v1/companion/chat/stream (Server-Sent Events).
  */
 export * from './types.js';
-export { handleCompanionChat } from './handlers.js';
-export type { CompanionResponse, CompanionChatOptions } from './handlers.js';
+export { handleCompanionChat, handleCompanionChatStream } from './handlers.js';
+export type { CompanionResponse, CompanionChatOptions, CompanionChatStreamEvents } from './handlers.js';
 
 export {
   parsePortraitRequest,

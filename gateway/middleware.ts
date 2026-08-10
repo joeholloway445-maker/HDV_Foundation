@@ -40,6 +40,9 @@ const ALWAYS_PUBLIC_PATHS = new Set<string>(['/v1/health', '/v1/billing/pricing'
 const AUTH_EXEMPT_PATHS = new Set<string>([
   '/v1/waitlist',
   '/v1/companion/chat',
+  // Streaming (SSE) twin of /v1/companion/chat — same public-but-rate-limited posture; see
+  // gateway/server.ts's COMPANION_CHAT_STREAM_PATH and serveCompanionChatStream.
+  '/v1/companion/chat/stream',
   '/v1/companion/portrait',
   '/v1/companion/scene',
   // Checkout is public because FuckLike/web has no user-account/API-key system yet — it sends

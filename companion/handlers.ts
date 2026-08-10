@@ -201,3 +201,94 @@ export async function handleCompanionChat(
     };
   }
 }
+
+/** Sink the streaming handler pushes events into — transport-agnostic (SSE, WS, tests, ...). */
+export interface CompanionChatStreamEvents {
+  /** Called once per chunk of new text. Concatenate in order to reconstruct the full reply. */
+  onDelta: (delta: string) => void;
+  /** Called exactly once, after the last onDelta (or with none, if the reply was empty). */
+  onDone: (info: { model: string | null; source: 'llm' | 'fallback'; error?: string }) => void;
+}
+
+/**
+ * POST /v1/companion/chat/stream — token-by-token variant of handleCompanionChat.
+ *
+ * Same validation (parseCompanionChatInput — including the 18+ floor) and the SAME deterministic
+ * fallback pool (fallbackReply) as the buffered handler above; this function only changes HOW the
+ * reply is delivered (incrementally via `events`, instead of buffered in the return body).
+ *
+ * Transport-agnostic: the caller (gateway/server.ts) owns writing SSE frames to the HTTP
+ * response. This function only decides WHAT to send and WHEN:
+ *   - No provider, the stub provider, or a provider without `completeStream` ⇒ the same canned
+ *     fallback reply as handleCompanionChat, delivered as a single delta.
+ *   - A real streaming-capable provider ⇒ its deltas are forwarded as they arrive.
+ *   - A provider that throws before yielding anything ⇒ falls back to the canned reply (same as
+ *     handleCompanionChat's provider-failure path). A provider that throws mid-stream (after
+ *     already yielding some deltas) cannot be silently replaced — the partial text already left
+ *     the server — so onDone just reports the error alongside what was already streamed.
+ *
+ * Returns `{ status }` so the gateway can tell a 400 (validation failed — no SSE stream was ever
+ * started, no events fired) from a 200 (streaming happened, terminated by onDone).
+ */
+export async function handleCompanionChatStream(
+  body: unknown,
+  options: CompanionChatOptions,
+  events: CompanionChatStreamEvents,
+): Promise<{ status: number; body?: Record<string, unknown> }> {
+  let parsed;
+  try {
+    parsed = parseCompanionChatInput(body);
+  } catch (err) {
+    if (err instanceof CompanionChatValidationError) {
+      return { status: 400, body: { error: err.message, code: err.code } };
+    }
+    throw err;
+  }
+  // Same 18+ floor as handleCompanionChat, enforced by parseCompanionChatInput above, BEFORE
+  // any SSE headers are written or any event fires.
+
+  const { persona, history, message } = parsed;
+  const seed = message.length + history.length;
+  const provider = options.provider;
+
+  const canStream =
+    Boolean(provider) && provider!.name !== 'stub' && typeof provider!.completeStream === 'function';
+
+  if (!canStream) {
+    // No provider, the offline stub, or a provider that never implemented streaming: identical
+    // posture to handleCompanionChat's own "no provider" branch, just delivered as one chunk.
+    events.onDelta(fallbackReply(persona, seed));
+    events.onDone({ model: null, source: 'fallback' });
+    return { status: 200 };
+  }
+
+  const opts: CompleteOptions = {
+    system: systemPrompt(persona),
+    maxTokens: options.maxTokens ?? 200,
+    temperature: options.temperature ?? temperatureForAdherence(persona.adherence ?? 3),
+  };
+
+  let emittedAny = false;
+  try {
+    for await (const chunk of provider!.completeStream!(buildPrompt(history, message), opts)) {
+      if (chunk.delta) {
+        emittedAny = true;
+        events.onDelta(chunk.delta);
+      }
+    }
+    events.onDone({ model: provider!.model, source: 'llm' });
+    return { status: 200 };
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    if (!emittedAny) {
+      // Nothing reached the client yet — safe to swap in the canned reply, same as
+      // handleCompanionChat's provider-failure fallback.
+      events.onDelta(fallbackReply(persona, seed));
+      events.onDone({ model: null, source: 'fallback', error: errorMessage });
+    } else {
+      // Partial text already streamed out; report the failure without contradicting it.
+      events.onDone({ model: provider!.model, source: 'llm', error: errorMessage });
+    }
+    return { status: 200 };
+  }
+}
