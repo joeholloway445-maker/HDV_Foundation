@@ -27,21 +27,23 @@ server (no framework) that exposes:
 | Method | Path                | Purpose                                              |
 |--------|---------------------|------------------------------------------------------|
 | POST   | `/v1/intent`        | HOPE interpret + document + submit via APEX (KNOLL-gated) |
-| GET    | `/v1/health`        | Liveness/readiness (always public)                    |
+| GET    | `/v1/health`        | Liveness/readiness (always public, always fast)       |
+| GET    | `/v1/health/deep`   | Per-dependency reachability diagnostics — Postgres/Redis/LLM/image/video (protected, bounded; see §11.1) |
 | GET    | `/v1/ledger`        | Recent APEX billing entries (read-only)               |
 | GET    | `/v1/audit`         | Recent KNOLL verdicts (read-only)                     |
 | GET    | `/v1/matrix/stats`  | Node/persona topology + parameter accounting          |
 | GET    | `/v1/metrics`       | Observability snapshot (`?format=prometheus`)         |
-| POST   | `/v1/companion/chat`| One in-character companion reply (public, rate-limited; see `companion/`) |
-| POST   | `/v1/companion/chat/stream`| Same reply, streamed token-by-token as Server-Sent Events (public, rate-limited; see `companion/` + `providers/README.md`'s `completeStream`) |
-| POST   | `/v1/companion/portrait`| One companion portrait image (public, rate-limited; see `companion/` + `providers/image_*`) |
-| POST   | `/v1/companion/scene`| One companion scene/loop video from an existing portrait (public, rate-limited; see `providers/video_*` + `colab/08_scene_server.py`) |
+| POST   | `/v1/companion/chat`| One in-character companion reply (public, rate-limited per-IP AND per-tenant; see `companion/`) |
+| POST   | `/v1/companion/chat/stream`| Same reply, streamed token-by-token as Server-Sent Events (public, rate-limited per-IP AND per-tenant; see `companion/` + `providers/README.md`'s `completeStream`) |
+| POST   | `/v1/companion/portrait`| One companion portrait image (public, rate-limited per-IP AND per-tenant; see `companion/` + `providers/image_*`) |
+| POST   | `/v1/companion/scene`| One companion scene/loop video from an existing portrait (public, rate-limited per-IP AND per-tenant; see `providers/video_*` + `colab/08_scene_server.py`) |
 | POST   | `/v1/auth/signup`   | Create an email+password account → `{ userId, email, sessionToken }` (public; stricter dedicated rate limit — see `HDV_AUTH_RATE_LIMIT` below) |
 | POST   | `/v1/auth/login`    | Authenticate → same response shape, or `401` with a single generic message either way (public; same stricter rate limit) |
 | POST   | `/v1/auth/logout`   | Invalidate a session (`X-HDV-Session` header or `{ sessionToken }` body); public, idempotent |
 | GET    | `/v1/auth/me`       | Resolve the current session → `{ userId, email }`, or `401` if missing/invalid/expired (public — authenticates via its own `X-HDV-Session`, not `HDV_API_KEY`) |
-| GET    | `/v1/companion/memory`| Read a companion's remembered relationship state, defaults if none saved yet (public, rate-limited; see `companion/memory.ts`) |
-| POST   | `/v1/companion/speak`| One companion speech-audio clip from already-approved text (public, rate-limited; see `providers/tts_*` + `colab/10_kokoro_tts_server.md`) |
+| GET    | `/v1/companion/memory`| Read a companion's remembered relationship state, defaults if none saved yet (public, rate-limited per-IP AND per-tenant; see `companion/memory.ts`) |
+| POST   | `/v1/companion/speak`| One companion speech-audio clip from already-approved text (public, rate-limited per-IP AND per-tenant; see `providers/tts_*` + `colab/10_kokoro_tts_server.md`) |
+| POST   | `/v1/billing/checkout`, `/v1/billing/checkout/settle` | (Stub) Stripe Checkout (public, rate-limited per-IP AND per-tenant) |
 
 It binds `PORT` (default `8787`) on loopback; a reverse proxy (Caddy or nginx)
 terminates TLS on `443` and forwards to it.
@@ -175,6 +177,11 @@ PORT=8787                       # loopback bind; the proxy forwards to this
 HDV_API_KEY=<paste openssl rand -hex 32 output>   # REQUIRED in prod (enables auth)
 HDV_RATE_LIMIT=120              # requests/min per client IP before 429
 HDV_AUTH_RATE_LIMIT=10          # stricter requests/min per IP, POST /v1/auth/{signup,login} only
+HDV_TENANT_RATE_LIMIT=20        # requests/min per X-HDV-Tenant before 429 — ADDITIVE to
+                                 # HDV_RATE_LIMIT above, applies only to /v1/companion/* and
+                                 # /v1/billing/checkout*. On a shared VPS many distinct users
+                                 # can sit behind one IP (NAT/proxy); this gives each tenant id
+                                 # its own budget instead of letting them all share one bucket.
 HDV_CORS_ORIGIN=https://yourdomain.com   # tighten from "*" to your site origin
 
 # --- Persistence (optional; in-memory is the default) -------------------------
@@ -192,12 +199,16 @@ HDV_LLM_PROVIDER=stub           # stub | openai_compatible
 Key rules:
 
 - **`HDV_API_KEY` must be set in production.** Unset ⇒ the gateway runs in dev mode with
-  auth disabled. `/v1/health` stays public either way for probes.
+  auth disabled. `/v1/health` stays public either way for probes; `/v1/health/deep` does
+  **not** — it always requires the key when one is configured (see §11.1).
 - **`/v1/auth/*` is its own account system, not gated by `HDV_API_KEY`.** signup/login/logout/me
   are always reachable (they ARE the auth system); signup and login carry their own stricter,
   dedicated `HDV_AUTH_RATE_LIMIT` on top of the generic limiter. Real accounts are NOT yet wired
   into billing/checkout's `X-HDV-Tenant` resolution — that stays anonymous/client-supplied until
   a deliberate follow-up (see the TODO in `gateway/server.ts`).
+- **`HDV_TENANT_RATE_LIMIT`** is a second, additive limiter on top of `HDV_RATE_LIMIT` — it
+  never replaces the per-IP check, it just adds a per-tenant one on the companion + checkout
+  routes specifically.
 - **`HDV_CORS_ORIGIN`** should be your actual site origin, not `*`, once the marketing
   page / product calls the API from a browser.
 - The providers block is **optional and offline-first** — with `HDV_LLM_PROVIDER=stub` the
@@ -371,6 +382,8 @@ Docker sidecar right next to Ollama on the same KVM4 — see
 - [ ] `curl https://api.yourdomain.com/v1/health` returns `200` (public).
 - [ ] `curl https://api.yourdomain.com/v1/matrix/stats` returns **`401`** without the key.
 - [ ] Same call **with** `-H "X-HDV-Key: $HDV_API_KEY"` returns `200`.
+- [ ] `curl -H "X-HDV-Key: $HDV_API_KEY" https://api.yourdomain.com/v1/health/deep` returns
+      `200` with every configured dependency `"ok": true` (see §11.1 if not).
 - [ ] `HDV_API_KEY` is set (auth ENABLED), `HDV_CORS_ORIGIN` is your site (not `*`).
 - [ ] Ports `8787`, `5432`, `6379`, `11434` are **not** reachable from outside (`nmap` from your laptop shows only `22/80/443`).
 - [ ] `.env` is `chmod 600`, git-ignored, and contains no committed secrets.
@@ -386,6 +399,40 @@ Docker sidecar right next to Ollama on the same KVM4 — see
 | `502 Bad Gateway` from the proxy | gateway not listening on `8787` | `systemctl status hdv-gateway` / `docker compose logs gateway`; check `PORT` |
 | TLS cert not issued | DNS A record not propagated to this box | `dig +short api.yourdomain.com`; wait, then `systemctl reload caddy` |
 | Everything returns `401` | `HDV_API_KEY` set, client not sending it | add `-H "X-HDV-Key: <key>"` or `Authorization: Bearer <key>` |
-| `429 Too Many Requests` | rate limit hit | raise `HDV_RATE_LIMIT`; check `Retry-After` / `X-RateLimit-*` headers |
+| `429 Too Many Requests` — `"error": "rate limit exceeded"` | per-IP rate limit hit | raise `HDV_RATE_LIMIT`; check `Retry-After` / `X-RateLimit-*` headers |
+| `429 Too Many Requests` — `"error": "tenant rate limit exceeded"` | one X-HDV-Tenant id hit its own budget (companion/checkout routes only) | raise `HDV_TENANT_RATE_LIMIT`; the response body's `tenantId` names which one tripped |
 | Prisma tests / boot fail on DB | `DATABASE_URL` set but no DB | start Postgres (path B) and `npm run db:push`, or unset to use in-memory |
 | Ollama replies are slow | 7B/8B on CPU is inherently slow | use a smaller/quantized model or BYOK a hosted provider — see `OLLAMA.md` |
+| Companion chat silently degrades to canned/fallback replies after a while | Ollama down, OOM'd, rate-limited, or unreachable from the gateway container — see §11.1 | `curl -H "X-HDV-Key: $HDV_API_KEY" .../v1/health/deep` and read `checks.llm` |
+
+### 11.1 "Is Ollama actually reachable from the gateway?" — use `GET /v1/health/deep`
+
+This was the real pain point that motivated this endpoint: companion chat degrading to its
+canned fallback reply gives **no external signal** for *why* — rate limit? Ollama down? OOM?
+network? Previously the only way to find out was SSHing in and guessing. Now:
+
+```bash
+curl -s -H "X-HDV-Key: $HDV_API_KEY" https://api.yourdomain.com/v1/health/deep | python3 -m json.tool
+```
+
+(No `python3`? `| head -c 2000; echo` works too — the JSON is small.) Read `checks.llm`:
+
+- `"configured": false, "skipped": true` — `HDV_LLM_PROVIDER` is unset or `stub`. Chat falling
+  back is *expected*: there's no real backend wired at all. Set `HDV_LLM_PROVIDER=openai_compatible`
+  and `HDV_LLM_BASE_URL` (see §9 / `OLLAMA.md`) if you meant to point at Ollama.
+- `"configured": true, "skipped": false, "ok": true` — the gateway CAN reach Ollama's `/models`
+  endpoint right now. If chat still degrades intermittently, it's likely per-request timeouts
+  or rate limiting under load, not a dead backend — check `HDV_RATE_LIMIT` /
+  `HDV_TENANT_RATE_LIMIT` and Ollama's own response time (`OLLAMA.md`'s CPU sizing notes).
+- `"configured": true, "skipped": false, "ok": false"` — the gateway genuinely cannot reach
+  the configured `HDV_LLM_BASE_URL` right now. `detail` carries the underlying error (e.g.
+  `ECONNREFUSED` — Ollama isn't running/listening; a DNS/timeout message — wrong host or
+  `OLLAMA_HOST` not bound where expected). From the VPS itself, cross-check directly:
+  `curl -s http://127.0.0.1:11434/api/tags` (Ollama's own native health-ish endpoint) or
+  `curl -s $HDV_LLM_BASE_URL/models` (what the gateway itself just hit) and
+  `systemctl status ollama` / `journalctl -u ollama -f`.
+
+This endpoint is intentionally **protected** (requires `HDV_API_KEY`, unlike `GET /v1/health`)
+and **bounded** (a few seconds max, even if a dependency is fully hung) — safe to poll manually
+whenever chat looks degraded, without risking it hanging your terminal or slowing down the
+always-fast `/v1/health` liveness probe.

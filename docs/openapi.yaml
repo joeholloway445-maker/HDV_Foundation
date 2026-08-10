@@ -125,6 +125,48 @@ components:
                 nullable: true
         knollGate:
           type: string
+    DeepCheckResult:
+      type: object
+      description: >
+        One dependency's reachability result from GET /v1/health/deep. `skipped: true` means no
+        probe ran (the dependency isn't configured, or — for google_ai_studio images — no cheap
+        probe exists) and is NEVER a failure; `ok` is only meaningful when `skipped` is false.
+      properties:
+        configured:
+          type: boolean
+          description: Whether this dependency has any configuration at all.
+        skipped:
+          type: boolean
+          description: True when no reachability probe ran (unconfigured, or no cheap probe exists).
+        ok:
+          type: boolean
+          description: Meaningful only when skipped is false — whether the probe reached the dependency.
+        detail:
+          type: string
+          nullable: true
+        latencyMs:
+          type: number
+          nullable: true
+      required: [configured, skipped, ok]
+    HealthDeepResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+          description: True only if every CONFIGURED, non-skipped dependency reported ok.
+        checks:
+          type: object
+          properties:
+            postgres: { $ref: '#/components/schemas/DeepCheckResult' }
+            redis: { $ref: '#/components/schemas/DeepCheckResult' }
+            llm: { $ref: '#/components/schemas/DeepCheckResult' }
+            image: { $ref: '#/components/schemas/DeepCheckResult' }
+            video: { $ref: '#/components/schemas/DeepCheckResult' }
+          required: [postgres, redis, llm, image, video]
+        timestamp:
+          type: string
+          format: date-time
+      required: [ok, checks, timestamp]
     WaitlistSignupRequest:
       type: object
       properties:
@@ -440,6 +482,42 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HealthResponse'
+  /v1/health/deep:
+    get:
+      tags: [health]
+      summary: Per-dependency reachability diagnostics (Postgres, Redis, LLM, image, video)
+      description: >
+        Distinct from GET /v1/health above: this endpoint makes real (bounded, parallel) network
+        calls to whichever dependencies are configured — a Postgres `SELECT 1` when DATABASE_URL
+        is set, a Redis TCP+PING when REDIS_URL is set, and a cheap reachability probe for the
+        configured LLM/image/video providers (e.g. `GET {baseUrl}/models` for an
+        `openai_compatible` provider such as Ollama, or `GET {baseUrl}/health` for a
+        `colab_tunnel` provider). Unconfigured dependencies report `skipped: true` rather than a
+        false failure. The whole call is bounded to a few seconds (checks run in parallel, each
+        raced against a shared timeout) so it can never hang. PROTECTED — same posture as
+        GET /v1/matrix/stats (requires the API key when one is configured); it is NOT rate-limit-
+        or auth-exempt like GET /v1/health, since dependency topology is operational information.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Every configured, non-skipped dependency is reachable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthDeepResponse'
+        '503':
+          description: At least one configured, non-skipped dependency is unreachable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthDeepResponse'
+        '401':
+          description: Missing/invalid API key (when HDV_API_KEY is configured).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /v1/metrics:
     get:
       tags: [metrics]
@@ -563,8 +641,9 @@ paths:
       summary: Start a (stub) Stripe Checkout session for a plan tier
       description: >-
         Auth-exempt (public — FuckLike/web has no account system, only an anonymous per-browser
-        tenant id). STUB by default (no STRIPE_SECRET_KEY): a fake, well-formed test-mode
-        session with no real charge. Returns a hosted `url` to redirect to.
+        tenant id). Rate-limited per-IP AND additively per-tenant (X-HDV-Tenant,
+        HDV_TENANT_RATE_LIMIT). STUB by default (no STRIPE_SECRET_KEY): a fake, well-formed
+        test-mode session with no real charge. Returns a hosted `url` to redirect to.
       parameters:
         - $ref: '#/components/parameters/TenantHeader'
       requestBody:
@@ -813,8 +892,13 @@ paths:
       summary: One in-character companion reply
       description: >
         Auth-exempt but rate-limited (the web client calls this directly, with no API key).
-        Stateless by default: the client sends the persona + trimmed history on every call.
-        Optionally supply `companionId` to opt into persistent relationship memory (see
+        TWO rate limits apply, additively: the always-on per-IP limit (HDV_RATE_LIMIT), plus a
+        per-tenant limit keyed by X-HDV-Tenant (HDV_TENANT_RATE_LIMIT, default 20/min) so many
+        tenants sharing one shared-VPS/NAT IP each get their own budget. Either can 429
+        independently — the response body's `error` field distinguishes "rate limit exceeded"
+        (per-IP) from "tenant rate limit exceeded" (per-tenant, includes `tenantId`). Stateless
+        by default: the client sends the persona + trimmed history on every call. Optionally
+        supply `companionId` to opt into persistent relationship memory (see
         CompanionChatRequest.companionId and GET /v1/companion/memory) — omit it and behavior
         is unchanged. Never routes through APEX/KNOLL — it only calls the configured
         LlmProvider (or a deterministic per-personality fallback when none is configured / it
@@ -889,7 +973,8 @@ paths:
       tags: [companion]
       summary: One companion portrait image
       description: >
-        Auth-exempt but rate-limited, same posture as /v1/companion/chat. Provider-agnostic —
+        Auth-exempt but rate-limited (per-IP AND additively per-tenant, same posture as
+        /v1/companion/chat). Provider-agnostic —
         HDV_IMAGE_PROVIDER selects Google AI Studio (SFW) or a self-hosted Colab-tunnel model
         with no client changes. Refuses (400) any persona under 18, regardless of provider.
         Never routes through APEX/KNOLL.
@@ -917,7 +1002,8 @@ paths:
       tags: [companion]
       summary: Animate a companion portrait into a short scene/loop video
       description: >
-        Auth-exempt but rate-limited, same posture as chat/portrait. Provider-agnostic —
+        Auth-exempt but rate-limited (per-IP AND additively per-tenant, same posture as
+        chat/portrait). Provider-agnostic —
         HDV_VIDEO_PROVIDER selects a Colab-tunneled world model (e.g. LingBot-World). Refuses
         (400) any persona under 18, regardless of provider. Never routes through APEX/KNOLL.
         Video generation is slow (minutes, not seconds) — this is meant for generate-once,

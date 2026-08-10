@@ -9,7 +9,9 @@
  *   POST /v1/intent        { "utterance": "..." }  → HOPE interpret+document+submit (via APEX+KNOLL)
  *   POST /v1/worker/report { source, destination?, intent?, data? } → re-ingest a DREAM/VISION
  *                          worker result via APEX (→ KNOLL → HOPE); rejects DREAM↔VISION direct
- *   GET  /v1/health        always-on + ephemeral idle flags
+ *   GET  /v1/health        always-on + ephemeral idle flags (fast, always public)
+ *   GET  /v1/health/deep   per-dependency reachability (Postgres/Redis/LLM/image/video); slower,
+ *                          protected (API key required), never hangs (bounded parallel timeout)
  *   GET  /v1/ledger        recent APEX billing entries (read-only)
  *   GET  /v1/audit         recent KNOLL verdicts (read-only)
  *   GET  /v1/matrix/stats  node/persona topology + parameter accounting
@@ -28,10 +30,15 @@
  * KNOLL gates every routed packet; the gateway never bypasses APEX.
  *
  * Phase 4.1 hardening (env-configurable):
- *   HDV_API_KEY      require X-HDV-Key or Authorization: Bearer <key> (unset ⇒ dev mode, auth off)
- *   HDV_RATE_LIMIT   per-IP requests/min (default 60) → 429 when exceeded
- *   HDV_CORS_ORIGIN  Access-Control-Allow-Origin (default *)
+ *   HDV_API_KEY            require X-HDV-Key or Authorization: Bearer <key> (unset ⇒ dev mode, auth off)
+ *   HDV_RATE_LIMIT         per-IP requests/min (default 60) → 429 when exceeded
+ *   HDV_TENANT_RATE_LIMIT  per-tenant (X-HDV-Tenant) requests/min (default 20) → 429 when exceeded.
+ *                          ADDITIVE to HDV_RATE_LIMIT: applies only to the companion + billing
+ *                          checkout routes, on top of (never instead of) the per-IP limiter, so
+ *                          many tenants sharing one shared-VPS/NAT IP each get their own budget.
+ *   HDV_CORS_ORIGIN        Access-Control-Allow-Origin (default *)
  *   /v1/health is always public (auth- and rate-limit-exempt) for probes.
+ *   /v1/health/deep is a protected, slower diagnostic endpoint — see its route doc below.
  *
  * Phase 5 durability + async intake (OFFLINE-FIRST — both default to OFF):
  *   DATABASE_URL     when set, the APEX ledger + KNOLL audit + auth accounts/sessions — and
@@ -150,6 +157,7 @@ async function main(): Promise<void> {
     'POST /v1/intent',
     'POST /v1/worker/report    (DREAM|VISION worker result → APEX → HOPE)',
     'GET  /v1/health',
+    'GET  /v1/health/deep      (protected — per-dependency reachability, bounded timeout)',
     'GET  /v1/ledger',
     'GET  /v1/audit',
     'GET  /v1/matrix/stats',
@@ -177,6 +185,9 @@ async function main(): Promise<void> {
   console.log(`Seal: production=${seal.production} · bind=${bindHost}`);
   console.log('KNOLL gate: enforced · APEX: sole router · no endpoint bypasses APEX');
   console.log(`Auth: ${authMode} · Rate limit: ${config.rateLimit}/min per IP · CORS: ${config.corsOrigin}`);
+  console.log(
+    `Tenant rate limit: ${config.tenantRateLimit}/min per X-HDV-Tenant (additive; companion + billing checkout routes)`,
+  );
   console.log(`Persistence: ${repositories?.mode ?? 'memory'} · Queue: ${queueMode}`);
   console.log('/v1/health is always public (auth- and rate-limit-exempt) for probes');
   console.log('-'.repeat(72));
