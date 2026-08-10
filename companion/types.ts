@@ -47,6 +47,19 @@ export interface CompanionPersona {
   backstory?: string;
   /** Required. Must be >= 18 — see the module-level safety floor note above. */
   age: number;
+  /**
+   * How explicit/raunchy replies may get. 1 (sweet/PG) .. 5 (maximally explicit). Defaults to 3.
+   * A content-rating dial, independent of `adherence` — see companion/handlers.ts's
+   * INTENSITY_GUIDANCE for the exact wording each level maps to.
+   */
+  intensity?: number;
+  /**
+   * How strictly replies must stick to personality/backstory vs. improvising freely. 1 (loose,
+   * playful improvisation) .. 5 (strict, never deviate from the character sheet). Defaults to 3.
+   * Also drives the LLM sampling temperature (loose ⇒ higher temperature) — see
+   * companion/handlers.ts's temperatureForAdherence.
+   */
+  adherence?: number;
 }
 
 /** Raw request body shape (from FuckLike/web/app.js). Only `persona.name` + `message` required. */
@@ -71,6 +84,9 @@ const MAX_HISTORY_TURNS = 20;
 const MAX_NAME_CHARS = 80;
 const MAX_BACKSTORY_CHARS = 2000;
 const MIN_ADULT_AGE = 18;
+const MIN_SCALE = 1;
+const MAX_SCALE = 5;
+const DEFAULT_SCALE = 3;
 
 /** Parse + validate a raw body into a typed persona/history/message triple. */
 export function parseCompanionChatInput(body: unknown): {
@@ -116,10 +132,19 @@ export function parseCompanionChatInput(body: unknown): {
     typeof p.backstory === 'string' && p.backstory.trim()
       ? p.backstory.trim().slice(0, MAX_BACKSTORY_CHARS)
       : undefined;
+  const intensity = normaliseScale(p.intensity);
+  const adherence = normaliseScale(p.adherence);
 
   const history = normaliseHistory(b.history);
 
-  return { persona: { name, personality, backstory, age }, history, message };
+  return { persona: { name, personality, backstory, age, intensity, adherence }, history, message };
+}
+
+/** Clamp to an integer 1-5, defaulting to 3 for anything missing/malformed. Never throws. */
+function normaliseScale(value: unknown): number {
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(n)) return DEFAULT_SCALE;
+  return Math.min(MAX_SCALE, Math.max(MIN_SCALE, Math.round(n)));
 }
 
 function normalisePersonality(value: unknown): CompanionPersonality {

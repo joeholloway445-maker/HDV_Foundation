@@ -91,6 +91,26 @@ test('parseCompanionChatInput defaults personality and drops malformed history t
   assert.equal(message, 'hello');
 });
 
+test('parseCompanionChatInput defaults intensity/adherence to 3 and clamps out-of-range values', () => {
+  const defaulted = parseCompanionChatInput({ persona: { name: 'Luna', age: 23 }, message: 'hi' });
+  assert.equal(defaulted.persona.intensity, 3);
+  assert.equal(defaulted.persona.adherence, 3);
+
+  const clamped = parseCompanionChatInput({
+    persona: { name: 'Luna', age: 23, intensity: 99, adherence: -5 },
+    message: 'hi',
+  });
+  assert.equal(clamped.persona.intensity, 5);
+  assert.equal(clamped.persona.adherence, 1);
+
+  const rounded = parseCompanionChatInput({
+    persona: { name: 'Luna', age: 23, intensity: 4.4, adherence: '2' },
+    message: 'hi',
+  });
+  assert.equal(rounded.persona.intensity, 4);
+  assert.equal(rounded.persona.adherence, 2);
+});
+
 // ---------------------------------------------------------------------------
 // B. handleCompanionChat
 // ---------------------------------------------------------------------------
@@ -137,6 +157,31 @@ test('handleCompanionChat uses the provider when one is injected', async () => {
   assert.equal(res.body.reply, 'Hey you.'); // sanitized: quotes stripped, whitespace trimmed
   assert.equal(res.body.source, 'llm');
   assert.equal(res.body.model, 'fake-1');
+});
+
+test('handleCompanionChat threads intensity/adherence into the system prompt and temperature', async () => {
+  const provider = new FakeProvider(async (_prompt, opts) => {
+    assert.ok(opts?.system?.includes('Content intensity (5/5)'));
+    assert.ok(opts?.system?.includes('Character adherence (1/5)'));
+    assert.equal(opts?.temperature, 1.1); // adherence 1 -> loosest/highest temperature
+    return { text: 'ok', model: 'fake-1', usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 } };
+  });
+  const res = await handleCompanionChat(
+    { persona: { name: 'Luna', age: 23, intensity: 5, adherence: 1 }, message: 'hi' },
+    { provider },
+  );
+  assert.equal(res.status, 200);
+});
+
+test('handleCompanionChat defaults to moderate intensity/adherence when omitted', async () => {
+  const provider = new FakeProvider(async (_prompt, opts) => {
+    assert.ok(opts?.system?.includes('Content intensity (3/5)'));
+    assert.ok(opts?.system?.includes('Character adherence (3/5)'));
+    assert.equal(opts?.temperature, 0.8);
+    return { text: 'ok', model: 'fake-1', usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 } };
+  });
+  const res = await handleCompanionChat({ persona: { name: 'Luna', age: 23 }, message: 'hi' }, { provider });
+  assert.equal(res.status, 200);
 });
 
 test('handleCompanionChat falls back to a canned reply when the provider throws', async () => {

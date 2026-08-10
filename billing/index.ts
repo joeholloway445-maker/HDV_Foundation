@@ -34,10 +34,21 @@ export type {
 } from './allowance.js';
 export { MeterService, kindForDestination } from './meter.js';
 export type { MeterServiceOptions, MeterStats } from './meter.js';
+export { StripeCheckoutStub, StripeStubError, DEFAULT_MONTHLY_PRICE_USD } from './stripe_stub.js';
+export type {
+  CreateCheckoutSessionInput,
+  CheckoutSession,
+  CheckoutSessionStatus,
+  PaymentStatus,
+  BillingInterval,
+  CheckoutMode,
+  StripeCheckoutStubOptions,
+} from './stripe_stub.js';
 
 import { PricingBook, loadPricingBook } from './pricing.js';
 import { AllowanceStore } from './allowance.js';
 import { MeterService } from './meter.js';
+import { StripeCheckoutStub } from './stripe_stub.js';
 import type { PlanTier } from './types.js';
 
 export interface BillingServiceOptions {
@@ -68,6 +79,12 @@ export class BillingService {
   readonly pricing: PricingBook;
   readonly store: AllowanceStore;
   readonly meter: MeterService;
+  /**
+   * Stripe Checkout — a stub by default (no STRIPE_SECRET_KEY ⇒ fake test-mode sessions, no
+   * network I/O, no real charge). Swapping in a real Stripe client later is the single
+   * constructor change stripe_stub.ts documents; nothing else in the gateway needs to change.
+   */
+  readonly checkout: StripeCheckoutStub;
 
   constructor(options: BillingServiceOptions = {}) {
     const env = options.env ?? process.env;
@@ -85,6 +102,7 @@ export class BillingService {
       tenantId: options.meterTenantId ?? envTenant(env) ?? 'demo',
       personasPerDispatch: options.personasPerDispatch,
     });
+    this.checkout = new StripeCheckoutStub({ env });
   }
 }
 

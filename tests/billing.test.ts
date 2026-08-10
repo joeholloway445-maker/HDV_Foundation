@@ -322,3 +322,100 @@ test('POST /v1/billing/allowance sets a tenant plan; over-cap consume is then bl
     assert.equal(bad.status, 400, 'unknown tier rejected');
   });
 });
+
+// ---------------------------------------------------------------------------
+// D. Checkout (billing/stripe_stub.ts + gateway wiring)
+// ---------------------------------------------------------------------------
+
+test('POST /v1/billing/checkout is public (no key needed) and returns a test-mode session', async () => {
+  const gw = new HopeGateway({ security: { apiKey: 'secret-key', rateLimit: 20 }, logger: false });
+  await withServer(gw, async (base) => {
+    const res = await fetch(`${base}/v1/billing/checkout`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'X-HDV-Tenant': 'browser-abc' },
+      body: JSON.stringify({ tier: 'STARTER' }),
+    });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { sessionId: string; url: string; livemode: boolean };
+    assert.ok(body.sessionId.startsWith('cs_test_'));
+    assert.ok(body.url.includes(body.sessionId));
+    assert.equal(body.livemode, false);
+
+    // A protected route on the SAME gateway still requires the key, proving auth isn't globally off.
+    const protectedRes = await fetch(`${base}/v1/matrix/stats`);
+    assert.equal(protectedRes.status, 401);
+  });
+});
+
+test('POST /v1/billing/checkout rejects an unknown tier with 400', async () => {
+  const gw = new HopeGateway({ logger: false });
+  await withServer(gw, async (base) => {
+    const res = await fetch(`${base}/v1/billing/checkout`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ tier: 'PLATINUM' }),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('GET /v1/billing/checkout looks up a session by id; unknown id is 404', async () => {
+  const gw = new HopeGateway({ logger: false });
+  await withServer(gw, async (base) => {
+    const created = await fetch(`${base}/v1/billing/checkout`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ tier: 'PRO' }),
+    });
+    const { sessionId } = (await created.json()) as { sessionId: string };
+
+    const found = await fetch(`${base}/v1/billing/checkout?session_id=${sessionId}`);
+    assert.equal(found.status, 200);
+    const foundBody = (await found.json()) as { session: { status: string; tier: string } };
+    assert.equal(foundBody.session.status, 'open');
+    assert.equal(foundBody.session.tier, 'PRO');
+
+    const missing = await fetch(`${base}/v1/billing/checkout?session_id=cs_test_does_not_exist`);
+    assert.equal(missing.status, 404);
+  });
+});
+
+test('POST /v1/billing/checkout/settle marks the session paid and upgrades the tenant allowance', async () => {
+  const gw = new HopeGateway({ logger: false });
+  await withServer(gw, async (base) => {
+    const created = await fetch(`${base}/v1/billing/checkout`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'X-HDV-Tenant': 'browser-xyz' },
+      body: JSON.stringify({ tier: 'PRO' }),
+    });
+    const { sessionId } = (await created.json()) as { sessionId: string };
+
+    const settled = await fetch(`${base}/v1/billing/checkout/settle`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId }),
+    });
+    assert.equal(settled.status, 200);
+    const settledBody = (await settled.json()) as { ok: boolean; tenantId: string; balance: { tier: string } };
+    assert.equal(settledBody.ok, true);
+    assert.equal(settledBody.tenantId, 'browser-xyz');
+    assert.equal(settledBody.balance.tier, 'PRO');
+
+    // The tenant's balance is really upgraded, independently readable via /v1/billing/usage.
+    const usage = await fetch(`${base}/v1/billing/usage`, { headers: { 'X-HDV-Tenant': 'browser-xyz' } });
+    const usageBody = (await usage.json()) as { balance: { tier: string } };
+    assert.equal(usageBody.balance.tier, 'PRO');
+  });
+});
+
+test('POST /v1/billing/checkout/settle 404s for an unknown session id', async () => {
+  const gw = new HopeGateway({ logger: false });
+  await withServer(gw, async (base) => {
+    const res = await fetch(`${base}/v1/billing/checkout/settle`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId: 'cs_test_does_not_exist' }),
+    });
+    assert.equal(res.status, 404);
+  });
+});
