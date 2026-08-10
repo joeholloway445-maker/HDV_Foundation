@@ -31,6 +31,7 @@ function buildPrompt(persona: PortraitPersona): string {
     `Visual style: ${persona.style}.`,
     `Personality to convey through expression and mood: ${persona.personality}.`,
   ];
+  if (persona.appearance) lines.push(`Physical appearance: ${persona.appearance}.`);
   if (persona.backstory) lines.push(`Character background: ${persona.backstory}`);
   lines.push('The subject is clearly an adult. Do not depict a minor or anyone who appears underage.');
   return lines.join(' ');

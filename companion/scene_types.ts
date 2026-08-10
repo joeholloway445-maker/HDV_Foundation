@@ -15,6 +15,8 @@ export interface ScenePersona {
   name: string;
   personality: CompanionPersonality;
   backstory?: string;
+  /** Optional physical-appearance descriptor (hair, build, etc.) folded into the video prompt. */
+  appearance?: string;
   /** Required. Must be >= 18 — see the module-level safety floor note above. */
   age: number;
 }
@@ -42,6 +44,7 @@ export class SceneValidationError extends Error {
 
 const MAX_NAME_CHARS = 80;
 const MAX_BACKSTORY_CHARS = 2000;
+const MAX_APPEARANCE_CHARS = 400;
 const MAX_ACTION_STRING_CHARS = 400;
 const MIN_ADULT_AGE = 18;
 // A base64 image is at minimum a few dozen bytes; this just catches obviously-empty/garbage
@@ -86,6 +89,10 @@ export function parseSceneRequest(body: unknown): {
     typeof p.backstory === 'string' && p.backstory.trim()
       ? p.backstory.trim().slice(0, MAX_BACKSTORY_CHARS)
       : undefined;
+  const appearance =
+    typeof p.appearance === 'string' && p.appearance.trim()
+      ? p.appearance.trim().slice(0, MAX_APPEARANCE_CHARS)
+      : undefined;
 
   const seedImage = normaliseSeedImage(b.seedImage);
 
@@ -98,7 +105,7 @@ export function parseSceneRequest(body: unknown): {
     if (trimmed) actionString = trimmed;
   }
 
-  return { persona: { name, personality, backstory, age }, seedImage, actionString };
+  return { persona: { name, personality, backstory, appearance, age }, seedImage, actionString };
 }
 
 function normalisePersonality(value: unknown): CompanionPersonality {

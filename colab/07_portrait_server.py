@@ -1,5 +1,5 @@
 # ---
-# Big 5 Matrix -- Colab: Companion Portrait Server (v0.2.0)
+# Big 5 Matrix -- Colab: Companion Portrait Server (v0.3.0)
 # ML LAB ONLY: GPU image generation. Simulation/compute only.
 # RESTRICTION: no webcam, no microphone, no physical-world I/O.
 #
@@ -23,18 +23,18 @@
 # gateway never knows or cares which checkpoint(s) are loaded here -- that's the whole point
 # of the provider seam (providers/image_types.ts). It never touches APEX/KNOLL/routing.
 #
-# MODELS -- v0.2.0 defaults, VERIFY BEFORE GOING LIVE
-# -----------------------------------------------------
-# realistic -> RealVisXL (SG161222 on Hugging Face) -- a well-established, actively maintained
-#              publisher; the version pin below is a reasonable default but check for a newer
-#              tag on https://huggingface.co/SG161222 before relying on it.
-# anime     -> Pony Diffusion V6 XL -- canonically hosted on Civitai, NOT confidently pinned to
-#              a Hugging Face repo id here (mirrors exist but naming/versioning drifts). Grab
-#              the exact repo id (if you find an HF mirror) or the direct .safetensors download
-#              URL from the model's Civitai page and set PORTRAIT_MODEL_ANIME below -- the
-#              loader (Cell 2) handles either a Hugging Face repo id OR a direct .safetensors
-#              path/URL automatically. Leave it empty and the server will refuse anime requests
-#              with a clear error until you set it, rather than silently loading the wrong thing.
+# MODELS -- v0.3.0 defaults, both verified via the HF Hub API (download/like counts, task tag,
+# base_model lineage), not guessed. Re-check periodically since versions do move on:
+# realistic -> SG161222/RealVisXL_V4.0 -- 6.8M downloads, openrail++ license, standard
+#              diffusers-format StableDiffusionXLPipeline. https://huggingface.co/SG161222
+# anime     -> Bakanayatsu/Pony-Diffusion-V6-XL-for-Anime -- a full, standalone,
+#              diffusers-compatible Pony Diffusion V6 XL checkpoint (38.5K downloads); paired
+#              by default with the LyliaEngine/Pony_Diffusion_V6_XL LoRA (862K downloads,
+#              cdla-permissive-2.0), whose own HF metadata declares this exact repo as its
+#              base_model -- i.e. this is the base+LoRA pair the community itself uses, not an
+#              improvised pairing. The loader (Cell 2) handles either a Hugging Face repo id OR
+#              a direct .safetensors path/URL for either MODEL_ROUTES or LORA_ROUTES, so a
+#              Civitai-only checkpoint/LoRA drops in the same way if you swap either later.
 #
 # Both are SDXL-family (~3.5B params) -- night-and-day lighter than LingBot-World's ~18.5B.
 # A single one comfortably fits a free Colab T4 (16GB) in fp16; having BOTH loaded
@@ -83,7 +83,12 @@ import os
 
 MODEL_ROUTES = {
     "realistic": os.environ.get("PORTRAIT_MODEL_REALISTIC", "SG161222/RealVisXL_V4.0"),
-    "anime": os.environ.get("PORTRAIT_MODEL_ANIME", ""),  # set this -- see header comment
+    # Verified via the HF Hub API (not guessed): LyliaEngine/Pony_Diffusion_V6_XL -- the
+    # highest-download Pony V6 XL mirror on HF -- is itself a LoRA whose declared base_model is
+    # this repo, which is a full, standalone, diffusers-compatible Pony V6 XL checkpoint. Using
+    # it directly as the base avoids a base+LoRA dependency chain for the common case; the
+    # LyliaEngine LoRA is wired in below as an optional refinement layer on top of it.
+    "anime": os.environ.get("PORTRAIT_MODEL_ANIME", "Bakanayatsu/Pony-Diffusion-V6-XL-for-Anime"),
 }
 DEFAULT_STYLE = "realistic"  # used when persona.style is missing or doesn't match a route
 
@@ -91,7 +96,7 @@ DEFAULT_STYLE = "realistic"  # used when persona.style is missing or doesn't mat
 # Keyed the same as MODEL_ROUTES; leave a value empty/unset to skip for that style.
 LORA_ROUTES = {
     "realistic": os.environ.get("PORTRAIT_LORA_REALISTIC", ""),
-    "anime": os.environ.get("PORTRAIT_LORA_ANIME", ""),
+    "anime": os.environ.get("PORTRAIT_LORA_ANIME", "LyliaEngine/Pony_Diffusion_V6_XL"),
 }
 
 # Shared-secret bearer token this server requires on every request. MUST match

@@ -23,6 +23,7 @@ function buildPrompt(persona: ScenePersona): string {
     `Short looping scene featuring ${persona.name}, an adult (age ${persona.age}) fictional character.`,
     `Personality to convey through subtle motion and mood: ${persona.personality}.`,
   ];
+  if (persona.appearance) lines.push(`Physical appearance: ${persona.appearance}.`);
   if (persona.backstory) lines.push(`Character background: ${persona.backstory}`);
   lines.push('Gentle, natural idle motion. The subject is clearly an adult throughout.');
   return lines.join(' ');

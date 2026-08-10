@@ -201,6 +201,7 @@ components:
         personality:
           type: string
           enum: [playful, romantic, bratty, dominant, soft, mysterious]
+        appearance: { type: string, description: 'Optional physical-appearance descriptor (hair, build, etc.) folded into the image prompt.' }
         backstory: { type: string }
       required: [name, age]
     PortraitRequest:
@@ -240,6 +241,7 @@ components:
             personality:
               type: string
               enum: [playful, romantic, bratty, dominant, soft, mysterious]
+            appearance: { type: string, description: 'Optional physical-appearance descriptor (hair, build, etc.) folded into the video prompt.' }
             backstory: { type: string }
           required: [name, age]
         seedImage:

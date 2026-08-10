@@ -100,6 +100,17 @@ test('parseSceneRequest keeps a valid actionString and drops an empty one', () =
   assert.equal(withoutAction.actionString, undefined);
 });
 
+test('parseSceneRequest keeps an optional appearance descriptor, defaulting to undefined', () => {
+  const withAppearance = parseSceneRequest({
+    persona: { name: 'Jordyn', age: 24, appearance: 'gorgeous, thick, light brunette hair' },
+    seedImage: VALID_SEED,
+  });
+  assert.equal(withAppearance.persona.appearance, 'gorgeous, thick, light brunette hair');
+
+  const without = parseSceneRequest({ persona: { name: 'Luna', age: 23 }, seedImage: VALID_SEED });
+  assert.equal(without.persona.appearance, undefined);
+});
+
 // ---------------------------------------------------------------------------
 // B. handleSceneRequest
 // ---------------------------------------------------------------------------
@@ -147,6 +158,21 @@ test('handleSceneRequest returns a data URI on success and passes the seed image
   assert.equal(res.status, 200);
   assert.equal(res.body.video, 'data:video/mp4;base64,QUJD');
   assert.equal(res.body.source, 'fake');
+});
+
+test('handleSceneRequest folds persona.appearance into the prompt when provided', async () => {
+  const provider = new FakeVideoProvider((prompt) => {
+    assert.ok(prompt.includes('gorgeous, thick, light brunette hair'));
+    return { videoBase64: 'QUJD', mimeType: 'video/mp4', model: 'fake-video-1' };
+  });
+  const res = await handleSceneRequest(
+    {
+      persona: { name: 'Jordyn', age: 24, personality: 'romantic', appearance: 'gorgeous, thick, light brunette hair' },
+      seedImage: VALID_SEED,
+    },
+    { provider },
+  );
+  assert.equal(res.status, 200);
 });
 
 test('handleSceneRequest falls back to "unavailable" (not a crash) when the provider throws', async () => {
