@@ -27,6 +27,8 @@ import {
   resolveSecurityConfig,
   clientIp,
   defaultLogger,
+  tenantFromHeaders,
+  rawTenantId,
   type SecurityOverrides,
   type GatewayLogger,
 } from './middleware.js';
@@ -49,6 +51,7 @@ import { createImageProviderOrStub } from '../providers/image_factory.js';
 import type { ImageProvider } from '../providers/image_types.js';
 import { createVideoProviderOrStub } from '../providers/video_factory.js';
 import type { VideoProvider } from '../providers/video_types.js';
+import { runDeepHealthChecks, type DeepHealthOptions } from './deep_health.js';
 import {
   MANAGERS_PER_AGENT,
   NODES_PER_MANAGER,
@@ -151,6 +154,18 @@ export interface HopeGatewayOptions {
    * (defaults to the offline stub). Pass `false` to force "unavailable" responses.
    */
   videoProvider?: VideoProvider | false;
+  /**
+   * GET /v1/health/deep diagnostics (gateway/deep_health.ts) — per-dependency reachability,
+   * distinct from the always-fast/always-public GET /v1/health. Defaults: `databaseUrl` from
+   * DATABASE_URL, `redisUrl` from REDIS_URL, `timeoutMs` from DEFAULT_DEEP_HEALTH_TIMEOUT_MS.
+   * The LLM/image/video providers checked are whichever the gateway is already using (the same
+   * `provider`/`imageProvider`/`videoProvider` above) — no separate wiring needed. Override
+   * `fetchImpl`/`checkPostgres`/`checkRedis` in tests to avoid real network/DB calls.
+   */
+  deepHealth?: Pick<
+    DeepHealthOptions,
+    'databaseUrl' | 'redisUrl' | 'timeoutMs' | 'fetchImpl' | 'checkPostgres' | 'checkRedis'
+  >;
 }
 
 interface HopeResultRecord {
@@ -198,6 +213,8 @@ export class HopeGateway {
   private readonly videoProvider?: VideoProvider;
   private readonly readLimit: number;
   private readonly logger: GatewayLogger;
+  /** GET /v1/health/deep options (see HopeGatewayOptions.deepHealth doc comment). */
+  private readonly deepHealthOptions: HopeGatewayOptions['deepHealth'];
 
   /** Timestamps of the last time each ephemeral agent produced a result (for idle flags). */
   private readonly lastActive: Partial<Record<AgentRole, number>> = {};
@@ -250,6 +267,7 @@ export class HopeGateway {
     this.videoProvider =
       options.videoProvider === false ? undefined : options.videoProvider ?? createVideoProviderOrStub();
     this.readLimit = options.readLimit ?? 50;
+    this.deepHealthOptions = options.deepHealth;
     this.middleware = new GatewayMiddleware(resolveSecurityConfig(options.security ?? {}));
     this.logger = options.logger === false ? () => {} : options.logger ?? defaultLogger;
 
@@ -442,6 +460,33 @@ export class HopeGateway {
         ephemeral,
         knollGate: 'enforced',
       },
+    };
+  }
+
+  /**
+   * GET /v1/health/deep — per-dependency reachability diagnostics (see gateway/deep_health.ts).
+   * Distinct from GET /v1/health above: this one makes real (bounded, parallel) network calls
+   * to Postgres/Redis/the configured LLM+image+video providers, so it is intentionally
+   * PROTECTED (same posture as GET /v1/matrix/stats — requires the API key when one is
+   * configured) rather than always-public. Never slows down /v1/health, and never hangs: every
+   * check races a shared timeout (default DEFAULT_DEEP_HEALTH_TIMEOUT_MS).
+   */
+  async handleHealthDeep(): Promise<GatewayResponse> {
+    const opts = this.deepHealthOptions;
+    const report = await runDeepHealthChecks({
+      databaseUrl: opts?.databaseUrl ?? nonEmptyEnv('DATABASE_URL'),
+      redisUrl: opts?.redisUrl ?? nonEmptyEnv('REDIS_URL'),
+      llmProvider: this.companionProvider,
+      imageProvider: this.imageProvider,
+      videoProvider: this.videoProvider,
+      timeoutMs: opts?.timeoutMs,
+      fetchImpl: opts?.fetchImpl,
+      checkPostgres: opts?.checkPostgres,
+      checkRedis: opts?.checkRedis,
+    });
+    return {
+      status: report.ok ? 200 : 503,
+      body: { ok: report.ok, checks: report.checks, timestamp: report.timestamp },
     };
   }
 
@@ -799,6 +844,7 @@ export class HopeGateway {
     if (m === 'POST' && pathname === '/v1/intent') return await this.handleIntent(body);
     if (m === 'POST' && pathname === '/v1/worker/report') return this.handleWorkerReport(body);
     if (m === 'GET' && pathname === '/v1/health') return this.handleHealth();
+    if (m === 'GET' && pathname === '/v1/health/deep') return await this.handleHealthDeep();
     if (m === 'GET' && pathname === '/v1/ledger') return this.handleLedger(numParam(query.get('limit')));
     if (m === 'GET' && pathname === '/v1/audit') return this.handleAudit(numParam(query.get('limit')));
     if (m === 'GET' && pathname === '/v1/matrix/stats') return this.handleMatrixStats();
@@ -851,12 +897,14 @@ export class HopeGateway {
 
     const log = (status: number): void => {
       this.logger({
+        timestamp: new Date().toISOString(),
         method: method.toUpperCase(),
         path: url.pathname,
         status,
         durationMs: Date.now() - start,
         ip: guardReq.ip,
         authState: this.middleware.authState(guardReq),
+        tenant: rawTenantId(guardReq.headers),
       });
     };
 
@@ -974,20 +1022,17 @@ function firstString(bodyValue: unknown, queryValue: string | null): string | un
   return undefined;
 }
 
+/** Non-empty, trimmed env var, or undefined (mirrors gateway/cli.ts's databaseUrl() helper). */
+function nonEmptyEnv(name: string): string | undefined {
+  const raw = (process.env[name] ?? '').trim();
+  return raw.length > 0 ? raw : undefined;
+}
+
 /** Best-effort client IP from request headers (x-forwarded-for), for waitlist abuse triage. */
 function ipFromHeaders(headers?: Record<string, string | string[] | undefined>): string | undefined {
   if (!headers) return undefined;
   const ip = clientIp(headers, undefined);
   return ip === 'unknown' ? undefined : ip;
-}
-
-/** Resolve the billing tenant from the X-HDV-Tenant header (default "demo"). */
-function tenantFromHeaders(headers?: Record<string, string | string[] | undefined>): string {
-  if (!headers) return 'demo';
-  const raw = headers['x-hdv-tenant'];
-  const value = Array.isArray(raw) ? raw[0] : raw;
-  const trimmed = value?.trim();
-  return trimmed && trimmed.length > 0 ? trimmed : 'demo';
 }
 
 function readJsonBody(req: http.IncomingMessage): Promise<unknown> {
