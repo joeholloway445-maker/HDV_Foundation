@@ -92,6 +92,12 @@ product layer treats it the same as "no provider").
 | `HDV_IMAGE_BASE_URL` | e.g. `https://xxxx.ngrok-free.app` (required for `colab_tunnel`) | — |
 | `HDV_IMAGE_MODEL` | e.g. `imagen-3.0-generate-002` (required for `google_ai_studio`) | — |
 
+`GenerateImageOptions.style` carries `PortraitPersona.style` (FuckLike/web's own "Realistic" /
+"Anime" create-form option) through to the provider. `ColabTunnelImageProvider` forwards it as
+`style` in the request body; `colab/07_portrait_server.py`'s `MODEL_ROUTES` uses it to route
+each request to a different checkpoint (e.g. a photoreal model for "realistic", a stylized
+model for "anime") without the gateway ever knowing more than one model exists.
+
 ```bash
 npm run test:image-providers   # stub + local HTTP server tests (Google AI Studio + Colab tunnel shapes)
 npm run test:portrait          # companion/portrait_handlers.ts + gateway integration

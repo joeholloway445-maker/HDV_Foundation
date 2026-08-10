@@ -84,6 +84,16 @@ test('parsePortraitRequest keeps a valid custom style/personality/backstory', ()
   assert.equal(persona.backstory, 'A goth DJ.');
 });
 
+test('parsePortraitRequest keeps an optional appearance descriptor, defaulting to undefined', () => {
+  const withAppearance = parsePortraitRequest({
+    persona: { name: 'Jordyn', age: 24, appearance: 'gorgeous, thick, light brunette hair' },
+  });
+  assert.equal(withAppearance.persona.appearance, 'gorgeous, thick, light brunette hair');
+
+  const without = parsePortraitRequest({ persona: { name: 'Luna', age: 23 } });
+  assert.equal(without.persona.appearance, undefined);
+});
+
 // ---------------------------------------------------------------------------
 // B. handlePortraitRequest
 // ---------------------------------------------------------------------------
@@ -128,6 +138,30 @@ test('handlePortraitRequest returns a data URI on success and never routes/execu
   assert.equal(res.body.image, 'data:image/png;base64,QUJD');
   assert.equal(res.body.source, 'fake');
   assert.equal(res.body.model, 'fake-image-1');
+});
+
+test('handlePortraitRequest folds persona.appearance into the prompt when provided', async () => {
+  const provider = new FakeImageProvider((prompt) => {
+    assert.ok(prompt.includes('gorgeous, thick, light brunette hair'));
+    return { imageBase64: 'QUJD', mimeType: 'image/png', model: 'fake-image-1' };
+  });
+  const res = await handlePortraitRequest(
+    { persona: { name: 'Jordyn', age: 24, personality: 'romantic', appearance: 'gorgeous, thick, light brunette hair' } },
+    { provider },
+  );
+  assert.equal(res.status, 200);
+});
+
+test('handlePortraitRequest forwards persona.style to the provider for checkpoint routing', async () => {
+  const provider = new FakeImageProvider((_prompt, opts) => {
+    assert.equal(opts?.style, 'anime');
+    return { imageBase64: 'QUJD', mimeType: 'image/png', model: 'fake-image-1' };
+  });
+  const res = await handlePortraitRequest(
+    { persona: { name: 'Nova', age: 24, style: 'anime' } },
+    { provider },
+  );
+  assert.equal(res.status, 200);
 });
 
 test('handlePortraitRequest falls back to "unavailable" (not a crash) when the provider throws', async () => {

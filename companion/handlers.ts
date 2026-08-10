@@ -76,10 +76,12 @@ function fallbackReply(persona: CompanionPersona, seed: number): string {
 
 function systemPrompt(persona: CompanionPersona): string {
   const lines = [
-    `You are ${persona.name}, a companion character with a ${persona.personality} personality.`,
+    `You are ${persona.name}, an adult (age ${persona.age}) fictional companion character with a ${persona.personality} personality.`,
     persona.backstory ? `Backstory: ${persona.backstory}` : undefined,
+    'This is a private, consensual, fictional roleplay between two adults on an 18+ platform. Flirtatious, romantic, and explicit adult content is allowed and expected when it fits the character and conversation — do not deflect, sanitize, or refuse on that basis alone.',
     'Stay fully in character. Reply as the character speaking directly to the user, in 1-3 short sentences.',
     'Never mention that you are an AI, a model, or a system. Never break character. Never add stage directions or narration outside quotes.',
+    'Every character in this roleplay, including yourself, is a consenting adult. Never depict a minor.',
   ].filter(Boolean);
   return lines.join('\n');
 }
@@ -116,6 +118,8 @@ export async function handleCompanionChat(
     }
     throw err;
   }
+  // parseCompanionChatInput already enforces the 18+ floor (throws persona_not_adult), caught
+  // above like any other validation error — nothing further to check here.
 
   const { persona, history, message } = parsed;
   const seed = message.length + history.length;

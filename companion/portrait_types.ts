@@ -21,6 +21,8 @@ export interface PortraitPersona {
   style: PortraitStyle;
   personality: CompanionPersonality;
   backstory?: string;
+  /** Optional physical-appearance descriptor (hair, build, etc.) folded into the image prompt. */
+  appearance?: string;
   /** Required. Must be >= 18 — see the module-level safety floor note above. */
   age: number;
 }
@@ -42,6 +44,7 @@ export class PortraitValidationError extends Error {
 const MAX_NAME_CHARS = 80;
 const MAX_STYLE_CHARS = 40;
 const MAX_BACKSTORY_CHARS = 2000;
+const MAX_APPEARANCE_CHARS = 400;
 const MIN_ADULT_AGE = 18;
 
 /** Parse + validate a raw body into a typed persona, enforcing the 18+ floor. */
@@ -79,8 +82,12 @@ export function parsePortraitRequest(body: unknown): { persona: PortraitPersona 
     typeof p.backstory === 'string' && p.backstory.trim()
       ? p.backstory.trim().slice(0, MAX_BACKSTORY_CHARS)
       : undefined;
+  const appearance =
+    typeof p.appearance === 'string' && p.appearance.trim()
+      ? p.appearance.trim().slice(0, MAX_APPEARANCE_CHARS)
+      : undefined;
 
-  return { persona: { name, style, personality, backstory, age } };
+  return { persona: { name, style, personality, backstory, appearance, age } };
 }
 
 function normalisePersonality(value: unknown): CompanionPersonality {

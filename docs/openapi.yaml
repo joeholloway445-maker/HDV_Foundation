@@ -152,11 +152,15 @@ components:
       type: object
       properties:
         name: { type: string }
+        age:
+          type: integer
+          minimum: 18
+          description: Required. Chat is refused (400) for any persona under 18, regardless of provider.
         personality:
           type: string
           enum: [playful, romantic, bratty, dominant, soft, mysterious]
         backstory: { type: string }
-      required: [name]
+      required: [name, age]
     CompanionChatMessage:
       type: object
       properties:
@@ -201,6 +205,7 @@ components:
         personality:
           type: string
           enum: [playful, romantic, bratty, dominant, soft, mysterious]
+        appearance: { type: string, description: 'Optional physical-appearance descriptor (hair, build, etc.) folded into the image prompt.' }
         backstory: { type: string }
       required: [name, age]
     PortraitRequest:
@@ -240,6 +245,7 @@ components:
             personality:
               type: string
               enum: [playful, romantic, bratty, dominant, soft, mysterious]
+            appearance: { type: string, description: 'Optional physical-appearance descriptor (hair, build, etc.) folded into the video prompt.' }
             backstory: { type: string }
           required: [name, age]
         seedImage:
@@ -247,7 +253,7 @@ components:
           description: Base64 image bytes, or a `data:<mime>;base64,<bytes>` URI (typically the output of /v1/companion/portrait).
         actionString:
           type: string
-          description: 'Optional compact keyboard-schedule camera control, e.g. "w-10,a-10,d-10". Omit for free-form motion.'
+          description: 'Optional compact keyboard-schedule camera control, e.g. "w-10,a-10,d-10". Omit to have the server derive one from persona.personality instead (companion/action_string.ts) — never actually free-form by default.'
       required: [persona, seedImage]
     SceneResponse:
       type: object

@@ -161,7 +161,55 @@ model per persona.
 
 ---
 
-## 6. Security notes
+## 6. Model choice for companion/chat (FuckLike)
+
+The recommendations in §1 are tuned for **HOPE's enrichment path** (a one-line intent
+paraphrase) — any small instruct model is fine there. **Companion chat is a different
+workload**: personas are adult (18+, enforced server-side — see `companion/types.ts`) fictional
+characters whose personalities span playful/romantic/bratty/dominant, and the product
+explicitly wants in-character flirtatious/explicit dialogue, not a refusal. Mainstream
+instruct models (`llama3.1:8b`, `llama3.2:3b`, etc.) are heavily RLHF-tuned to deflect or
+sanitize that regardless of system prompt — the model itself, not the prompt, is the limiter.
+
+**Recommended: `dolphin-llama3:8b`** — verified via the Ollama library and Hugging Face
+Hub API before picking (not guessed):
+- In Ollama's **official** library namespace (`ollama.com/library/dolphin-llama3`), not a
+  community mirror — gets the same maintenance/format guarantees as any other official model.
+- Built on `meta-llama/Meta-Llama-3-8B`; HF page (`dphn/dolphin-2.9-llama3-8b`) shows 408K+
+  downloads, 504 likes, actively maintained. License is the inherited Llama 3 Community
+  License, which **permits commercial use** (the only restriction is a 700M-MAU cap this
+  product is nowhere near) — this matters because most of the popular community roleplay
+  finetunes (Stheno, Llama-3SOME, etc.) are `cc-by-nc-4.0`, i.e. **non-commercial only**, which
+  rules them out for a paid product.
+- Purpose-built to follow system-prompt character instructions "without moralizing" rather
+  than being a blanket "remove every refusal for anything" abliterated model — the narrower,
+  more appropriate category for adult roleplay specifically, not general harm-removal.
+- Same 8B size as the other options above, so the KVM4 CPU-inference math in §1 still applies.
+
+```bash
+docker compose -f deploy/docker-compose.prod.yml exec ollama ollama pull dolphin-llama3:8b
+```
+
+```bash
+# .env — companion chat only; HOPE enrichment can stay on a smaller model if you run two:
+HDV_LLM_PROVIDER=openai_compatible
+HDV_LLM_BASE_URL=http://ollama:11434/v1
+HDV_LLM_MODEL=dolphin-llama3:8b
+HDV_LLM_API_KEY=
+```
+
+Restart the gateway after changing `.env` so it picks up the new model (see §3/§4 above).
+
+`companion/handlers.ts`'s system prompt already frames every chat as consensual fictional
+roleplay between verified adults and states explicit content is allowed when in-character —
+that framing plus a model that isn't fighting it is what actually gets you past "same
+generic response on repeat" behavior. Re-verify this pick periodically the same way it was
+picked: check current download/like counts and license on Hugging Face before assuming it's
+still current.
+
+---
+
+## 7. Security notes
 
 - **Never expose `11434`.** Bare metal: `OLLAMA_HOST=127.0.0.1`. Docker: use `expose:`
   (internal network) not `ports:` (host). No `ufw allow 11434`.

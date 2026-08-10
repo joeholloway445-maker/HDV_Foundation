@@ -28,3 +28,4 @@ export {
 } from './scene_types.js';
 export { handleSceneRequest } from './scene_handlers.js';
 export type { SceneResponse, SceneOptions } from './scene_handlers.js';
+export { buildActionString } from './action_string.js';

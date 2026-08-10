@@ -58,9 +58,24 @@ test('parseCompanionChatInput requires persona.name and message', () => {
   );
 });
 
+test('parseCompanionChatInput enforces the 18+ floor regardless of provider', () => {
+  assert.throws(
+    () => parseCompanionChatInput({ persona: { name: 'Luna', age: 17 }, message: 'hi' }),
+    (err: unknown) => err instanceof CompanionChatValidationError && err.code === 'persona_not_adult',
+  );
+  assert.throws(
+    () => parseCompanionChatInput({ persona: { name: 'Luna', age: 0 }, message: 'hi' }),
+    (err: unknown) => err instanceof CompanionChatValidationError && err.code === 'persona_not_adult',
+  );
+  assert.throws(
+    () => parseCompanionChatInput({ persona: { name: 'Luna' }, message: 'hi' }), // no age at all
+    CompanionChatValidationError,
+  );
+});
+
 test('parseCompanionChatInput defaults personality and drops malformed history turns', () => {
   const { persona, history, message } = parseCompanionChatInput({
-    persona: { name: 'Luna', personality: 'not-a-real-one' },
+    persona: { name: 'Luna', age: 23, personality: 'not-a-real-one' },
     history: [
       { role: 'user', text: 'hey' },
       { role: 'bot', text: 'hi there' },
@@ -82,7 +97,7 @@ test('parseCompanionChatInput defaults personality and drops malformed history t
 
 test('handleCompanionChat returns a deterministic fallback reply with no provider', async () => {
   const res = await handleCompanionChat({
-    persona: { name: 'Luna', personality: 'romantic' },
+    persona: { name: 'Luna', age: 23, personality: 'romantic' },
     message: 'hi',
   });
   assert.equal(res.status, 200);
@@ -94,7 +109,7 @@ test('handleCompanionChat returns a deterministic fallback reply with no provide
 test('handleCompanionChat treats the StubProvider like no provider (curated fallback, not raw echo)', async () => {
   const { StubProvider } = await import('../providers/stub.js');
   const res = await handleCompanionChat(
-    { persona: { name: 'Luna', personality: 'mysterious' }, message: 'hi' },
+    { persona: { name: 'Luna', age: 23, personality: 'mysterious' }, message: 'hi' },
     { provider: new StubProvider() },
   );
   assert.equal(res.status, 200);
@@ -115,7 +130,7 @@ test('handleCompanionChat uses the provider when one is injected', async () => {
     return { text: '  "Hey you." ', model: 'fake-1', usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 } };
   });
   const res = await handleCompanionChat(
-    { persona: { name: 'Luna', personality: 'playful' }, message: 'hi' },
+    { persona: { name: 'Luna', age: 23, personality: 'playful' }, message: 'hi' },
     { provider },
   );
   assert.equal(res.status, 200);
@@ -129,7 +144,7 @@ test('handleCompanionChat falls back to a canned reply when the provider throws'
     throw new Error('upstream down');
   });
   const res = await handleCompanionChat(
-    { persona: { name: 'Luna', personality: 'soft' }, message: 'hi' },
+    { persona: { name: 'Luna', age: 23, personality: 'soft' }, message: 'hi' },
     { provider },
   );
   assert.equal(res.status, 200);
@@ -152,7 +167,7 @@ test('POST /v1/companion/chat is public (no key needed) but still rate-limited l
     const res = await fetch(`${base}/v1/companion/chat`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ persona: { name: 'Luna', personality: 'bratty' }, message: 'hi' }),
+      body: JSON.stringify({ persona: { name: 'Luna', age: 23, personality: 'bratty' }, message: 'hi' }),
     });
     assert.equal(res.status, 200);
     const json = (await res.json()) as { reply: string; source: string };

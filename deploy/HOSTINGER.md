@@ -328,8 +328,11 @@ Operational hygiene for keys on the VPS:
 Co-locating a small model on the KVM4 gives you a **fully self-hosted, no-vendor-key**
 path (the "Local / self-host" row above). Full instructions — install, model pull,
 memory sizing, systemd, and wiring `HDV_LLM_BASE_URL` — are in [`OLLAMA.md`](./OLLAMA.md).
+If you're deploying for FuckLike's companion chat specifically, use `OLLAMA.md` §6 instead
+of the generic model below — a mainstream instruct model will refuse the in-character
+adult roleplay the product wants regardless of prompt engineering.
 
-Short version:
+Short version (generic HOPE-enrichment case):
 
 ```bash
 curl -fsSL https://ollama.com/install.sh | sh

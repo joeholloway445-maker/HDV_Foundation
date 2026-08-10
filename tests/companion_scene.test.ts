@@ -15,7 +15,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
 
-import { parseSceneRequest, SceneValidationError, handleSceneRequest } from '../companion/index.js';
+import {
+  parseSceneRequest,
+  SceneValidationError,
+  handleSceneRequest,
+  buildActionString,
+} from '../companion/index.js';
+import { COMPANION_PERSONALITIES } from '../companion/types.js';
 import { HopeGateway } from '../gateway/index.js';
 import { StubVideoProvider } from '../providers/index.js';
 import type { GenerateVideoOptions, VideoProvider, VideoResult } from '../providers/video_types.js';
@@ -100,6 +106,17 @@ test('parseSceneRequest keeps a valid actionString and drops an empty one', () =
   assert.equal(withoutAction.actionString, undefined);
 });
 
+test('parseSceneRequest keeps an optional appearance descriptor, defaulting to undefined', () => {
+  const withAppearance = parseSceneRequest({
+    persona: { name: 'Jordyn', age: 24, appearance: 'gorgeous, thick, light brunette hair' },
+    seedImage: VALID_SEED,
+  });
+  assert.equal(withAppearance.persona.appearance, 'gorgeous, thick, light brunette hair');
+
+  const without = parseSceneRequest({ persona: { name: 'Luna', age: 23 }, seedImage: VALID_SEED });
+  assert.equal(without.persona.appearance, undefined);
+});
+
 // ---------------------------------------------------------------------------
 // B. handleSceneRequest
 // ---------------------------------------------------------------------------
@@ -147,6 +164,58 @@ test('handleSceneRequest returns a data URI on success and passes the seed image
   assert.equal(res.status, 200);
   assert.equal(res.body.video, 'data:video/mp4;base64,QUJD');
   assert.equal(res.body.source, 'fake');
+});
+
+test('handleSceneRequest folds persona.appearance into the prompt when provided', async () => {
+  const provider = new FakeVideoProvider((prompt) => {
+    assert.ok(prompt.includes('gorgeous, thick, light brunette hair'));
+    return { videoBase64: 'QUJD', mimeType: 'video/mp4', model: 'fake-video-1' };
+  });
+  const res = await handleSceneRequest(
+    {
+      persona: { name: 'Jordyn', age: 24, personality: 'romantic', appearance: 'gorgeous, thick, light brunette hair' },
+      seedImage: VALID_SEED,
+    },
+    { provider },
+  );
+  assert.equal(res.status, 200);
+});
+
+test('buildActionString sums to exactly the requested frame count for every personality', () => {
+  for (const personality of COMPANION_PERSONALITIES) {
+    const actionString = buildActionString(personality, 81);
+    const segments = actionString.split(',');
+    const total = segments.reduce((sum, seg) => sum + Number(seg.split('-').pop()), 0);
+    assert.equal(total, 81, `${personality}: expected segments to sum to 81, got ${total} ("${actionString}")`);
+    for (const seg of segments) {
+      const [keys] = seg.split('-');
+      assert.ok(/^(none|[wasdijkl]+)$/.test(keys), `${personality}: bad segment "${seg}"`);
+    }
+  }
+});
+
+test('handleSceneRequest derives an actionString from persona.personality when the client omits one', async () => {
+  const provider = new FakeVideoProvider((_prompt, _seedImage, opts) => {
+    assert.equal(opts?.actionString, buildActionString('mysterious'));
+    return { videoBase64: 'QUJD', mimeType: 'video/mp4', model: 'fake-video-1' };
+  });
+  const res = await handleSceneRequest(
+    { persona: { name: 'Nova', age: 24, personality: 'mysterious' }, seedImage: VALID_SEED },
+    { provider },
+  );
+  assert.equal(res.status, 200);
+});
+
+test('handleSceneRequest still honors an explicit client-supplied actionString', async () => {
+  const provider = new FakeVideoProvider((_prompt, _seedImage, opts) => {
+    assert.equal(opts?.actionString, 'w-10');
+    return { videoBase64: 'QUJD', mimeType: 'video/mp4', model: 'fake-video-1' };
+  });
+  const res = await handleSceneRequest(
+    { persona: { name: 'Luna', age: 23 }, seedImage: VALID_SEED, actionString: 'w-10' },
+    { provider },
+  );
+  assert.equal(res.status, 200);
 });
 
 test('handleSceneRequest falls back to "unavailable" (not a crash) when the provider throws', async () => {
