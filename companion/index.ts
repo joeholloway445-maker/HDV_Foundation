@@ -29,3 +29,11 @@ export {
 export { handleSceneRequest } from './scene_handlers.js';
 export type { SceneResponse, SceneOptions } from './scene_handlers.js';
 export { buildActionString } from './action_string.js';
+
+export {
+  parseSpeakRequest,
+  SpeakValidationError,
+  type SpeakRequestInput,
+} from './speak_types.js';
+export { handleSpeakRequest } from './speak_handlers.js';
+export type { SpeakResponse, SpeakOptions } from './speak_handlers.js';

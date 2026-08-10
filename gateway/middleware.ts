@@ -42,6 +42,7 @@ const AUTH_EXEMPT_PATHS = new Set<string>([
   '/v1/companion/chat',
   '/v1/companion/portrait',
   '/v1/companion/scene',
+  '/v1/companion/speak',
   // Checkout is public because FuckLike/web has no user-account/API-key system yet — it sends
   // a per-browser anonymous tenant id via X-HDV-Tenant instead (see web/app.js). Safe today
   // because billing/stripe_stub.ts is a stub with no real STRIPE_SECRET_KEY (no money moves).

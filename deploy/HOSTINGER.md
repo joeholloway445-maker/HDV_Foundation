@@ -35,6 +35,7 @@ server (no framework) that exposes:
 | POST   | `/v1/companion/chat`| One in-character companion reply (public, rate-limited; see `companion/`) |
 | POST   | `/v1/companion/portrait`| One companion portrait image (public, rate-limited; see `companion/` + `providers/image_*`) |
 | POST   | `/v1/companion/scene`| One companion scene/loop video from an existing portrait (public, rate-limited; see `providers/video_*` + `colab/08_scene_server.py`) |
+| POST   | `/v1/companion/speak`| One companion speech-audio clip from already-approved text (public, rate-limited; see `providers/tts_*` + `colab/10_kokoro_tts_server.md`) |
 
 It binds `PORT` (default `8787`) on loopback; a reverse proxy (Caddy or nginx)
 terminates TLS on `443` and forwards to it.
@@ -343,6 +344,12 @@ sudo systemctl restart hdv-gateway
 
 Keep Ollama on loopback (`OLLAMA_HOST=127.0.0.1`) — it must never be exposed publicly
 (no `ufw allow 11434`).
+
+The same co-location pattern applies to companion speech: a self-hosted **Kokoro-82M** TTS
+server is light enough (CPU-inference-capable, ~82M params) to run as another loopback-only
+Docker sidecar right next to Ollama on the same KVM4 — see
+[`../colab/10_kokoro_tts_server.md`](../colab/10_kokoro_tts_server.md) for the run command and
+`HDV_TTS_*` wiring.
 
 ---
 
