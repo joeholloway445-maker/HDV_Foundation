@@ -367,6 +367,33 @@ components:
           type: string
           description: Present only when source is "unavailable" due to a real provider failure.
       required: [video, source]
+    SpeakRequest:
+      type: object
+      properties:
+        text:
+          type: string
+          description: 'Already-approved chat text to synthesize. Capped at MAX_MESSAGE_CHARS (4000 chars, same limit companion/chat applies to messages).'
+        voice:
+          type: string
+          description: 'Optional named voice (Kokoro-82M ships several, e.g. "af_bella"). Omit to use the provider default.'
+      required: [text]
+    SpeakResponse:
+      type: object
+      properties:
+        audio:
+          type: string
+          nullable: true
+          description: A `data:<mimeType>;base64,<bytes>` URI (mimeType is audio/wav or audio/mpeg), or null when unavailable.
+        source:
+          type: string
+          description: The provider name on success (e.g. kokoro_tunnel), or "unavailable".
+        model:
+          type: string
+          nullable: true
+        error:
+          type: string
+          description: Present only when source is "unavailable" due to a real provider failure.
+      required: [audio, source]
     AllowanceRequest:
       type: object
       properties:
@@ -945,6 +972,36 @@ paths:
                 required: [memory]
         '400':
           description: Missing companionId query parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/companion/speak:
+    post:
+      tags: [companion]
+      summary: Synthesize speech audio for one line of text
+      description: >
+        Auth-exempt but rate-limited, same posture as chat/portrait/scene. Provider-agnostic —
+        HDV_TTS_PROVIDER selects a self-hosted Kokoro-82M server (kokoro_tunnel). Unlike
+        portrait/scene there is no persona/age-floor check here: this only converts text the
+        client already has (already-approved chat output) into audio rather than generating new
+        content about a character, so the 18+ floor is enforced upstream, at the text's origin.
+        Never routes through APEX/KNOLL.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SpeakRequest'
+      responses:
+        '200':
+          description: Generation attempted — audio on success, null + source "unavailable" otherwise.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpeakResponse'
+        '400':
+          description: Invalid request (missing/empty text, or text over the length cap).
           content:
             application/json:
               schema:

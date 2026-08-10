@@ -174,3 +174,41 @@ NSFW-capable path, which points at self-hosting via `colab_tunnel` regardless.
 npm run test:video-providers   # stub + local HTTP server tests
 npm run test:scene             # companion/scene_handlers.ts + gateway integration
 ```
+
+## TTS providers (companion speech)
+
+One more sibling seam: `tts_types.ts`'s `TtsProvider` is a pure text-to-speech transducer
+(`generate(text, opts) -> { audioBase64, mimeType, model }`), used by
+`companion/speak_handlers.ts` (`POST /v1/companion/speak`). Unlike the image/video seams, this
+one is NOT built for a Colab GPU tunnel — the reference model (Kokoro-82M, Apache-2.0, ~82M
+params) is CPU-inference-capable and light enough to run as an always-on Docker sidecar directly
+on the production VPS, right next to the existing Ollama LLM container — see
+`colab/10_kokoro_tts_server.md`. Same offline-first default (`StubTtsProvider` — a real, tiny,
+deterministic silent WAV file, never shown to end users; the product layer treats it the same as
+"no provider").
+
+| File | Purpose |
+| --- | --- |
+| `tts_types.ts` | `TtsProvider` interface, `GenerateTtsOptions`, `TtsResult`. |
+| `tts_stub.ts` | `StubTtsProvider` — deterministic, offline default (dependency-free 44-byte WAV header + silent PCM encoder). |
+| `kokoro_tunnel_tts.ts` | `KokoroTunnelTtsProvider` — talks to a self-hosted Kokoro-82M server (e.g. `remsky/Kokoro-FastAPI`'s OpenAI-compatible `/v1/audio/speech`); see `colab/10_kokoro_tts_server.md`. |
+| `tts_factory.ts` | `createTtsProvider` / `createTtsProviderOrStub` — build from env. |
+
+| Variable | Values / example | Default |
+| --- | --- | --- |
+| `HDV_TTS_PROVIDER` | `stub` \| `kokoro_tunnel` | `stub` |
+| `HDV_TTS_API_KEY` | The Kokoro server's shared-secret token | — |
+| `HDV_TTS_BASE_URL` | e.g. `http://kokoro-tts:8880` (a same-host Docker sidecar), or an ngrok/Cloudflare Tunnel URL (required for `kokoro_tunnel`) | — |
+| `HDV_TTS_MODEL` | Reported model id override | — |
+| `HDV_TTS_VOICE` | Default named voice (Kokoro ships several, e.g. `af_bella`) when a call doesn't specify one | — |
+
+`KokoroTunnelTtsProvider.generate` returns whichever audio format the server actually sent
+(`audio/wav` or `audio/mpeg`, read from the response `Content-Type`) — callers should check
+`TtsResult.mimeType` rather than assume one. The `_tunnel` naming mirrors `colab_tunnel_*` for
+consistency, but `baseUrl` will typically point at a loopback/internal Docker network address in
+production, not an actual tunnel — the provider only speaks plain HTTP either way.
+
+```bash
+npm run test:tts-providers   # stub + local HTTP server tests
+npm run test:speak           # companion/speak_handlers.ts + gateway integration
+```

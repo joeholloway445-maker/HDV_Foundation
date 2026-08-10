@@ -56,11 +56,14 @@ import {
   handlePortraitRequest,
   handleSceneRequest,
   defaultCompanionMemory,
+  handleSpeakRequest,
 } from '../companion/index.js';
 import { createImageProviderOrStub } from '../providers/image_factory.js';
 import type { ImageProvider } from '../providers/image_types.js';
 import { createVideoProviderOrStub } from '../providers/video_factory.js';
 import type { VideoProvider } from '../providers/video_types.js';
+import { createTtsProviderOrStub } from '../providers/tts_factory.js';
+import type { TtsProvider } from '../providers/tts_types.js';
 import {
   MANAGERS_PER_AGENT,
   NODES_PER_MANAGER,
@@ -193,6 +196,12 @@ export interface HopeGatewayOptions {
   users?: UserRepository;
   /** SessionRepository backing the default AuthService. Ignored when `auth` is provided. */
   sessions?: SessionRepository;
+  /**
+   * Optional TTS provider for companion speech (audio only — never routes). When omitted, the
+   * gateway builds one from HDV_TTS_* env via createTtsProviderOrStub (defaults to the offline
+   * stub). Pass `false` to force "unavailable" responses (no provider at all).
+   */
+  ttsProvider?: TtsProvider | false;
 }
 
 interface HopeResultRecord {
@@ -247,6 +256,12 @@ export class HopeGateway {
    * only.
    */
   private readonly videoProvider?: VideoProvider;
+  /**
+   * Shared TtsProvider instance used for companion speech (companion/speak_*), same env-driven
+   * offline-first construction as imageProvider/videoProvider. Undefined ⇒ "unavailable"
+   * response only.
+   */
+  private readonly ttsProvider?: TtsProvider;
   private readonly readLimit: number;
   private readonly logger: GatewayLogger;
 
@@ -310,6 +325,10 @@ export class HopeGateway {
     this.videoProvider =
       options.videoProvider === false ? undefined : options.videoProvider ?? createVideoProviderOrStub();
     this.companionMemory = options.memoryRepository ?? new InMemoryCompanionMemoryRepository();
+    // Companion speech: same offline-first construction, independent of the text/image/video
+    // providers (an operator may run Kokoro-82M for speech alongside Ollama for text, etc).
+    this.ttsProvider =
+      options.ttsProvider === false ? undefined : options.ttsProvider ?? createTtsProviderOrStub();
     this.readLimit = options.readLimit ?? 50;
     this.middleware = new GatewayMiddleware(resolveSecurityConfig(options.security ?? {}));
     this.logger = options.logger === false ? () => {} : options.logger ?? defaultLogger;
@@ -1000,6 +1019,18 @@ export class HopeGateway {
   }
 
   /**
+   * POST /v1/companion/speak — synthesize speech audio for one line of already-approved text.
+   * Same auth-exempt-but-rate-limited posture as chat/portrait/scene; same offline-safe
+   * "unavailable" response when no TtsProvider is configured (e.g. a self-hosted Kokoro-82M
+   * server — see colab/10_kokoro_tts_server.md). No persona/age-floor check here: unlike
+   * portrait/scene this never generates new content about a character, it only converts text
+   * the client already has into audio (the 18+ floor is enforced upstream, at the text origin).
+   */
+  async handleSpeakRequest(body: unknown): Promise<GatewayResponse> {
+    return handleSpeakRequest(body, { provider: this.ttsProvider });
+  }
+
+  /**
    * Route a parsed request to a handler. Async so a real body read can be awaited by the
    * server wrapper; handlers themselves are synchronous. This is the single mapping table.
    * `headers` is optional (only billing routes read it, for X-HDV-Tenant) so existing callers
@@ -1044,6 +1075,8 @@ export class HopeGateway {
     if (m === 'POST' && pathname === '/v1/companion/scene') return await this.handleSceneRequest(body);
     // --- Companion memory. Read-only; same public posture as chat/portrait/scene.
     if (m === 'GET' && pathname === '/v1/companion/memory') return this.handleCompanionMemoryGet(query.get('companionId'));
+    // --- Companion speech. Same public posture as chat, portrait, and scene.
+    if (m === 'POST' && pathname === '/v1/companion/speak') return await this.handleSpeakRequest(body);
     return { status: 404, body: { error: `no route for ${m} ${pathname}` } };
   }
 

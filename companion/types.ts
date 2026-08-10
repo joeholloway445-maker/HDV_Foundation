@@ -92,7 +92,8 @@ export class CompanionChatValidationError extends Error {
   }
 }
 
-const MAX_MESSAGE_CHARS = 4000;
+/** Exported so sibling companion surfaces (e.g. speak_types.ts) reuse the exact same cap. */
+export const MAX_MESSAGE_CHARS = 4000;
 const MAX_HISTORY_TURNS = 20;
 const MAX_NAME_CHARS = 80;
 const MAX_BACKSTORY_CHARS = 2000;

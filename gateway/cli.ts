@@ -23,6 +23,7 @@
  *   POST /v1/auth/logout   X-HDV-Session header or { sessionToken } → { ok: true } (public)
  *   GET  /v1/auth/me       X-HDV-Session header → { userId, email }, or 401 (public)
  *   GET  /v1/companion/memory ?companionId=... → read-only relationship memory lookup (public, rate-limited)
+ *   POST /v1/companion/speak { text, voice? } → one speech-audio clip (public, rate-limited)
  *
  * KNOLL gates every routed packet; the gateway never bypasses APEX.
  *
@@ -167,6 +168,7 @@ async function main(): Promise<void> {
     'POST /v1/companion/portrait (public — { persona: { name, age (18+), style?, personality? } })',
     'POST /v1/companion/scene   (public — { persona: { name, age (18+) }, seedImage, actionString? })',
     'GET  /v1/companion/memory  (public — ?companionId=...; returns defaults if none saved yet)',
+    'POST /v1/companion/speak   (public — { text, voice? })',
   ];
   const { config } = gateway.middleware;
   const authMode = config.apiKey ? 'ENABLED (X-HDV-Key / Bearer)' : 'DISABLED (dev mode — set HDV_API_KEY)';

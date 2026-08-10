@@ -40,6 +40,8 @@ server (no framework) that exposes:
 | POST   | `/v1/auth/login`    | Authenticate → same response shape, or `401` with a single generic message either way (public; same stricter rate limit) |
 | POST   | `/v1/auth/logout`   | Invalidate a session (`X-HDV-Session` header or `{ sessionToken }` body); public, idempotent |
 | GET    | `/v1/auth/me`       | Resolve the current session → `{ userId, email }`, or `401` if missing/invalid/expired (public — authenticates via its own `X-HDV-Session`, not `HDV_API_KEY`) |
+| GET    | `/v1/companion/memory`| Read a companion's remembered relationship state, defaults if none saved yet (public, rate-limited; see `companion/memory.ts`) |
+| POST   | `/v1/companion/speak`| One companion speech-audio clip from already-approved text (public, rate-limited; see `providers/tts_*` + `colab/10_kokoro_tts_server.md`) |
 
 It binds `PORT` (default `8787`) on loopback; a reverse proxy (Caddy or nginx)
 terminates TLS on `443` and forwards to it.
@@ -355,6 +357,12 @@ sudo systemctl restart hdv-gateway
 
 Keep Ollama on loopback (`OLLAMA_HOST=127.0.0.1`) — it must never be exposed publicly
 (no `ufw allow 11434`).
+
+The same co-location pattern applies to companion speech: a self-hosted **Kokoro-82M** TTS
+server is light enough (CPU-inference-capable, ~82M params) to run as another loopback-only
+Docker sidecar right next to Ollama on the same KVM4 — see
+[`../colab/10_kokoro_tts_server.md`](../colab/10_kokoro_tts_server.md) for the run command and
+`HDV_TTS_*` wiring.
 
 ---
 
