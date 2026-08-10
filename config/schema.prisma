@@ -63,3 +63,15 @@ model IntentDocument {
   documentedAt         DateTime @default(now())
   clarificationNeeded  Boolean  @default(false)
 }
+
+/// companion/ chat's opt-in relationship memory: one row per client-supplied companionId
+/// (see companion/types.ts — there is no user-account system yet, so this is an opaque
+/// client-generated id, not a real user id). One row per companion is enough for this pass;
+/// no relational turn-by-turn history table.
+model CompanionMemory {
+  companionId    String   @id
+  affectionLevel Int      @default(50) // 0-100
+  summary        String   @default("") // running relationship/fact summary, capped length
+  turnCount      Int      @default(0)
+  updatedAt      DateTime @updatedAt
+}

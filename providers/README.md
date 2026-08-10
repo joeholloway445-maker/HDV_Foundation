@@ -62,11 +62,26 @@ const { intent: enriched, summary } = await enricher.enrichIntent(intent);
 // enriched.kind / .suggestedDestination are unchanged; only enriched.intent (summary) may change.
 ```
 
+### Companion chat + opt-in relationship memory
+
+`companion/handlers.ts` (`POST /v1/companion/chat`) uses this same `LlmProvider` seam, same
+offline-first default (no provider, or the stub, ⇒ a curated per-personality canned reply
+instead of a live completion). Layered on top, entirely opt-in, is a small persistent
+relationship memory (`companion/memory.ts`, backed by `persistence/repositories.ts`'s
+`CompanionMemoryRepository` — in-memory by default, Prisma/Postgres when `DATABASE_URL` is
+set): when the client supplies a `companionId`, the companion's remembered affection level and
+running summary are folded into the system prompt, and updated after a real (non-fallback)
+reply via a lightweight keyword-sentiment heuristic — not a second LLM call, so it costs no
+extra provider round-trip and still works with zero LLM configuration. See
+`companion/memory.ts`'s module doc comment for the full design rationale, and `GET
+/v1/companion/memory?companionId=...` to read the stored state.
+
 ## Scripts
 
 ```bash
 npm run demo:providers    # offline stub demo (set HDV_LLM_* to try a real backend)
 npm run test:providers    # provider + enricher tests (stub + local HTTP server + fetch mock)
+npm run test:companion    # companion chat + opt-in memory tests
 ```
 
 ## Image providers (companion portraits)

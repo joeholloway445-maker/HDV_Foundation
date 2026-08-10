@@ -10,6 +10,8 @@ export * from './types.js';
 export { handleCompanionChat } from './handlers.js';
 export type { CompanionResponse, CompanionChatOptions } from './handlers.js';
 
+export { buildMemoryContext, updateMemoryAfterTurn, defaultCompanionMemory } from './memory.js';
+
 export {
   parsePortraitRequest,
   PortraitValidationError,

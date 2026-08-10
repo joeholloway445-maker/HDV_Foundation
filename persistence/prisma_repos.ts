@@ -5,7 +5,8 @@
  * ## Why a write-through cache?
  *
  * The repository interfaces (RequestLogRepository, NodeIdentityRepository,
- * SecurityAuditRepository, IntentArchiveRepository) are **synchronous**: callers such as
+ * SecurityAuditRepository, IntentArchiveRepository, CompanionMemoryRepository) are
+ * **synchronous**: callers such as
  * HOPE's documenter read results inline (`archive.all().map(...)`, `archive.get(id)`),
  * and APEX/KNOLL/nodes write fire-and-forget. Those call sites live in agent packages
  * that must not change. Prisma, however, is asynchronous.
@@ -29,10 +30,12 @@ import type {
   NodeIdentityRecord,
   SecurityAuditRecord,
   IntentDocumentRecord,
+  CompanionMemoryRecord,
   RequestLogRepository,
   NodeIdentityRepository,
   SecurityAuditRepository,
   IntentArchiveRepository,
+  CompanionMemoryRepository,
 } from './repositories.js';
 
 // ---------------------------------------------------------------------------
@@ -352,16 +355,81 @@ function asStringArray(value: unknown): string[] {
 }
 
 // ---------------------------------------------------------------------------
+// CompanionMemory (companion/'s opt-in relationship memory — see companion/memory.ts)
+// ---------------------------------------------------------------------------
+
+export class PrismaCompanionMemoryRepository implements CompanionMemoryRepository {
+  private readonly rows = new Map<string, CompanionMemoryRecord>();
+
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly writes: WriteQueue,
+  ) {}
+
+  async hydrate(): Promise<void> {
+    const found = await this.prisma.companionMemory.findMany();
+    this.rows.clear();
+    for (const r of found) {
+      this.rows.set(r.companionId, {
+        companionId: r.companionId,
+        affectionLevel: r.affectionLevel,
+        summary: r.summary,
+        turnCount: r.turnCount,
+        updatedAt: r.updatedAt.getTime(),
+      });
+    }
+  }
+
+  get(companionId: string): CompanionMemoryRecord | undefined {
+    return this.rows.get(companionId);
+  }
+
+  upsert(record: CompanionMemoryRecord): CompanionMemoryRecord {
+    this.rows.set(record.companionId, record);
+    this.writes.enqueue(async () => {
+      // `updatedAt` is a Prisma `@updatedAt` column, so the database manages it.
+      await this.prisma.companionMemory.upsert({
+        where: { companionId: record.companionId },
+        create: {
+          companionId: record.companionId,
+          affectionLevel: record.affectionLevel,
+          summary: record.summary,
+          turnCount: record.turnCount,
+        },
+        update: {
+          affectionLevel: record.affectionLevel,
+          summary: record.summary,
+          turnCount: record.turnCount,
+        },
+      });
+    });
+    return record;
+  }
+
+  all(): readonly CompanionMemoryRecord[] {
+    return Array.from(this.rows.values());
+  }
+
+  clear(): void {
+    this.rows.clear();
+    this.writes.enqueue(async () => {
+      await this.prisma.companionMemory.deleteMany({});
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Bundle + factory
 // ---------------------------------------------------------------------------
 
-/** A cohesive set of the four repositories plus lifecycle helpers. */
+/** A cohesive set of the five repositories plus lifecycle helpers. */
 export interface PrismaRepositoryBundle {
   readonly prisma: PrismaClient;
   readonly requestLog: PrismaRequestLogRepository;
   readonly nodeIdentity: PrismaNodeIdentityRepository;
   readonly securityAudit: PrismaSecurityAuditRepository;
   readonly intentArchive: PrismaIntentArchiveRepository;
+  readonly companionMemory: PrismaCompanionMemoryRepository;
   /** Load existing rows from Postgres into every in-memory projection. */
   hydrate(): Promise<void>;
   /** Await all pending Postgres writes across every repository. */
@@ -390,6 +458,7 @@ export function createPrismaRepositories(options: PrismaBundleOptions = {}): Pri
   const nodeIdentity = new PrismaNodeIdentityRepository(prisma, writes);
   const securityAudit = new PrismaSecurityAuditRepository(prisma, writes);
   const intentArchive = new PrismaIntentArchiveRepository(prisma, writes);
+  const companionMemory = new PrismaCompanionMemoryRepository(prisma, writes);
 
   return {
     prisma,
@@ -397,12 +466,14 @@ export function createPrismaRepositories(options: PrismaBundleOptions = {}): Pri
     nodeIdentity,
     securityAudit,
     intentArchive,
+    companionMemory,
     async hydrate() {
       await Promise.all([
         requestLog.hydrate(),
         nodeIdentity.hydrate(),
         securityAudit.hydrate(),
         intentArchive.hydrate(),
+        companionMemory.hydrate(),
       ]);
     },
     async flush() {

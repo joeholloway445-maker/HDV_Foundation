@@ -34,8 +34,10 @@ import { ApexOrchestrator } from '../apex/index.js';
 import type {
   RequestLogRepository,
   SecurityAuditRepository,
+  CompanionMemoryRepository,
   TaskQueue,
 } from '../persistence/index.js';
+import { InMemoryCompanionMemoryRepository } from '../persistence/index.js';
 import { MetricsCollector, PacketTracer, combineObservers } from '../observability/index.js';
 import { BillingService, isPlanTier, type PlanTier } from '../billing/index.js';
 import { IntentInterpreter, HopeDocumenter, HopeVoice, IntentEnricher } from '../hope/index.js';
@@ -44,7 +46,12 @@ import { createProviderOrStub } from '../providers/index.js';
 import { SimulationEngine } from '../dream/index.js';
 import { ExecutionEngine } from '../vision/index.js';
 import { WaitlistStore, handleWaitlistSignup, handleWaitlistStats } from '../market/index.js';
-import { handleCompanionChat, handlePortraitRequest, handleSceneRequest } from '../companion/index.js';
+import {
+  handleCompanionChat,
+  handlePortraitRequest,
+  handleSceneRequest,
+  defaultCompanionMemory,
+} from '../companion/index.js';
 import { createImageProviderOrStub } from '../providers/image_factory.js';
 import type { ImageProvider } from '../providers/image_types.js';
 import { createVideoProviderOrStub } from '../providers/video_factory.js';
@@ -125,6 +132,15 @@ export interface HopeGatewayOptions {
   requestLog?: RequestLogRepository;
   securityAudit?: SecurityAuditRepository;
   /**
+   * Opt-in companion relationship memory (companion/memory.ts). Threaded through to
+   * handleCompanionChat exactly like `requestLog`/`securityAudit` above: when the caller
+   * (gateway/cli.ts) builds a Prisma-backed repository bundle because DATABASE_URL is set, it
+   * forwards `repositories.companionMemory` here; otherwise this defaults to a fresh in-memory
+   * repository. Memory only ever activates for a given chat call when the CLIENT also supplies
+   * `companionId` — see companion/handlers.ts. Also backs GET /v1/companion/memory.
+   */
+  memoryRepository?: CompanionMemoryRepository;
+  /**
    * Phase 5 async intake. When provided (and the gateway builds its own orchestrator), the
    * task queue is wired into the ApexOrchestrator so callers can `intake()` packets and a
    * consumer drains them through the SAME KNOLL-gated dispatch path. Pure transport: it never
@@ -184,6 +200,13 @@ export class HopeGateway {
    * replies only (still fully functional offline).
    */
   private readonly companionProvider?: LlmProvider;
+  /**
+   * Opt-in companion relationship memory (companion/memory.ts). Defaults to a fresh in-memory
+   * repository when not injected; gateway/cli.ts injects a Prisma-backed one when DATABASE_URL
+   * is set (same wiring as `requestLog`/`securityAudit`). Only ever read/written by a chat call
+   * that ALSO supplies `companionId` — see companion/handlers.ts.
+   */
+  private readonly companionMemory: CompanionMemoryRepository;
   /**
    * Shared ImageProvider instance used for companion portraits (companion/portrait_*), same
    * env-driven offline-first construction as companionProvider. Undefined ⇒ "unavailable"
@@ -249,6 +272,7 @@ export class HopeGateway {
       options.imageProvider === false ? undefined : options.imageProvider ?? createImageProviderOrStub();
     this.videoProvider =
       options.videoProvider === false ? undefined : options.videoProvider ?? createVideoProviderOrStub();
+    this.companionMemory = options.memoryRepository ?? new InMemoryCompanionMemoryRepository();
     this.readLimit = options.readLimit ?? 50;
     this.middleware = new GatewayMiddleware(resolveSecurityConfig(options.security ?? {}));
     this.logger = options.logger === false ? () => {} : options.logger ?? defaultLogger;
@@ -756,9 +780,30 @@ export class HopeGateway {
   // the same injected LlmProvider the HOPE enricher uses (offline stub ⇒ canned fallback).
   // -------------------------------------------------------------------------
 
-  /** POST /v1/companion/chat — one in-character reply for a companion persona. */
+  /**
+   * POST /v1/companion/chat — one in-character reply for a companion persona. Memory
+   * (companion/memory.ts) only activates when the request body ALSO supplies `companionId` —
+   * see companion/handlers.ts. Passing the repository here unconditionally is safe: absent a
+   * companionId, the handler never touches it.
+   */
   async handleCompanionChat(body: unknown): Promise<GatewayResponse> {
-    return handleCompanionChat(body, { provider: this.companionProvider });
+    return handleCompanionChat(body, { provider: this.companionProvider, memoryRepository: this.companionMemory });
+  }
+
+  /**
+   * GET /v1/companion/memory?companionId=... — read-only lookup of a companion's remembered
+   * relationship state (affection level, running summary, turn count). Public/auth-exempt,
+   * rate-limited posture, same as the other companion/ routes (see AUTH_EXEMPT_PATHS in
+   * gateway/middleware.ts). Returns sensible defaults (never a 404) for a companionId with no
+   * memory yet, so a frontend can render a fresh "relationship level" UI immediately.
+   */
+  handleCompanionMemoryGet(companionId: string | null): GatewayResponse {
+    const trimmed = companionId?.trim() ?? '';
+    if (!trimmed) {
+      return { status: 400, body: { error: '"companionId" query parameter is required' } };
+    }
+    const memory = this.companionMemory.get(trimmed) ?? defaultCompanionMemory(trimmed);
+    return { status: 200, body: { memory } };
   }
 
   /**
@@ -820,6 +865,8 @@ export class HopeGateway {
     if (m === 'POST' && pathname === '/v1/companion/portrait') return await this.handlePortraitRequest(body);
     // --- Companion scene/loop. Same public posture as chat and portrait.
     if (m === 'POST' && pathname === '/v1/companion/scene') return await this.handleSceneRequest(body);
+    // --- Companion memory. Read-only; same public posture as chat/portrait/scene.
+    if (m === 'GET' && pathname === '/v1/companion/memory') return this.handleCompanionMemoryGet(query.get('companionId'));
     return { status: 404, body: { error: `no route for ${m} ${pathname}` } };
   }
 

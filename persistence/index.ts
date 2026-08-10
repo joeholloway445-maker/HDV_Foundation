@@ -11,16 +11,19 @@ export type {
   NodeIdentityRecord,
   SecurityAuditRecord,
   IntentDocumentRecord,
+  CompanionMemoryRecord,
   RequestLogRepository,
   NodeIdentityRepository,
   SecurityAuditRepository,
   IntentArchiveRepository,
+  CompanionMemoryRepository,
 } from './repositories.js';
 export {
   InMemoryRequestLogRepository,
   InMemoryNodeIdentityRepository,
   InMemorySecurityAuditRepository,
   InMemoryIntentArchiveRepository,
+  InMemoryCompanionMemoryRepository,
   newRowId,
 } from './repositories.js';
 
@@ -32,6 +35,7 @@ export {
   PrismaNodeIdentityRepository,
   PrismaSecurityAuditRepository,
   PrismaIntentArchiveRepository,
+  PrismaCompanionMemoryRepository,
   createPrismaRepositories,
 } from './prisma_repos.js';
 export type { PrismaRepositoryBundle, PrismaBundleOptions } from './prisma_repos.js';
