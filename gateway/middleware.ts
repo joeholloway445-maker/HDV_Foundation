@@ -85,6 +85,24 @@ const AUTH_EXEMPT_PATHS = new Set<string>([
   '/v1/auth/login',
   '/v1/auth/logout',
   '/v1/auth/me',
+  // *** '/v1/creator/webhooks/stripe' — READ THIS BEFORE ADDING ANOTHER ENTRY BELOW IT ***
+  //
+  // Stripe calls this route directly, server-to-server, with NO X-HDV-Session and NO
+  // HDV_API_KEY — it cannot present either. This is exempt from THIS app's auth ONLY because
+  // the handler (creator/stripe_webhook.ts's handleStripeWebhook) verifies the `stripe-signature`
+  // header via the Stripe SDK's own `stripe.webhooks.constructEvent()` BEFORE trusting a single
+  // field of the request body; an invalid/missing/forged signature is rejected with 400 and
+  // nothing in the payload is ever read. That cryptographic signature check IS this route's
+  // auth — it is simply a DIFFERENT auth mechanism than the rest of this file, not an absence
+  // of one.
+  //
+  // Every OTHER entry in this set is exempt because it is genuinely a public surface (a form
+  // anonymous visitors submit, a product endpoint with no account system yet). This one is NOT
+  // that — do not treat it as precedent for adding another route here "because it's convenient".
+  // If you're adding a new unauthenticated route, ask: does it independently verify who's
+  // calling it (like this one does), or is it just... open? Only the former belongs here for
+  // that reason.
+  '/v1/creator/webhooks/stripe',
 ]);
 
 /**

@@ -8,41 +8,36 @@
  * `requestVerification` always returns a stub session stuck in `'requires_input'` — there is
  * intentionally NO real ID-check backend wired in this pass. `checkVerificationStatus` starts
  * every creator at `'unverified'` and moves them to `'pending'` once a verification session has
- * been requested; NOTHING in this module (or anywhere else in this codebase) ever moves a
- * creator to `'verified'`. `requestPayout` therefore throws a typed `PayoutBlockedError` (code
- * `'not_verified'`) UNCONDITIONALLY, every single call, regardless of creatorUserId, amount, or
- * how much has accrued in the ledger (creator/handlers.ts's handleGetEarnings) — payouts are
- * unavailable BY CONSTRUCTION, not by a runtime check that could accidentally be satisfied.
+ * been requested; NOTHING in this module ever moves a creator to `'verified'`. `requestPayout`
+ * therefore throws a typed `PayoutBlockedError` (code `'not_verified'`) UNCONDITIONALLY, every
+ * single call, regardless of creatorUserId, amount, or how much has accrued in the ledger
+ * (creator/handlers.ts's handleGetEarnings) — payouts are unavailable BY CONSTRUCTION, not by a
+ * runtime check that could accidentally be satisfied.
  *
- * Real payouts require wiring an actual Stripe Identity + Stripe Connect integration in a
- * FUTURE pass. This stub exists so the product/UI can be built and demoed now — creators can
- * apply, submit personas, and watch earnings accrue — with NO real-money or impersonation risk
- * in the meantime. Do NOT add a bypass, admin override, or "for testing convenience" shortcut
- * here: that would defeat the entire purpose of this file. If a real integration lands, it
- * should REPLACE this stub's `requestPayout` implementation, not route around it.
+ * This stub is now ONE of two implementations of the CreatorPayoutProvider interface
+ * (creator/payout_types.ts) — see creator/payout_stripe_live.ts for a REAL Stripe Identity +
+ * Connect implementation, and creator/payout_factory.ts for the env-driven switch between them
+ * (STRIPE_SECRET_KEY + STRIPE_WEBHOOK_SECRET both configured ⇒ live; otherwise, ALWAYS this
+ * stub — the safe default). This class's behavior is UNCHANGED from before that split: it still
+ * unconditionally throws `PayoutBlockedError` on every `requestPayout` call. The only mechanical
+ * change is that `requestVerification`/`requestPayout` are now `async` (an async function that
+ * always throws still always throws — same behavior, just interface-compatible with the live
+ * implementation, which genuinely needs network round-trips). Do NOT add a bypass, admin
+ * override, or "for testing convenience" shortcut here: that would defeat the entire purpose of
+ * this file. Anyone who has not configured real Stripe keys gets exactly this stub, unconditionally
+ * blocked, forever.
  *
  * Constitution note: this is a commercial/creator-payout surface only. It never routes a
  * RoutingPacket, calls KNOLL/APEX, executes, or creates agents.
  */
 import { randomUUID } from 'node:crypto';
-
-export type VerificationStatus = 'unverified' | 'pending' | 'verified';
-export type VerificationSessionStatus = 'requires_input' | 'processing' | 'verified' | 'rejected';
-
-/** A stub Stripe Identity VerificationSession — the fields callers read from a real one. */
-export interface VerificationSession {
-  id: string;
-  object: 'identity.verification_session';
-  creatorUserId: string;
-  /** ALWAYS 'requires_input' in this build — see the module doc comment. */
-  status: VerificationSessionStatus;
-  /** false in test mode, true when a `sk_live_…` key is configured (mirrors StripeCheckoutStub). */
-  livemode: boolean;
-  /** Hosted stub verification URL the client would redirect to for a real Stripe Identity flow. */
-  url: string;
-  /** Epoch ms created. */
-  createdAt: number;
-}
+import type {
+  CreatorPayoutProvider,
+  PayoutResult,
+  VerificationSession,
+  VerificationStatus,
+} from './payout_types.js';
+export type { VerificationStatus, VerificationSession, VerificationSessionStatus } from './payout_types.js';
 
 /** Thrown by `requestPayout` whenever a creator's verificationStatus isn't 'verified' — i.e.
  *  always, in this build. See the module doc comment. */
@@ -76,7 +71,7 @@ export interface CreatorPayoutStubOptions {
  * The Stripe Identity + Connect stub. See the module doc comment: `requestPayout` is the
  * unconditional safety gate — it cannot be made to succeed by anything in this codebase today.
  */
-export class CreatorPayoutStub {
+export class CreatorPayoutStub implements CreatorPayoutProvider {
   readonly livemode: boolean;
   /** True when SOME Stripe secret key (test or live) is configured. Purely cosmetic here (no
    *  network call is ever made either way) — mirrors StripeCheckoutStub's `configured` flag. */
@@ -99,9 +94,10 @@ export class CreatorPayoutStub {
    * `'requires_input'` — it never auto-completes, because there is no real ID-check backend
    * wired in this pass. Moves the creator's stored status to `'pending'` (from `'unverified'`)
    * so `checkVerificationStatus` reflects "a request is in flight"; this can NEVER progress to
-   * `'verified'` through any code path here.
+   * `'verified'` through any code path here. `async` for CreatorPayoutProvider compatibility
+   * only — the body performs no network I/O and resolves synchronously.
    */
-  requestVerification(creatorUserId: string, now: number = Date.now()): VerificationSession {
+  async requestVerification(creatorUserId: string, now: number = Date.now()): Promise<VerificationSession> {
     const id = requireNonEmpty(creatorUserId, 'creatorUserId');
     if (this.statuses.get(id) !== 'verified') {
       this.statuses.set(id, 'pending');
@@ -120,7 +116,8 @@ export class CreatorPayoutStub {
   }
 
   /** Read back the stub's stored verification status for a creator. Starts 'unverified' for a
-   *  creator who has never called `requestVerification`. */
+   *  creator who has never called `requestVerification`. Synchronous — see the interface doc
+   *  comment (creator/payout_types.ts) on why this method stays a cheap, local read. */
   checkVerificationStatus(creatorUserId: string): VerificationStatus {
     return this.statuses.get(creatorUserId) ?? 'unverified';
   }
@@ -129,9 +126,11 @@ export class CreatorPayoutStub {
    * THE SAFETY GATE. Throws `PayoutBlockedError` (code 'not_verified') unconditionally — every
    * creator's status is either 'unverified' or 'pending' in this build (never 'verified'), so
    * every call to this method throws, regardless of `amountUsd` or how much has accrued. See
-   * the module doc comment; do not weaken this.
+   * the module doc comment; do not weaken this. `async` (returns `Promise<never>`, assignable to
+   * CreatorPayoutProvider's `Promise<PayoutResult>`) for interface compatibility only — an async
+   * function that always throws still always throws; there is no behavior change here.
    */
-  requestPayout(creatorUserId: string, amountUsd: number): never {
+  async requestPayout(creatorUserId: string, amountUsd: number): Promise<PayoutResult> {
     const id = requireNonEmpty(creatorUserId, 'creatorUserId');
     if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
       throw new PayoutStubError('amountUsd must be a positive number');

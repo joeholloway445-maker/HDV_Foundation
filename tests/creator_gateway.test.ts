@@ -12,12 +12,22 @@
  *      companion/handlers.ts actually works over real HTTP, not just in isolation.
  *   E. POST /v1/creator/verification + POST /v1/creator/payout — payout ALWAYS 403s (THE safety
  *      gate), even after requesting verification and even with a large accrued balance.
+ *   F. POST /v1/creator/webhooks/stripe wiring over REAL HTTP: reachable with NO
+ *      X-HDV-Session/HDV_API_KEY even when an operator key is configured (it's auth-exempt, but
+ *      gated by Stripe's signature instead); 503s when the gateway's payout provider is the
+ *      default stub (Stripe not configured); and, with a live provider (fake stripeClient — no
+ *      real network) injected, proves the RAW request body actually reaches
+ *      stripe.webhooks.constructEvent unmodified end-to-end through node:http.
  *
  * Run: node --import tsx --test tests/creator_gateway.test.ts   (or the full suite: npm test)
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
+import type Stripe from 'stripe';
+
+import { CreatorPayoutStripeLive } from '../creator/index.js';
+import { InMemoryCreatorProfileRepository } from '../persistence/index.js';
 
 import { HopeGateway } from '../gateway/index.js';
 import type { CompleteOptions, CompletionResult, LlmProvider } from '../providers/types.js';
@@ -289,7 +299,7 @@ test('POST /v1/creator/verification starts a stub session; POST /v1/creator/payo
     assert.equal(payout.status, 403);
     const payoutBody = (await payout.json()) as { code: string; error: string };
     assert.equal(payoutBody.code, 'not_verified');
-    assert.match(payoutBody.error, /identity verification required/i);
+    assert.match(payoutBody.error, /not identity-verified/i);
 
     // Requesting verification AGAIN does not change the outcome — still unconditionally blocked.
     await fetch(`${base}/v1/creator/verification`, { method: 'POST', headers });
@@ -299,5 +309,114 @@ test('POST /v1/creator/verification starts a stub session; POST /v1/creator/payo
       body: JSON.stringify({ amountUsd: 999999 }),
     });
     assert.equal(stillBlocked.status, 403);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F. POST /v1/creator/webhooks/stripe — gateway wiring over real HTTP
+// ---------------------------------------------------------------------------
+
+/** Minimal fake Stripe client — only `webhooks.constructEvent` is exercised by these tests. */
+function makeFakeStripeForWebhook(constructEvent: (raw: unknown, sig: unknown, secret: unknown) => Stripe.Event): Stripe {
+  return {
+    webhooks: { constructEvent },
+    accounts: { create: async () => ({ id: 'acct_x' }), retrieve: async (id: string) => ({ id, payouts_enabled: true }) },
+    identity: {
+      verificationSessions: {
+        create: async () => ({ id: 'vs_x', status: 'requires_input', url: 'https://x' }),
+        retrieve: async (id: string) => ({ id, status: 'verified' }),
+      },
+    },
+    accountLinks: { create: async () => ({ url: 'https://x' }) },
+    transfers: { create: async () => ({ id: 'tr_x' }) },
+  } as unknown as Stripe;
+}
+
+test('POST /v1/creator/webhooks/stripe is reachable with NO X-HDV-Session/HDV_API_KEY even when an operator key IS configured — but 503s because the default gateway has no live Stripe provider', async () => {
+  const gw = new HopeGateway({
+    security: { apiKey: 'operator-secret', rateLimit: 1000, authRateLimit: 1000 },
+    logger: false,
+  });
+  await withServer(gw, async (base) => {
+    const res = await fetch(`${base}/v1/creator/webhooks/stripe`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'stripe-signature': 'whatever' },
+      body: JSON.stringify({ type: 'account.updated' }),
+    });
+    // NOT 401 — this route is auth-exempt from X-HDV-Key/X-HDV-Session (see
+    // gateway/middleware.ts's AUTH_EXEMPT_PATHS). 503 because Stripe isn't configured on this
+    // gateway (the default CreatorPayoutStub is wired, not a CreatorPayoutStripeLive).
+    assert.equal(res.status, 503);
+    const body = (await res.json()) as { error: string };
+    assert.match(body.error, /not configured/i);
+  });
+});
+
+test('POST /v1/creator/webhooks/stripe threads the RAW request body through to stripe.webhooks.constructEvent unmodified, over real HTTP, with no auth headers at all', async () => {
+  const repo = new InMemoryCreatorProfileRepository();
+  let receivedRaw: Buffer | string | undefined;
+  let receivedSig: unknown;
+  const stripeClient = makeFakeStripeForWebhook((raw, sig) => {
+    receivedRaw = raw as Buffer;
+    receivedSig = sig;
+    return {
+      id: 'evt_1',
+      type: 'identity.verification_session.verified',
+      data: { object: { id: 'vs_1', metadata: { creatorUserId: 'gateway-creator' } } },
+    } as unknown as Stripe.Event;
+  });
+  const live = new CreatorPayoutStripeLive({
+    secretKey: 'sk_test_fake',
+    webhookSecret: 'whsec_fake',
+    stripeClient,
+    creatorProfileRepository: repo,
+  });
+
+  const gw = new HopeGateway({
+    security: { apiKey: 'operator-secret', rateLimit: 1000, authRateLimit: 1000 },
+    creatorPayoutProvider: live,
+    logger: false,
+  });
+
+  await withServer(gw, async (base) => {
+    const payload = JSON.stringify({ type: 'identity.verification_session.verified' });
+    const res = await fetch(`${base}/v1/creator/webhooks/stripe`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'stripe-signature': 'test-signature-abc' },
+      body: payload,
+    });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { received: boolean; type: string };
+    assert.equal(body.received, true);
+    assert.equal(body.type, 'identity.verification_session.verified');
+
+    // The exact bytes sent must be what constructEvent saw — no JSON re-parsing/re-serialization.
+    assert.equal(receivedRaw?.toString('utf8'), payload);
+    assert.equal(receivedSig, 'test-signature-abc');
+
+    assert.equal(live.checkVerificationStatus('gateway-creator'), 'verified');
+  });
+});
+
+test('POST /v1/creator/webhooks/stripe with a bad signature (constructEvent throws) returns 400 over real HTTP, no auth headers needed', async () => {
+  const repo = new InMemoryCreatorProfileRepository();
+  const stripeClient = makeFakeStripeForWebhook(() => {
+    throw new Error('No signatures found matching the expected signature for payload');
+  });
+  const live = new CreatorPayoutStripeLive({
+    secretKey: 'sk_test_fake',
+    webhookSecret: 'whsec_fake',
+    stripeClient,
+    creatorProfileRepository: repo,
+  });
+  const gw = new HopeGateway({ creatorPayoutProvider: live, security: { rateLimit: 1000 }, logger: false });
+
+  await withServer(gw, async (base) => {
+    const res = await fetch(`${base}/v1/creator/webhooks/stripe`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'stripe-signature': 'forged' },
+      body: JSON.stringify({ type: 'identity.verification_session.verified' }),
+    });
+    assert.equal(res.status, 400);
   });
 });

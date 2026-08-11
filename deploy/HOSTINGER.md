@@ -16,6 +16,7 @@ Companion files in this folder:
 - [`nginx.conf.sample`](./nginx.conf.sample) — nginx reverse-proxy alternative.
 - [`hdv-gateway.service`](./hdv-gateway.service) — systemd unit for the bare-metal (no Docker) path.
 - [`OLLAMA.md`](./OLLAMA.md) — running a local 7B/8B model on the same VPS and wiring BYOK.
+- [`STRIPE_CONNECT_SETUP.md`](./STRIPE_CONNECT_SETUP.md) — turning on real creator payouts (plain-English, no dev background needed); see §0.1 below for what it changes.
 
 ---
 
@@ -47,30 +48,55 @@ server (no framework) that exposes:
 | POST   | `/v1/creator/apply` | Become (or update) a creator — `{ displayName, bio? }` (requires `X-HDV-Session`; **not** auth-exempt from `HDV_API_KEY`; see `creator/`) |
 | POST   | `/v1/creator/persona` | Submit/update a creator persona — `{ personaId, displayName, description?, referencePhotoUrls? }`, `409` if `personaId` is claimed by another creator (requires `X-HDV-Session`) |
 | GET    | `/v1/creator/earnings` | Accrued balance + verification status; `payoutAvailable` is always `false` (requires `X-HDV-Session`; see §0.1 below) |
-| POST   | `/v1/creator/verification` | Start the stub identity-verification flow — always `requires_input` (requires `X-HDV-Session`) |
-| POST   | `/v1/creator/payout` | Request a payout — **always `403`** in this build, by design (requires `X-HDV-Session`; see §0.1 below) |
+| POST   | `/v1/creator/verification` | Start identity verification + Connect onboarding — stub (`requires_input`) unless Stripe is configured, then real (requires `X-HDV-Session`; see §0.1 below) |
+| POST   | `/v1/creator/payout` | Request a payout — blocked unless Stripe is configured, and even then gated by a live Stripe recheck (requires `X-HDV-Session`; see §0.1 below) |
+| POST   | `/v1/creator/webhooks/stripe` | Stripe's own callback (Identity + Connect events) — **no** `X-HDV-Session`/`HDV_API_KEY`, gated entirely by the `stripe-signature` header; see §0.1 below |
 
 It binds `PORT` (default `8787`) on loopback; a reverse proxy (Caddy or nginx)
 terminates TLS on `443` and forwards to it.
 
-### 0.1 Creator marketplace payouts are intentionally stubbed
+### 0.1 Creator marketplace payouts: stubbed by default, real when Stripe is configured
 
 The `/v1/creator/*` routes back the fucklike.me pivot (real people turn themselves into an AI
 companion persona and earn when it's used — `fucklike.ai`'s fully-fictional companion product
-is untouched). **`POST /v1/creator/payout` always returns `403` in this build** — this is
-correct, expected behavior, not a bug to work around. No real Stripe Identity + Stripe Connect
-integration exists yet (`creator/payout_stub.ts`), so a creator's `verificationStatus` can never
-reach `'verified'` through any code path, and payouts are blocked **by construction** rather
-than by a runtime check that could accidentally be satisfied. Earnings still accrue normally
-(`GET /v1/creator/earnings`) so the product/UI can be built and demoed now, with zero
-real-money or impersonation risk, ahead of that future integration. Do not "fix" the 403 by
-adding a bypass, admin override, or test key — wire a real Stripe Identity + Connect
-integration instead when that pass is ready.
+is untouched). Payouts have **two modes**, selected automatically by whether Stripe is
+configured (`creator/payout_factory.ts`) — see [`STRIPE_CONNECT_SETUP.md`](./STRIPE_CONNECT_SETUP.md)
+for the one-time setup steps.
 
-Unlike the `companion/` product routes above, `/v1/creator/*` is **not** in
-`AUTH_EXEMPT_PATHS` (`gateway/middleware.ts`): every call needs a valid `X-HDV-Session` bearer
-token (same lookup `GET /v1/auth/me` uses) AND, when `HDV_API_KEY` is configured, the operator
-key too — the two checks are independent and both must pass.
+**Mode 1 — unconfigured (the default, zero setup required).** `STRIPE_SECRET_KEY` and/or
+`STRIPE_WEBHOOK_SECRET` are unset. **`POST /v1/creator/payout` always returns `403`** — this is
+correct, expected behavior, not a bug to work around. No real Stripe Identity + Stripe Connect
+integration is wired in this mode (`creator/payout_stub.ts`), so a creator's `verificationStatus`
+can never reach `'verified'` through any code path, and payouts are blocked **by construction**
+rather than by a runtime check that could accidentally be satisfied. Earnings still accrue
+normally (`GET /v1/creator/earnings`) so the product/UI can be built and demoed now, with zero
+real-money or impersonation risk. This is identical to the gateway's behavior before real Stripe
+Identity + Connect support existed at all — nothing changes for an operator who hasn't set these
+two env vars. Do not "fix" the 403 by adding a bypass, admin override, or test key.
+
+**Mode 2 — configured.** Both `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` are set. The
+gateway wires a real Stripe Identity + Connect provider (`creator/payout_stripe_live.ts`):
+`POST /v1/creator/verification` creates a genuine Stripe Identity VerificationSession and Stripe
+Connect Express account; a creator only ever reaches `'verified'` via a genuine, signature-
+verified Stripe webhook event landing at `POST /v1/creator/webhooks/stripe`
+(`creator/stripe_webhook.ts`) — never through any client-callable route. Even then,
+`POST /v1/creator/payout` does **not** trust that cached status: immediately before creating any
+real transfer, it re-checks Stripe **live**, first-hand, that the creator's identity is verified
+AND their Connect account has `payouts_enabled` — this defense-in-depth means a bug anywhere in
+the webhook/cache-update path can never, by itself, let an unverified creator get paid.
+
+`POST /v1/creator/webhooks/stripe` carries **no** `X-HDV-Session`/`HDV_API_KEY` — Stripe calls it
+directly and cannot present either. Its entire security boundary is the `stripe-signature`
+header, cryptographically verified via the Stripe SDK's own `stripe.webhooks.constructEvent()`
+before a single field of the request body is trusted. This is the ONE exception to the auth
+posture below; it is **not** a precedent for adding other unauthenticated routes — see the loud
+comment next to it in `gateway/middleware.ts`'s `AUTH_EXEMPT_PATHS`.
+
+Unlike the `companion/` product routes above, the client-facing `/v1/creator/*` routes (apply,
+persona, earnings, verification, payout) are **not** in `AUTH_EXEMPT_PATHS`
+(`gateway/middleware.ts`): every call needs a valid `X-HDV-Session` bearer token (same lookup
+`GET /v1/auth/me` uses) AND, when `HDV_API_KEY` is configured, the operator key too — the two
+checks are independent and both must pass.
 
 **Recommended KVM4 sizing.** KVM4 (≈4 vCPU / 16 GB RAM / 200 GB NVMe) comfortably runs
 the gateway + Postgres + Redis with headroom. If you also run **Ollama with a 7B–8B

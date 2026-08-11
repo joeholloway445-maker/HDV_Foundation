@@ -573,6 +573,10 @@ export class PrismaCreatorProfileRepository implements CreatorProfileRepository 
         bio: r.bio ?? undefined,
         verificationStatus: r.verificationStatus as CreatorProfileRecord['verificationStatus'],
         createdAt: r.createdAt.getTime(),
+        stripeAccountId: r.stripeAccountId ?? undefined,
+        stripeVerificationSessionId: r.stripeVerificationSessionId ?? undefined,
+        verificationStatusCache:
+          (r.verificationStatusCache as CreatorProfileRecord['verificationStatusCache']) ?? undefined,
       });
     }
   }
@@ -587,11 +591,17 @@ export class PrismaCreatorProfileRepository implements CreatorProfileRepository 
           displayName: record.displayName,
           bio: record.bio ?? null,
           verificationStatus: record.verificationStatus,
+          stripeAccountId: record.stripeAccountId ?? null,
+          stripeVerificationSessionId: record.stripeVerificationSessionId ?? null,
+          verificationStatusCache: record.verificationStatusCache ?? null,
         },
         update: {
           displayName: record.displayName,
           bio: record.bio ?? null,
           verificationStatus: record.verificationStatus,
+          stripeAccountId: record.stripeAccountId ?? null,
+          stripeVerificationSessionId: record.stripeVerificationSessionId ?? null,
+          verificationStatusCache: record.verificationStatusCache ?? null,
         },
       });
     });

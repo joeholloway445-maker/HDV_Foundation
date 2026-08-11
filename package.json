@@ -2,7 +2,7 @@
   "name": "big5-matrix",
   "version": "0.9.1",
   "private": true,
-  "description": "Big 5 Agent Hierarchy (HDV Foundation) \u2014 Hope/Dream/Vision/KNOLL/APEX matrix. Strict separation of concerns.",
+  "description": "Big 5 Agent Hierarchy (HDV Foundation) — Hope/Dream/Vision/KNOLL/APEX matrix. Strict separation of concerns.",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -37,7 +37,7 @@
     "test:mcp": "node --import tsx --test tests/mcp.test.ts",
     "plan": "node -e \"const fs=require('fs'),path=require('path');const p=path.resolve('docs/MASTER_PLAN.md');console.error('HDV Foundation MASTER PLAN: '+p+'\\n');try{process.stdout.write(fs.readFileSync(p,'utf8'));}catch(e){console.error('Could not read the file. Open it directly: '+p);process.exit(1);}\"",
     "showcase": "node -e \"const p=require('path').resolve('showcase/index.html');console.log('HDV Foundation showcase (static, no build step).');console.log('Open in a browser:');console.log('  open '+p+'   # macOS');console.log('  xdg-open '+p+' # Linux');console.log('Or serve it (no new deps): npx serve showcase');\"",
-    "marketing": "node -e \"const p=require('path').resolve('marketing/index.html');console.log('HDV Foundation marketing landing page (static, self-contained, no build step).');console.log('Open in a browser:');console.log('  open '+p+'   # macOS');console.log('  xdg-open '+p+' # Linux');console.log('Or serve it (no new deps): npx serve marketing');console.log('Deploy notes: deploy/HOSTINGER.md \u00b7 GTM: docs/GTM.md');\"",
+    "marketing": "node -e \"const p=require('path').resolve('marketing/index.html');console.log('HDV Foundation marketing landing page (static, self-contained, no build step).');console.log('Open in a browser:');console.log('  open '+p+'   # macOS');console.log('  xdg-open '+p+' # Linux');console.log('Or serve it (no new deps): npx serve marketing');console.log('Deploy notes: deploy/HOSTINGER.md · GTM: docs/GTM.md');\"",
     "waitlist": "node -e \"const p=require('path').resolve('marketing/waitlist.html');console.log('HDV Foundation launch waitlist page (static, self-contained).');console.log('Form POSTs to the gateway at /v1/waitlist (public, rate-limited).');console.log('Open in a browser:');console.log('  open '+p+'   # macOS');console.log('  xdg-open '+p+' # Linux');console.log('Preview against a remote gateway: waitlist.html?api=https://your-gateway');\"",
     "bootstrap:hostinger": "bash deploy/bootstrap_hostinger.sh",
     "verify:public": "bash scripts/verify_public.sh",
@@ -71,14 +71,14 @@
     "test:math": "node --import tsx --test tests/math_engines.test.ts",
     "test:reflected": "node --import tsx --test tests/reflected_hope.test.ts",
     "test:legal": "node --import tsx --test tests/legal_gates.test.ts",
-    "test:creator": "node --import tsx --test tests/creator.test.ts tests/creator_gateway.test.ts",
-    "app:hope": "node -e \"const p=require('path').resolve('hope/app/index.html');console.log('HOPE live app (static, no build; talks ONLY to the gateway /v1).');console.log('1) start the gateway:  npm run gateway');console.log('2) serve this folder:  npx serve hope/app   (or: python3 -m http.server 8080 --directory hope/app)');console.log('3) open, pointing at the gateway:  http://localhost:3000/?api=http://localhost:8787');console.log('File: '+p+'   \u00b7   Serve note: hope/app/README.md');\"",
+    "test:creator": "node --import tsx --test tests/creator.test.ts tests/creator_gateway.test.ts tests/creator_payout_live.test.ts tests/creator_webhook.test.ts",
+    "app:hope": "node -e \"const p=require('path').resolve('hope/app/index.html');console.log('HOPE live app (static, no build; talks ONLY to the gateway /v1).');console.log('1) start the gateway:  npm run gateway');console.log('2) serve this folder:  npx serve hope/app   (or: python3 -m http.server 8080 --directory hope/app)');console.log('3) open, pointing at the gateway:  http://localhost:3000/?api=http://localhost:8787');console.log('File: '+p+'   ·   Serve note: hope/app/README.md');\"",
     "openapi": "node -e \"const p=require('path').resolve('docs/openapi.yaml');console.log('HDV gateway OpenAPI spec (main /v1 routes): '+p);console.log('Typed client: packages/sdk (@big5-matrix/sdk)');\"",
     "queue:kafka:deps": "npm install kafkajs",
     "queue:kafka:up": "docker compose up -d kafka",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
-    "test": "node --import tsx --test tests/backbone.test.ts tests/phase2.test.ts tests/phase3.test.ts tests/phase4.test.ts tests/dream_energy.test.ts tests/persistence_prisma.test.ts tests/gateway_auth.test.ts tests/health_deep.test.ts tests/hope_ui.test.ts tests/vision_sandbox.test.ts tests/vision_gvisor.test.ts tests/providers.test.ts tests/observability.test.ts tests/mcp.test.ts tests/tenancy.test.ts tests/billing.test.ts tests/auth.test.ts tests/eval.test.ts tests/market.test.ts tests/companion_chat.test.ts tests/companion_chat_stream.test.ts tests/companion_memory.test.ts tests/companion_portrait.test.ts tests/image_providers.test.ts tests/companion_scene.test.ts tests/video_providers.test.ts tests/companion_speak.test.ts tests/tts_providers.test.ts tests/phase5_queue.test.ts tests/worker_report.test.ts tests/worker_job.test.ts tests/phase6.test.ts tests/phase7.test.ts tests/phase8.test.ts tests/holloway.test.ts tests/knoll_freeze.test.ts tests/triad_duty.test.ts tests/math_engines.test.ts tests/reflected_hope.test.ts tests/legal_gates.test.ts tests/creator.test.ts tests/creator_gateway.test.ts",
+    "test": "node --import tsx --test tests/backbone.test.ts tests/phase2.test.ts tests/phase3.test.ts tests/phase4.test.ts tests/dream_energy.test.ts tests/persistence_prisma.test.ts tests/gateway_auth.test.ts tests/health_deep.test.ts tests/hope_ui.test.ts tests/vision_sandbox.test.ts tests/vision_gvisor.test.ts tests/providers.test.ts tests/observability.test.ts tests/mcp.test.ts tests/tenancy.test.ts tests/billing.test.ts tests/auth.test.ts tests/eval.test.ts tests/market.test.ts tests/companion_chat.test.ts tests/companion_chat_stream.test.ts tests/companion_memory.test.ts tests/companion_portrait.test.ts tests/image_providers.test.ts tests/companion_scene.test.ts tests/video_providers.test.ts tests/companion_speak.test.ts tests/tts_providers.test.ts tests/phase5_queue.test.ts tests/worker_report.test.ts tests/worker_job.test.ts tests/phase6.test.ts tests/phase7.test.ts tests/phase8.test.ts tests/holloway.test.ts tests/knoll_freeze.test.ts tests/triad_duty.test.ts tests/math_engines.test.ts tests/reflected_hope.test.ts tests/legal_gates.test.ts tests/creator.test.ts tests/creator_gateway.test.ts tests/creator_payout_live.test.ts tests/creator_webhook.test.ts",
     "test:holloway": "node --import tsx --test tests/holloway.test.ts",
     "test:triad": "node --import tsx --test tests/triad_duty.test.ts",
     "python:demo": "python3 personamatrix/demo.py",
@@ -108,6 +108,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@prisma/client": "^6.19.3",
-    "kafkajs": "^2.2.4"
+    "kafkajs": "^2.2.4",
+    "stripe": "^22.5.0"
   }
 }

@@ -21,8 +21,8 @@ import type {
   CreatorProfileRepository,
   LikenessUsageEventRepository,
 } from '../persistence/repositories.js';
-import { CreatorPayoutStub, PayoutBlockedError, PayoutStubError } from './payout_stub.js';
-import type { VerificationStatus } from './payout_stub.js';
+import { PayoutBlockedError, PayoutStubError } from './payout_stub.js';
+import type { CreatorPayoutProvider, VerificationStatus } from './payout_types.js';
 import {
   CreatorValidationError,
   LIKENESS_RATE_USD,
@@ -42,9 +42,11 @@ export interface CreatorHandlerOptions {
   creatorProfileRepository?: CreatorProfileRepository;
   creatorPersonaRepository?: CreatorPersonaRepository;
   likenessUsageRepository?: LikenessUsageEventRepository;
-  /** Optional Stripe Identity + Connect stub (creator/payout_stub.ts). Required for
-   *  verification/payout endpoints; earnings/apply/persona work without it. */
-  payoutStub?: CreatorPayoutStub;
+  /** Optional Stripe Identity + Connect provider — either the safe stub (creator/payout_stub.ts,
+   *  the default) or the real implementation (creator/payout_stripe_live.ts), selected by
+   *  creator/payout_factory.ts. Required for verification/payout endpoints; earnings/apply/
+   *  persona work without it. */
+  payoutProvider?: CreatorPayoutProvider;
   /** Injectable clock (tests: deterministic createdAt). Defaults to Date.now. */
   now?: () => number;
 }
@@ -157,8 +159,8 @@ export interface EarningsResponse {
  */
 export function handleGetEarnings(creatorUserId: string, options: CreatorHandlerOptions = {}): CreatorResponse {
   const accruedUsd = options.likenessUsageRepository?.sumAccruedUsd(creatorUserId) ?? 0;
-  const verificationStatus: VerificationStatus = options.payoutStub
-    ? options.payoutStub.checkVerificationStatus(creatorUserId)
+  const verificationStatus: VerificationStatus = options.payoutProvider
+    ? options.payoutProvider.checkVerificationStatus(creatorUserId)
     : (options.creatorProfileRepository?.get(creatorUserId)?.verificationStatus ?? 'unverified');
 
   const earnings: EarningsResponse = { accruedUsd, verificationStatus, payoutAvailable: false };
@@ -166,32 +168,37 @@ export function handleGetEarnings(creatorUserId: string, options: CreatorHandler
 }
 
 /**
- * POST /v1/creator/verification — kick off the stub identity-verification flow for the
- * authenticated creator. Thin wrapper over creator/payout_stub.ts's requestVerification; always
- * returns a session stuck in 'requires_input' — see that module's doc comment.
+ * POST /v1/creator/verification — kick off the identity-verification flow for the authenticated
+ * creator. Thin wrapper over the injected CreatorPayoutProvider's requestVerification. With the
+ * default stub (creator/payout_stub.ts), always returns a session stuck in 'requires_input' —
+ * see that module's doc comment. With the real provider (creator/payout_stripe_live.ts), this
+ * makes real Stripe API calls — hence `async`.
  */
-export function handleRequestVerification(
+export async function handleRequestVerification(
   creatorUserId: string,
   options: CreatorHandlerOptions = {},
-): CreatorResponse {
-  if (!options.payoutStub) {
+): Promise<CreatorResponse> {
+  if (!options.payoutProvider) {
     return { status: 503, body: { error: 'identity verification is not configured on this server' } };
   }
-  const verification = options.payoutStub.requestVerification(creatorUserId);
+  const verification = await options.payoutProvider.requestVerification(creatorUserId);
   return { status: 200, body: { verification } };
 }
 
 /**
- * POST /v1/creator/payout — thin wrapper over creator/payout_stub.ts's requestPayout. THIS
- * ALWAYS 403s in this build — that is correct, expected behavior (see creator/payout_stub.ts):
- * no creator can ever reach 'verified' yet, so every payout request is blocked by construction.
+ * POST /v1/creator/payout — thin wrapper over the injected CreatorPayoutProvider's
+ * requestPayout. With the default stub (creator/payout_stub.ts) this ALWAYS 403s — that is
+ * correct, expected behavior: no creator can ever reach 'verified' through the stub, so every
+ * payout request is blocked by construction. With the real provider
+ * (creator/payout_stripe_live.ts), this re-checks Stripe LIVE before ever moving money — see
+ * that module's doc comment for the defense-in-depth this route relies on. `async` either way.
  */
-export function handleRequestPayout(
+export async function handleRequestPayout(
   creatorUserId: string,
   body: unknown,
   options: CreatorHandlerOptions = {},
-): CreatorResponse {
-  if (!options.payoutStub) {
+): Promise<CreatorResponse> {
+  if (!options.payoutProvider) {
     return { status: 503, body: { error: 'payouts are not configured on this server' } };
   }
 
@@ -206,16 +213,14 @@ export function handleRequestPayout(
   }
 
   try {
-    options.payoutStub.requestPayout(creatorUserId, amountUsd);
-    // Unreachable in this build (requestPayout always throws — see creator/payout_stub.ts), but
-    // typed so a future real integration has a documented success shape to land into.
-    return { status: 200, body: { ok: true } };
+    const result = await options.payoutProvider.requestPayout(creatorUserId, amountUsd);
+    return { status: 200, body: { ok: true, payout: result } };
   } catch (err) {
     if (err instanceof PayoutBlockedError) {
       return {
         status: 403,
         body: {
-          error: 'identity verification required before payout — none exists yet in this build',
+          error: err.message,
           code: err.code,
         },
       };
