@@ -26,6 +26,15 @@ export interface GenerateImageOptions {
    * are free to ignore it.
    */
   style?: string;
+  /**
+   * Optional stable persona identifier (e.g. "jordyn"), passed through from
+   * companion/portrait_types.ts's PortraitPersona.personaId. Providers that support
+   * per-character LoRAs (e.g. colab/07_portrait_server.py's PERSONA_LORA_ROUTES) use this to
+   * layer a character-specific LoRA on top of the style's base checkpoint, so the SAME persona
+   * generates with a consistent likeness across requests instead of a generic style face.
+   * Providers without per-character LoRAs are free to ignore it and fall back to `style` alone.
+   */
+  personaId?: string;
   /** Things to steer the image away from (not all providers support this). */
   negativePrompt?: string;
   /** Output width in pixels. */

@@ -13,8 +13,8 @@
 # ColabTunnelImageProvider expects (providers/colab_tunnel_image.ts):
 #
 #   POST /generate
-#   body: { "prompt": str, "style"?: str, "negative_prompt"?: str, "width"?: int,
-#           "height"?: int, "steps"?: int, "seed"?: int }
+#   body: { "prompt": str, "style"?: str, "persona_id"?: str, "negative_prompt"?: str,
+#           "width"?: int, "height"?: int, "steps"?: int, "seed"?: int }
 #   200 -> { "image_base64": str, "mime_type": "image/png", "model": str }
 #
 # `style` (from PortraitPersona.style -- FuckLike/web's own "Realistic" / "Anime" create-form
@@ -22,6 +22,13 @@
 # SAME pattern as Ollama (deploy/OLLAMA.md): a plain HTTP endpoint the gateway calls. The
 # gateway never knows or cares which checkpoint(s) are loaded here -- that's the whole point
 # of the provider seam (providers/image_types.ts). It never touches APEX/KNOLL/routing.
+#
+# `persona_id` (from PortraitPersona.personaId, e.g. "jordyn") is OPTIONAL and additive: when a
+# trained LoRA is configured for that persona in PERSONA_LORA_ROUTES below, it's layered on top
+# of the style checkpoint INSTEAD of the generic per-style LoRA, so that specific character
+# generates with a consistent trained likeness. See colab/11_train_character_lora.py to produce
+# one from a folder of that character's images (a Grok export works fine as training data).
+# Personas with no trained LoRA yet fall back to the plain per-style behavior, unchanged.
 #
 # MODELS -- v0.3.0 defaults, both verified via the HF Hub API (download/like counts, task tag,
 # base_model lineage), not guessed. Re-check periodically since versions do move on:
@@ -99,6 +106,35 @@ LORA_ROUTES = {
     "anime": os.environ.get("PORTRAIT_LORA_ANIME", "LyliaEngine/Pony_Diffusion_V6_XL"),
 }
 
+# Optional: per-CHARACTER trained LoRAs (HF repo id or direct .safetensors path/URL), keyed by
+# persona_id (see PortraitPersona.personaId / FuckLike/web's PRESETS ids). When a request's
+# persona_id has an entry here, it's used INSTEAD of that style's generic LORA_ROUTES entry --
+# a character LoRA is strictly more specific than a style-wide one. Train one with
+# colab/11_train_character_lora.py, then either paste the resulting HF repo id below or set the
+# matching PORTRAIT_PERSONA_LORA_<ID> env var (upper-cased persona_id) -- either works, the env
+# var takes precedence when both are set. Mirrors the 8 presets in 09_batch_pregenerate.py's
+# PERSONAS; add more keys freely as new companions get their own trained LoRA.
+_PERSONA_LORA_DEFAULTS = {
+    "jordyn": "",
+    "nova": "",
+    "isabella": "",
+    "aria": "",
+    "sofia": "",
+    "mila": "",
+    "elena": "",
+    "kai": "",
+}
+PERSONA_LORA_ROUTES = {
+    persona_id: os.environ.get(f"PORTRAIT_PERSONA_LORA_{persona_id.upper()}", default)
+    for persona_id, default in _PERSONA_LORA_DEFAULTS.items()
+}
+# Also pick up any PORTRAIT_PERSONA_LORA_<ID> env var for a persona_id not in the defaults above
+# (e.g. a custom/user-created companion), so new characters don't need a code change here.
+for _env_key, _env_val in os.environ.items():
+    if _env_key.startswith("PORTRAIT_PERSONA_LORA_") and _env_val:
+        _pid = _env_key[len("PORTRAIT_PERSONA_LORA_"):].lower()
+        PERSONA_LORA_ROUTES.setdefault(_pid, _env_val)
+
 # Shared-secret bearer token this server requires on every request. MUST match
 # HDV_IMAGE_API_KEY in the gateway's .env -- an ngrok URL is public, this is the only lock.
 PORTRAIT_SERVER_TOKEN = os.environ.get("PORTRAIT_SERVER_TOKEN", "change-me-before-going-live")
@@ -111,6 +147,13 @@ PRELOAD_ALL = os.environ.get("PRELOAD_ALL", "0") == "1"
 
 for style, model_id in MODEL_ROUTES.items():
     print(f"{style}: {model_id or '(not set)'}" + (f"  + LoRA {LORA_ROUTES[style]}" if LORA_ROUTES.get(style) else ""))
+_configured_persona_loras = {k: v for k, v in PERSONA_LORA_ROUTES.items() if v}
+if _configured_persona_loras:
+    print("Per-character LoRAs:")
+    for persona_id, lora in _configured_persona_loras.items():
+        print(f"  {persona_id}: {lora}")
+else:
+    print("No per-character LoRAs configured yet -- every persona uses the plain per-style checkpoint/LoRA.")
 
 # %%
 # --- Cell 2: lazy-loading pipeline loader (HF repo id OR a direct .safetensors path/URL) ---
@@ -126,7 +169,15 @@ if DEVICE == "cpu":
 _loaded_pipelines: dict[str, StableDiffusionXLPipeline] = {}
 
 
-def _load_one(style: str) -> StableDiffusionXLPipeline:
+def _cache_key(style: str, persona_id: str | None) -> str:
+    # A persona with its own trained LoRA gets its own cache slot (different weights loaded);
+    # everyone else shares the plain per-style slot, same as before persona LoRAs existed.
+    if persona_id and PERSONA_LORA_ROUTES.get(persona_id):
+        return f"{style}::{persona_id}"
+    return style
+
+
+def _load_one(style: str, persona_id: str | None) -> StableDiffusionXLPipeline:
     model_id = MODEL_ROUTES.get(style)
     if not model_id:
         raise RuntimeError(
@@ -142,40 +193,51 @@ def _load_one(style: str) -> StableDiffusionXLPipeline:
         pipe = StableDiffusionXLPipeline.from_pretrained(model_id, torch_dtype=dtype)
     pipe = pipe.to(DEVICE)
 
-    lora = LORA_ROUTES.get(style)
+    # A character-specific LoRA (when configured) takes priority over the generic style LoRA --
+    # it's strictly more specific to this request's persona. Falls back to the style LoRA/none
+    # otherwise, unchanged from before persona LoRAs existed.
+    persona_lora = PERSONA_LORA_ROUTES.get(persona_id) if persona_id else None
+    lora = persona_lora or LORA_ROUTES.get(style)
     if lora:
         pipe.load_lora_weights(lora)
-        print(f"  + LoRA: {lora}")
+        print(f"  + LoRA: {lora}" + (f"  (persona: {persona_id})" if persona_lora else ""))
 
     print(f"  ready on {DEVICE}")
     return pipe
 
 
-def get_pipeline(style: str) -> StableDiffusionXLPipeline:
+def get_pipeline(style: str, persona_id: str | None = None) -> StableDiffusionXLPipeline:
     """Lazy-load-and-swap by default (VRAM-friendly on a single GPU); PRELOAD_ALL=1 keeps
-    every configured route resident so style switches never pay a reload cost."""
-    if style in _loaded_pipelines:
-        return _loaded_pipelines[style]
+    every configured route resident so style/persona switches never pay a reload cost."""
+    key = _cache_key(style, persona_id)
+    if key in _loaded_pipelines:
+        return _loaded_pipelines[key]
 
     if not PRELOAD_ALL:
         # Evict whatever's currently loaded before loading the new one.
-        for old_style, old_pipe in list(_loaded_pipelines.items()):
+        for old_key, old_pipe in list(_loaded_pipelines.items()):
             del old_pipe
-            del _loaded_pipelines[old_style]
+            del _loaded_pipelines[old_key]
         gc.collect()
         if DEVICE == "cuda":
             torch.cuda.empty_cache()
 
-    _loaded_pipelines[style] = _load_one(style)
-    return _loaded_pipelines[style]
+    _loaded_pipelines[key] = _load_one(style, persona_id)
+    return _loaded_pipelines[key]
 
 
 if PRELOAD_ALL:
     for _style in MODEL_ROUTES:
         if MODEL_ROUTES[_style]:
             get_pipeline(_style)
+    for _pid, _lora in PERSONA_LORA_ROUTES.items():
+        if _lora:
+            # Persona LoRAs assume a "realistic" base unless routed otherwise by a real request;
+            # preload is best-effort warm-up, not authoritative -- the first real request for an
+            # anime-style persona LoRA will still load correctly (just pays the swap cost once).
+            get_pipeline(DEFAULT_STYLE, _pid)
 else:
-    print("Lazy-load-and-swap mode -- the first request for each style will load its checkpoint.")
+    print("Lazy-load-and-swap mode -- the first request for each style/persona will load its checkpoint.")
 
 # %%
 # --- Cell 3: the /generate endpoint -- this IS the ColabTunnelImageProvider contract ---
@@ -191,6 +253,7 @@ app = FastAPI(title="HDV Companion Portrait Server")
 class GenerateRequest(BaseModel):
     prompt: str
     style: str | None = None
+    persona_id: str | None = None
     negative_prompt: str | None = None
     width: int | None = None
     height: int | None = None
@@ -206,7 +269,12 @@ class GenerateResponse(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"ok": True, "routes": {k: bool(v) for k, v in MODEL_ROUTES.items()}, "device": DEVICE}
+    return {
+        "ok": True,
+        "routes": {k: bool(v) for k, v in MODEL_ROUTES.items()},
+        "personaLoras": {k: bool(v) for k, v in PERSONA_LORA_ROUTES.items() if v},
+        "device": DEVICE,
+    }
 
 
 @app.post("/generate", response_model=GenerateResponse)
@@ -219,7 +287,7 @@ def generate(req: GenerateRequest, authorization: str | None = Header(default=No
 
     style = req.style if req.style in MODEL_ROUTES else DEFAULT_STYLE
     try:
-        pipe = get_pipeline(style)
+        pipe = get_pipeline(style, req.persona_id)
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
