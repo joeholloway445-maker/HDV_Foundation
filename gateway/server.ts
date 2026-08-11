@@ -27,6 +27,8 @@ import {
   resolveSecurityConfig,
   clientIp,
   defaultLogger,
+  tenantFromHeaders,
+  rawTenantId,
   type SecurityOverrides,
   type GatewayLogger,
 } from './middleware.js';
@@ -34,7 +36,22 @@ import { ApexOrchestrator } from '../apex/index.js';
 import type {
   RequestLogRepository,
   SecurityAuditRepository,
+  CompanionMemoryRepository,
   TaskQueue,
+  UserRepository,
+  SessionRepository,
+  CreatorProfileRepository,
+  CreatorPersonaRepository,
+  LikenessUsageEventRepository,
+} from '../persistence/index.js';
+import { InMemoryUserRepository, InMemorySessionRepository } from '../persistence/index.js';
+import { AuthService, AuthError } from '../auth/index.js';
+import type { AuthUser } from '../auth/index.js';
+import {
+  InMemoryCompanionMemoryRepository,
+  InMemoryCreatorProfileRepository,
+  InMemoryCreatorPersonaRepository,
+  InMemoryLikenessUsageEventRepository,
 } from '../persistence/index.js';
 import { MetricsCollector, PacketTracer, combineObservers } from '../observability/index.js';
 import { BillingService, isPlanTier, type PlanTier } from '../billing/index.js';
@@ -44,11 +61,29 @@ import { createProviderOrStub } from '../providers/index.js';
 import { SimulationEngine } from '../dream/index.js';
 import { ExecutionEngine } from '../vision/index.js';
 import { WaitlistStore, handleWaitlistSignup, handleWaitlistStats } from '../market/index.js';
-import { handleCompanionChat, handlePortraitRequest, handleSceneRequest } from '../companion/index.js';
+import {
+  handleCompanionChat,
+  handleCompanionChatStream,
+  handlePortraitRequest,
+  handleSceneRequest,
+  defaultCompanionMemory,
+  handleSpeakRequest,
+} from '../companion/index.js';
+import {
+  handleCreatorApply,
+  handleCreatePersona,
+  handleGetEarnings,
+  handleRequestVerification,
+  handleRequestPayout,
+  CreatorPayoutStub,
+} from '../creator/index.js';
 import { createImageProviderOrStub } from '../providers/image_factory.js';
 import type { ImageProvider } from '../providers/image_types.js';
 import { createVideoProviderOrStub } from '../providers/video_factory.js';
 import type { VideoProvider } from '../providers/video_types.js';
+import { createTtsProviderOrStub } from '../providers/tts_factory.js';
+import type { TtsProvider } from '../providers/tts_types.js';
+import { runDeepHealthChecks, type DeepHealthOptions } from './deep_health.js';
 import {
   MANAGERS_PER_AGENT,
   NODES_PER_MANAGER,
@@ -62,6 +97,14 @@ import {
   computeParameterAccounting,
   MODEL_SIZE,
 } from '../nodes/index.js';
+
+/**
+ * POST /v1/companion/chat/stream — the SSE twin of POST /v1/companion/chat. Its own module-level
+ * constant (rather than a literal buried in `serve()`) because it's checked in TWO places: the
+ * `serve()` bypass below, and gateway/middleware.ts's AUTH_EXEMPT_PATHS (same public-but-rate-
+ * limited posture as /v1/companion/chat — no API key, but still rate-limited).
+ */
+export const COMPANION_CHAT_STREAM_PATH = '/v1/companion/chat/stream';
 
 export interface GatewayResponse {
   status: number;
@@ -125,6 +168,33 @@ export interface HopeGatewayOptions {
   requestLog?: RequestLogRepository;
   securityAudit?: SecurityAuditRepository;
   /**
+   * Opt-in companion relationship memory (companion/memory.ts). Threaded through to
+   * handleCompanionChat exactly like `requestLog`/`securityAudit` above: when the caller
+   * (gateway/cli.ts) builds a Prisma-backed repository bundle because DATABASE_URL is set, it
+   * forwards `repositories.companionMemory` here; otherwise this defaults to a fresh in-memory
+   * repository. Memory only ever activates for a given chat call when the CLIENT also supplies
+   * `companionId` — see companion/handlers.ts. Also backs GET /v1/companion/memory.
+   */
+  memoryRepository?: CompanionMemoryRepository;
+  /**
+   * Creator marketplace (creator/) — the fucklike.me pivot: real people turn themselves into an
+   * AI companion persona and earn when it's used. Threaded through to handleCreatorApply and
+   * the companion chat/portrait/scene handlers' fire-and-forget usage attribution exactly like
+   * `memoryRepository` above. Defaults to fresh in-memory repositories when omitted; when the
+   * caller (gateway/cli.ts) builds a Prisma-backed repository bundle because DATABASE_URL is
+   * set, it forwards `repositories.creatorProfile`/`creatorPersona`/`likenessUsageEvent` here.
+   */
+  creatorProfileRepository?: CreatorProfileRepository;
+  creatorPersonaRepository?: CreatorPersonaRepository;
+  likenessUsageRepository?: LikenessUsageEventRepository;
+  /**
+   * Stripe Identity + Connect STUB (creator/payout_stub.ts) backing POST /v1/creator/verification
+   * and POST /v1/creator/payout. Defaults to a fresh CreatorPayoutStub. Payouts are
+   * unconditionally blocked in this pass — see that module's doc comment; this is NOT a place
+   * to inject a bypass.
+   */
+  creatorPayoutStub?: CreatorPayoutStub;
+  /**
    * Phase 5 async intake. When provided (and the gateway builds its own orchestrator), the
    * task queue is wired into the ApexOrchestrator so callers can `intake()` packets and a
    * consumer drains them through the SAME KNOLL-gated dispatch path. Pure transport: it never
@@ -151,6 +221,37 @@ export interface HopeGatewayOptions {
    * (defaults to the offline stub). Pass `false` to force "unavailable" responses.
    */
   videoProvider?: VideoProvider | false;
+  /**
+   * Account/auth layer (auth/) — email+password signup/login and bearer session tokens,
+   * surfaced at POST /v1/auth/{signup,login,logout} and GET /v1/auth/me. Provide a pre-wired
+   * AuthService, or leave it undefined and instead pass `users`/`sessions` repositories (e.g.
+   * Postgres-backed via persistence/factory.ts) — defaults to fresh in-memory repositories.
+   * NOT wired into billing/checkout's tenant resolution in this pass — see the TODO next to
+   * handleBillingCheckout.
+   */
+  auth?: AuthService;
+  /** UserRepository backing the default AuthService. Ignored when `auth` is provided. */
+  users?: UserRepository;
+  /** SessionRepository backing the default AuthService. Ignored when `auth` is provided. */
+  sessions?: SessionRepository;
+  /**
+   * Optional TTS provider for companion speech (audio only — never routes). When omitted, the
+   * gateway builds one from HDV_TTS_* env via createTtsProviderOrStub (defaults to the offline
+   * stub). Pass `false` to force "unavailable" responses (no provider at all).
+   */
+  ttsProvider?: TtsProvider | false;
+  /**
+   * GET /v1/health/deep diagnostics (gateway/deep_health.ts) — per-dependency reachability,
+   * distinct from the always-fast/always-public GET /v1/health. Defaults: `databaseUrl` from
+   * DATABASE_URL, `redisUrl` from REDIS_URL, `timeoutMs` from DEFAULT_DEEP_HEALTH_TIMEOUT_MS.
+   * The LLM/image/video providers checked are whichever the gateway is already using (the same
+   * `provider`/`imageProvider`/`videoProvider` above) — no separate wiring needed. Override
+   * `fetchImpl`/`checkPostgres`/`checkRedis` in tests to avoid real network/DB calls.
+   */
+  deepHealth?: Pick<
+    DeepHealthOptions,
+    'databaseUrl' | 'redisUrl' | 'timeoutMs' | 'fetchImpl' | 'checkPostgres' | 'checkRedis'
+  >;
 }
 
 interface HopeResultRecord {
@@ -174,6 +275,8 @@ export class HopeGateway {
   readonly tracer: PacketTracer;
   /** PRODUCT metering layer surfaced under GET/POST /v1/billing/*. */
   readonly billing: BillingService;
+  /** Account/auth layer surfaced under POST/GET /v1/auth/*. See HopeGatewayOptions.auth. */
+  readonly auth: AuthService;
   /** Launch GTM waitlist surfaced under POST /v1/waitlist and GET /v1/waitlist/stats. */
   readonly waitlist: WaitlistStore;
   /** HOPE intent-summary enricher (heuristic or LLM). Text only — never routes. */
@@ -184,6 +287,23 @@ export class HopeGateway {
    * replies only (still fully functional offline).
    */
   private readonly companionProvider?: LlmProvider;
+  /**
+   * Opt-in companion relationship memory (companion/memory.ts). Defaults to a fresh in-memory
+   * repository when not injected; gateway/cli.ts injects a Prisma-backed one when DATABASE_URL
+   * is set (same wiring as `requestLog`/`securityAudit`). Only ever read/written by a chat call
+   * that ALSO supplies `companionId` — see companion/handlers.ts.
+   */
+  private readonly companionMemory: CompanionMemoryRepository;
+  /**
+   * Creator marketplace repositories (creator/) — defaults to fresh in-memory repositories when
+   * not injected; gateway/cli.ts injects Prisma-backed ones when DATABASE_URL is set (same
+   * wiring as `companionMemory` above). See HopeGatewayOptions for the full doc comment.
+   */
+  private readonly creatorProfileRepository: CreatorProfileRepository;
+  private readonly creatorPersonaRepository: CreatorPersonaRepository;
+  private readonly likenessUsageRepository: LikenessUsageEventRepository;
+  /** Stripe Identity + Connect stub (creator/payout_stub.ts) — see HopeGatewayOptions.creatorPayoutStub. */
+  private readonly creatorPayoutStub: CreatorPayoutStub;
   /**
    * Shared ImageProvider instance used for companion portraits (companion/portrait_*), same
    * env-driven offline-first construction as companionProvider. Undefined ⇒ "unavailable"
@@ -196,8 +316,16 @@ export class HopeGateway {
    * only.
    */
   private readonly videoProvider?: VideoProvider;
+  /**
+   * Shared TtsProvider instance used for companion speech (companion/speak_*), same env-driven
+   * offline-first construction as imageProvider/videoProvider. Undefined ⇒ "unavailable"
+   * response only.
+   */
+  private readonly ttsProvider?: TtsProvider;
   private readonly readLimit: number;
   private readonly logger: GatewayLogger;
+  /** GET /v1/health/deep options (see HopeGatewayOptions.deepHealth doc comment). */
+  private readonly deepHealthOptions: HopeGatewayOptions['deepHealth'];
 
   /** Timestamps of the last time each ephemeral agent produced a result (for idle flags). */
   private readonly lastActive: Partial<Record<AgentRole, number>> = {};
@@ -213,6 +341,15 @@ export class HopeGateway {
     // PRODUCT metering plugs into the SAME read-only observer seam as metrics/tracing, so every
     // gated dispatch is attributed to a tenant allowance without ever touching routing or KNOLL.
     this.billing = options.billing ?? new BillingService();
+    // Account/auth layer: in-memory repositories by default (zero external dependencies,
+    // matching every other repository in persistence/); pass `users`/`sessions` for a
+    // Postgres-backed AuthService, or a fully pre-wired `auth` to override entirely.
+    this.auth =
+      options.auth ??
+      new AuthService({
+        users: options.users ?? new InMemoryUserRepository(),
+        sessions: options.sessions ?? new InMemorySessionRepository(),
+      });
     // Launch waitlist: a standalone GTM capture surface, wholly independent of routing/KNOLL.
     this.waitlist = options.waitlist ?? new WaitlistStore();
     const observer = combineObservers(
@@ -249,7 +386,18 @@ export class HopeGateway {
       options.imageProvider === false ? undefined : options.imageProvider ?? createImageProviderOrStub();
     this.videoProvider =
       options.videoProvider === false ? undefined : options.videoProvider ?? createVideoProviderOrStub();
+    this.companionMemory = options.memoryRepository ?? new InMemoryCompanionMemoryRepository();
+    // Creator marketplace: same offline-first, DATABASE_URL-gated wiring as companionMemory.
+    this.creatorProfileRepository = options.creatorProfileRepository ?? new InMemoryCreatorProfileRepository();
+    this.creatorPersonaRepository = options.creatorPersonaRepository ?? new InMemoryCreatorPersonaRepository();
+    this.likenessUsageRepository = options.likenessUsageRepository ?? new InMemoryLikenessUsageEventRepository();
+    this.creatorPayoutStub = options.creatorPayoutStub ?? new CreatorPayoutStub();
+    // Companion speech: same offline-first construction, independent of the text/image/video
+    // providers (an operator may run Kokoro-82M for speech alongside Ollama for text, etc).
+    this.ttsProvider =
+      options.ttsProvider === false ? undefined : options.ttsProvider ?? createTtsProviderOrStub();
     this.readLimit = options.readLimit ?? 50;
+    this.deepHealthOptions = options.deepHealth;
     this.middleware = new GatewayMiddleware(resolveSecurityConfig(options.security ?? {}));
     this.logger = options.logger === false ? () => {} : options.logger ?? defaultLogger;
 
@@ -442,6 +590,33 @@ export class HopeGateway {
         ephemeral,
         knollGate: 'enforced',
       },
+    };
+  }
+
+  /**
+   * GET /v1/health/deep — per-dependency reachability diagnostics (see gateway/deep_health.ts).
+   * Distinct from GET /v1/health above: this one makes real (bounded, parallel) network calls
+   * to Postgres/Redis/the configured LLM+image+video providers, so it is intentionally
+   * PROTECTED (same posture as GET /v1/matrix/stats — requires the API key when one is
+   * configured) rather than always-public. Never slows down /v1/health, and never hangs: every
+   * check races a shared timeout (default DEFAULT_DEEP_HEALTH_TIMEOUT_MS).
+   */
+  async handleHealthDeep(): Promise<GatewayResponse> {
+    const opts = this.deepHealthOptions;
+    const report = await runDeepHealthChecks({
+      databaseUrl: opts?.databaseUrl ?? nonEmptyEnv('DATABASE_URL'),
+      redisUrl: opts?.redisUrl ?? nonEmptyEnv('REDIS_URL'),
+      llmProvider: this.companionProvider,
+      imageProvider: this.imageProvider,
+      videoProvider: this.videoProvider,
+      timeoutMs: opts?.timeoutMs,
+      fetchImpl: opts?.fetchImpl,
+      checkPostgres: opts?.checkPostgres,
+      checkRedis: opts?.checkRedis,
+    });
+    return {
+      status: report.ok ? 200 : 503,
+      body: { ok: report.ok, checks: report.checks, timestamp: report.timestamp },
     };
   }
 
@@ -734,6 +909,79 @@ export class HopeGateway {
   }
 
   // -------------------------------------------------------------------------
+  // Auth (auth/) — POST /v1/auth/{signup,login,logout}, GET /v1/auth/me. All four are
+  // auth-exempt (see AUTH_EXEMPT_PATHS in gateway/middleware.ts) — they ARE the account
+  // system, so they can't require the operator's HDV_API_KEY to reach them. signup/login
+  // additionally carry a stricter, dedicated per-IP rate limit (brute-force defense).
+  //
+  // NOT WIRED into billing/checkout's tenant resolution in this pass: X-HDV-Tenant keeps
+  // working exactly as it does today (anonymous, client-supplied) so the existing billing
+  // tests are unaffected by this change.
+  // TODO(auth-billing): once clients migrate to real accounts, billing/checkout and
+  // billing/checkout/settle should require a valid X-HDV-Session and derive tenantId from
+  // the authenticated user instead of trusting a client-supplied X-HDV-Tenant header. That is
+  // a breaking change for anonymous checkout and is deliberately left as a separate follow-up
+  // — not implemented here.
+  // -------------------------------------------------------------------------
+
+  /**
+   * POST /v1/auth/signup — { email, password } → { userId, email, sessionToken }. The password
+   * hash is never returned (or stored anywhere but passwordHash). Email format is validated
+   * loosely (must look like local@domain.tld); password must be 8+ characters.
+   */
+  handleAuthSignup(body: unknown): GatewayResponse {
+    const { email, password } = extractCredentials(body);
+    if (email === undefined || password === undefined) {
+      return { status: 400, body: { error: 'body must be JSON: { email, password }' } };
+    }
+    try {
+      const { user, sessionToken } = this.auth.signup(email, password);
+      return { status: 200, body: { userId: user.userId, email: user.email, sessionToken } };
+    } catch (err) {
+      return authErrorResponse(err);
+    }
+  }
+
+  /**
+   * POST /v1/auth/login — { email, password } → same shape as signup, or 401 with a single
+   * generic message ("invalid email or password") for BOTH an unknown email and a wrong
+   * password — this never reveals which, so a caller can't enumerate registered emails.
+   */
+  handleAuthLogin(body: unknown): GatewayResponse {
+    const { email, password } = extractCredentials(body);
+    if (email === undefined || password === undefined) {
+      return { status: 400, body: { error: 'body must be JSON: { email, password }' } };
+    }
+    try {
+      const { user, sessionToken } = this.auth.login(email, password);
+      return { status: 200, body: { userId: user.userId, email: user.email, sessionToken } };
+    } catch (err) {
+      return authErrorResponse(err);
+    }
+  }
+
+  /**
+   * POST /v1/auth/logout — session token via the X-HDV-Session header (preferred) or a JSON
+   * body { sessionToken }. Idempotent: always 200, even for an unknown/already-expired token.
+   */
+  handleAuthLogout(
+    body: unknown,
+    headers?: Record<string, string | string[] | undefined>,
+  ): GatewayResponse {
+    this.auth.logout(sessionTokenFromRequest(headers, body));
+    return { status: 200, body: { ok: true } };
+  }
+
+  /** GET /v1/auth/me — X-HDV-Session header → { userId, email }, or 401 if missing/invalid/expired. */
+  handleAuthMe(headers?: Record<string, string | string[] | undefined>): GatewayResponse {
+    const user = this.auth.getUserBySession(sessionTokenFromRequest(headers, undefined));
+    if (!user) {
+      return { status: 401, body: { error: 'invalid, missing, or expired session' } };
+    }
+    return { status: 200, body: { userId: user.userId, email: user.email } };
+  }
+
+  // -------------------------------------------------------------------------
   // Launch GTM waitlist (market/). POST /v1/waitlist is auth-exempt (public form) but
   // rate-limited; GET /v1/waitlist/stats is protected. Neither routes, gates, or executes —
   // they only capture inbound interest and report privacy-safe aggregate stats.
@@ -756,9 +1004,97 @@ export class HopeGateway {
   // the same injected LlmProvider the HOPE enricher uses (offline stub ⇒ canned fallback).
   // -------------------------------------------------------------------------
 
-  /** POST /v1/companion/chat — one in-character reply for a companion persona. */
+  /**
+   * POST /v1/companion/chat — one in-character reply for a companion persona. Memory
+   * (companion/memory.ts) only activates when the request body ALSO supplies `companionId` —
+   * see companion/handlers.ts. Passing the repository here unconditionally is safe: absent a
+   * companionId, the handler never touches it.
+   */
   async handleCompanionChat(body: unknown): Promise<GatewayResponse> {
-    return handleCompanionChat(body, { provider: this.companionProvider });
+    return handleCompanionChat(body, {
+      provider: this.companionProvider,
+      memoryRepository: this.companionMemory,
+      creatorPersonaRepository: this.creatorPersonaRepository,
+      likenessUsageRepository: this.likenessUsageRepository,
+    });
+  }
+
+  /**
+   * GET /v1/companion/memory?companionId=... — read-only lookup of a companion's remembered
+   * relationship state (affection level, running summary, turn count). Public/auth-exempt,
+   * rate-limited posture, same as the other companion/ routes (see AUTH_EXEMPT_PATHS in
+   * gateway/middleware.ts). Returns sensible defaults (never a 404) for a companionId with no
+   * memory yet, so a frontend can render a fresh "relationship level" UI immediately.
+   */
+  handleCompanionMemoryGet(companionId: string | null): GatewayResponse {
+    const trimmed = companionId?.trim() ?? '';
+    if (!trimmed) {
+      return { status: 400, body: { error: '"companionId" query parameter is required' } };
+    }
+    const memory = this.companionMemory.get(trimmed) ?? defaultCompanionMemory(trimmed);
+    return { status: 200, body: { memory } };
+  }
+
+  /**
+   * POST /v1/companion/chat/stream — token-by-token SSE twin of POST /v1/companion/chat.
+   *
+   * PURELY ADDITIVE: this does not alter handleCompanionChat or the buffered /v1/companion/chat
+   * route in any way — they remain two independent handlers sharing only companion/handlers.ts's
+   * internal validation/prompt/fallback logic (via handleCompanionChatStream).
+   *
+   * Writes Server-Sent Events directly to `res`:
+   *   - one `data: {"delta":"..."}\n\n` frame per chunk of new text, in order;
+   *   - a final `data: {"done":true,"source":"llm"|"fallback","model":...}\n\n` frame.
+   * SSE headers are written lazily, on the FIRST event — so if validation fails
+   * (handleCompanionChatStream returns 400 before firing any event, e.g. the 18+ floor), this
+   * writes a normal buffered JSON 400 instead, exactly like /v1/companion/chat does. No provider,
+   * the stub provider, or a provider without `completeStream` all fall back to the SAME
+   * deterministic per-personality reply /v1/companion/chat uses (as one SSE chunk), so the SSE
+   * contract is identical regardless of whether a real provider is streaming.
+   *
+   * Returns the HTTP status actually written, for request logging — same as every other route.
+   */
+  async serveCompanionChatStream(
+    body: unknown,
+    res: http.ServerResponse,
+    responseHeaders: Record<string, string>,
+  ): Promise<number> {
+    let sseStarted = false;
+    const startSse = (): void => {
+      if (sseStarted) return;
+      sseStarted = true;
+      res.writeHead(200, {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache, no-transform',
+        connection: 'keep-alive',
+        ...responseHeaders,
+      });
+    };
+    const writeSseEvent = (data: Record<string, unknown>): void => {
+      startSse();
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    const result = await handleCompanionChatStream(
+      body,
+      { provider: this.companionProvider },
+      {
+        onDelta: (delta) => writeSseEvent({ delta }),
+        onDone: (info) => {
+          writeSseEvent({ done: true, ...info });
+          res.end();
+        },
+      },
+    );
+
+    // Validation (e.g. missing persona / message, or the 18+ floor) failed BEFORE any event
+    // fired — sseStarted is still false, so it's safe to answer with a normal buffered 400,
+    // matching /v1/companion/chat's contract for the same input.
+    if (result.status !== 200) {
+      writeJson(res, result.status, result.body ?? { error: 'invalid request' }, responseHeaders);
+      return result.status;
+    }
+    return 200;
   }
 
   /**
@@ -769,7 +1105,11 @@ export class HopeGateway {
    * frontend changes required either way.
    */
   async handlePortraitRequest(body: unknown): Promise<GatewayResponse> {
-    return handlePortraitRequest(body, { provider: this.imageProvider });
+    return handlePortraitRequest(body, {
+      provider: this.imageProvider,
+      creatorPersonaRepository: this.creatorPersonaRepository,
+      likenessUsageRepository: this.likenessUsageRepository,
+    });
   }
 
   /**
@@ -779,7 +1119,85 @@ export class HopeGateway {
    * Colab tunnel — see colab/08_scene_server.py).
    */
   async handleSceneRequest(body: unknown): Promise<GatewayResponse> {
-    return handleSceneRequest(body, { provider: this.videoProvider });
+    return handleSceneRequest(body, {
+      provider: this.videoProvider,
+      creatorPersonaRepository: this.creatorPersonaRepository,
+      likenessUsageRepository: this.likenessUsageRepository,
+    });
+  }
+
+  /**
+   * POST /v1/companion/speak — synthesize speech audio for one line of already-approved text.
+   * Same auth-exempt-but-rate-limited posture as chat/portrait/scene; same offline-safe
+   * "unavailable" response when no TtsProvider is configured (e.g. a self-hosted Kokoro-82M
+   * server — see colab/10_kokoro_tts_server.md). No persona/age-floor check here: unlike
+   * portrait/scene this never generates new content about a character, it only converts text
+   * the client already has into audio (the 18+ floor is enforced upstream, at the text origin).
+   */
+  async handleSpeakRequest(body: unknown): Promise<GatewayResponse> {
+    return handleSpeakRequest(body, { provider: this.ttsProvider });
+  }
+
+  // -------------------------------------------------------------------------
+  // Creator marketplace (creator/) — POST /v1/creator/{apply,persona,verification,payout},
+  // GET /v1/creator/earnings. Backs the fucklike.me pivot: real people turn themselves into an
+  // AI companion persona and earn when it's used (fucklike.ai's fully-fictional companion
+  // product is untouched). UNLIKE the companion/ and auth/ routes above, these are NOT in
+  // AUTH_EXEMPT_PATHS (gateway/middleware.ts) — a creator must ALSO present a valid X-HDV-Session
+  // (same lookup GET /v1/auth/me uses) on top of whatever the operator's HDV_API_KEY gate
+  // requires. Payouts are a deliberately conservative stub — see creator/payout_stub.ts.
+  // -------------------------------------------------------------------------
+
+  /** Resolve the authenticated user from the caller's X-HDV-Session header, or null. Shared by
+   *  every /v1/creator/* route below — same lookup handleAuthMe uses. */
+  private creatorSessionUser(headers?: Record<string, string | string[] | undefined>): AuthUser | null {
+    return this.auth.getUserBySession(sessionTokenFromRequest(headers, undefined));
+  }
+
+  /** POST /v1/creator/apply — { displayName, bio? } → become (or update) a creator. Requires a
+   *  valid X-HDV-Session; 401 otherwise. */
+  handleCreatorApply(body: unknown, headers?: Record<string, string | string[] | undefined>): GatewayResponse {
+    const user = this.creatorSessionUser(headers);
+    if (!user) return { status: 401, body: { error: 'invalid, missing, or expired session' } };
+    return handleCreatorApply(user.userId, body, { creatorProfileRepository: this.creatorProfileRepository });
+  }
+
+  /** POST /v1/creator/persona — submit/update a creator persona. Requires a valid
+   *  X-HDV-Session; 401 otherwise. 409 if personaId is already claimed by another creator. */
+  handleCreatorPersona(body: unknown, headers?: Record<string, string | string[] | undefined>): GatewayResponse {
+    const user = this.creatorSessionUser(headers);
+    if (!user) return { status: 401, body: { error: 'invalid, missing, or expired session' } };
+    return handleCreatePersona(user.userId, body, { creatorPersonaRepository: this.creatorPersonaRepository });
+  }
+
+  /** GET /v1/creator/earnings — accrued balance + verification status. `payoutAvailable` is
+   *  always false in this pass — see creator/handlers.ts's EarningsResponse doc comment.
+   *  Requires a valid X-HDV-Session; 401 otherwise. */
+  handleCreatorEarnings(headers?: Record<string, string | string[] | undefined>): GatewayResponse {
+    const user = this.creatorSessionUser(headers);
+    if (!user) return { status: 401, body: { error: 'invalid, missing, or expired session' } };
+    return handleGetEarnings(user.userId, {
+      likenessUsageRepository: this.likenessUsageRepository,
+      payoutStub: this.creatorPayoutStub,
+    });
+  }
+
+  /** POST /v1/creator/verification — start the stub identity-verification flow. Always returns
+   *  a session stuck in 'requires_input' — see creator/payout_stub.ts. Requires a valid
+   *  X-HDV-Session; 401 otherwise. */
+  handleCreatorVerification(headers?: Record<string, string | string[] | undefined>): GatewayResponse {
+    const user = this.creatorSessionUser(headers);
+    if (!user) return { status: 401, body: { error: 'invalid, missing, or expired session' } };
+    return handleRequestVerification(user.userId, { payoutStub: this.creatorPayoutStub });
+  }
+
+  /** POST /v1/creator/payout — { amountUsd } → ALWAYS 403s in this build (correct, expected
+   *  behavior — see creator/payout_stub.ts: no creator can reach 'verified' yet). Requires a
+   *  valid X-HDV-Session; 401 otherwise. */
+  handleCreatorPayout(body: unknown, headers?: Record<string, string | string[] | undefined>): GatewayResponse {
+    const user = this.creatorSessionUser(headers);
+    if (!user) return { status: 401, body: { error: 'invalid, missing, or expired session' } };
+    return handleRequestPayout(user.userId, body, { payoutStub: this.creatorPayoutStub });
   }
 
   /**
@@ -799,6 +1217,7 @@ export class HopeGateway {
     if (m === 'POST' && pathname === '/v1/intent') return await this.handleIntent(body);
     if (m === 'POST' && pathname === '/v1/worker/report') return this.handleWorkerReport(body);
     if (m === 'GET' && pathname === '/v1/health') return this.handleHealth();
+    if (m === 'GET' && pathname === '/v1/health/deep') return await this.handleHealthDeep();
     if (m === 'GET' && pathname === '/v1/ledger') return this.handleLedger(numParam(query.get('limit')));
     if (m === 'GET' && pathname === '/v1/audit') return this.handleAudit(numParam(query.get('limit')));
     if (m === 'GET' && pathname === '/v1/matrix/stats') return this.handleMatrixStats();
@@ -811,6 +1230,11 @@ export class HopeGateway {
     if (m === 'POST' && pathname === '/v1/billing/checkout') return this.handleBillingCheckout(tenantFromHeaders(headers), body);
     if (m === 'GET' && pathname === '/v1/billing/checkout') return this.handleBillingCheckoutGet(query.get('session_id'));
     if (m === 'POST' && pathname === '/v1/billing/checkout/settle') return this.handleBillingCheckoutSettle(body);
+    // --- Auth. Public/auth-exempt (they ARE the auth system); signup/login rate-limited tighter.
+    if (m === 'POST' && pathname === '/v1/auth/signup') return this.handleAuthSignup(body);
+    if (m === 'POST' && pathname === '/v1/auth/login') return this.handleAuthLogin(body);
+    if (m === 'POST' && pathname === '/v1/auth/logout') return this.handleAuthLogout(body, headers);
+    if (m === 'GET' && pathname === '/v1/auth/me') return this.handleAuthMe(headers);
     // --- Launch GTM waitlist. POST is public (auth-exempt, rate-limited); stats is protected.
     if (m === 'POST' && pathname === '/v1/waitlist') return this.handleWaitlistSignup(body, ipFromHeaders(headers));
     if (m === 'GET' && pathname === '/v1/waitlist/stats') return this.handleWaitlistStats();
@@ -820,6 +1244,16 @@ export class HopeGateway {
     if (m === 'POST' && pathname === '/v1/companion/portrait') return await this.handlePortraitRequest(body);
     // --- Companion scene/loop. Same public posture as chat and portrait.
     if (m === 'POST' && pathname === '/v1/companion/scene') return await this.handleSceneRequest(body);
+    // --- Companion memory. Read-only; same public posture as chat/portrait/scene.
+    if (m === 'GET' && pathname === '/v1/companion/memory') return this.handleCompanionMemoryGet(query.get('companionId'));
+    // --- Companion speech. Same public posture as chat, portrait, and scene.
+    if (m === 'POST' && pathname === '/v1/companion/speak') return await this.handleSpeakRequest(body);
+    // --- Creator marketplace. Requires a valid X-HDV-Session — NOT in AUTH_EXEMPT_PATHS.
+    if (m === 'POST' && pathname === '/v1/creator/apply') return this.handleCreatorApply(body, headers);
+    if (m === 'POST' && pathname === '/v1/creator/persona') return this.handleCreatorPersona(body, headers);
+    if (m === 'GET' && pathname === '/v1/creator/earnings') return this.handleCreatorEarnings(headers);
+    if (m === 'POST' && pathname === '/v1/creator/verification') return this.handleCreatorVerification(headers);
+    if (m === 'POST' && pathname === '/v1/creator/payout') return this.handleCreatorPayout(body, headers);
     return { status: 404, body: { error: `no route for ${m} ${pathname}` } };
   }
 
@@ -851,12 +1285,14 @@ export class HopeGateway {
 
     const log = (status: number): void => {
       this.logger({
+        timestamp: new Date().toISOString(),
         method: method.toUpperCase(),
         path: url.pathname,
         status,
         durationMs: Date.now() - start,
         ip: guardReq.ip,
         authState: this.middleware.authState(guardReq),
+        tenant: rawTenantId(guardReq.headers),
       });
     };
 
@@ -866,6 +1302,18 @@ export class HopeGateway {
       if (guard.response) {
         writeJson(res, guard.response.status, guard.response.body, guard.headers);
         log(guard.response.status);
+        return;
+      }
+
+      // POST /v1/companion/chat/stream is the ONE route that bypasses the buffered
+      // GatewayResponse path below: it streams SSE frames directly to `res` as they're produced
+      // instead of computing a single { status, body } and writing it once. Carved out here,
+      // BEFORE the generic route() dispatch, so every other route's request handling — including
+      // the existing (buffered) POST /v1/companion/chat — is completely untouched.
+      if (method.toUpperCase() === 'POST' && url.pathname === COMPANION_CHAT_STREAM_PATH) {
+        const streamBody = await readJsonBody(req);
+        const status = await this.serveCompanionChatStream(streamBody, res, guard.headers);
+        log(status);
         return;
       }
 
@@ -974,6 +1422,12 @@ function firstString(bodyValue: unknown, queryValue: string | null): string | un
   return undefined;
 }
 
+/** Non-empty, trimmed env var, or undefined (mirrors gateway/cli.ts's databaseUrl() helper). */
+function nonEmptyEnv(name: string): string | undefined {
+  const raw = (process.env[name] ?? '').trim();
+  return raw.length > 0 ? raw : undefined;
+}
+
 /** Best-effort client IP from request headers (x-forwarded-for), for waitlist abuse triage. */
 function ipFromHeaders(headers?: Record<string, string | string[] | undefined>): string | undefined {
   if (!headers) return undefined;
@@ -981,13 +1435,40 @@ function ipFromHeaders(headers?: Record<string, string | string[] | undefined>):
   return ip === 'unknown' ? undefined : ip;
 }
 
-/** Resolve the billing tenant from the X-HDV-Tenant header (default "demo"). */
-function tenantFromHeaders(headers?: Record<string, string | string[] | undefined>): string {
-  if (!headers) return 'demo';
-  const raw = headers['x-hdv-tenant'];
-  const value = Array.isArray(raw) ? raw[0] : raw;
-  const trimmed = value?.trim();
-  return trimmed && trimmed.length > 0 ? trimmed : 'demo';
+/** Pull { email, password } string fields out of a JSON body; undefined if absent/wrong type. */
+function extractCredentials(body: unknown): { email: string | undefined; password: string | undefined } {
+  if (body === null || typeof body !== 'object') return { email: undefined, password: undefined };
+  const b = body as Record<string, unknown>;
+  const email = typeof b.email === 'string' ? b.email : undefined;
+  const password = typeof b.password === 'string' ? b.password : undefined;
+  return { email, password };
+}
+
+/** Map a thrown AuthError to its HTTP status; any other error is a 400 (defensive fallback). */
+function authErrorResponse(err: unknown): GatewayResponse {
+  if (err instanceof AuthError) {
+    const status = err.code === 'duplicate_email' ? 409 : err.code === 'invalid_credentials' ? 401 : 400;
+    return { status, body: { error: err.message } };
+  }
+  return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+}
+
+/** Session bearer token from the X-HDV-Session header (preferred), or a JSON body { sessionToken }. */
+function sessionTokenFromRequest(
+  headers: Record<string, string | string[] | undefined> | undefined,
+  body: unknown,
+): string | undefined {
+  if (headers) {
+    const raw = headers['x-hdv-session'];
+    const value = Array.isArray(raw) ? raw[0] : raw;
+    const trimmed = value?.trim();
+    if (trimmed && trimmed.length > 0) return trimmed;
+  }
+  if (body !== null && typeof body === 'object' && 'sessionToken' in (body as Record<string, unknown>)) {
+    const t = (body as { sessionToken?: unknown }).sessionToken;
+    if (typeof t === 'string' && t.trim().length > 0) return t.trim();
+  }
+  return undefined;
 }
 
 function readJsonBody(req: http.IncomingMessage): Promise<unknown> {

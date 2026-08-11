@@ -85,3 +85,29 @@ export {
   ENV_VIDEO_MODEL,
 } from './video_factory.js';
 export type { VideoFactoryOptions } from './video_factory.js';
+
+// --- TTS providers (sibling seam: text -> speech audio, e.g. self-hosted Kokoro-82M) --------
+export type {
+  TtsProvider,
+  GenerateTtsOptions,
+  TtsResult,
+  TtsProviderKind,
+} from './tts_types.js';
+
+export { StubTtsProvider } from './tts_stub.js';
+export type { StubTtsProviderOptions } from './tts_stub.js';
+
+export { KokoroTunnelTtsProvider, KokoroTunnelTtsError } from './kokoro_tunnel_tts.js';
+export type { KokoroTunnelTtsOptions } from './kokoro_tunnel_tts.js';
+
+export {
+  createTtsProvider,
+  createTtsProviderOrStub,
+  UnknownTtsProviderError,
+  ENV_TTS_PROVIDER,
+  ENV_TTS_API_KEY,
+  ENV_TTS_BASE_URL,
+  ENV_TTS_MODEL,
+  ENV_TTS_VOICE,
+} from './tts_factory.js';
+export type { TtsFactoryOptions } from './tts_factory.js';

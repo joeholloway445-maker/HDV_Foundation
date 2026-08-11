@@ -49,6 +49,12 @@ export interface CompletionResult {
   usage: LlmUsage;
 }
 
+/** One incremental chunk of a streamed completion — just the newly produced text. */
+export interface CompletionDelta {
+  /** The next slice of generated text (NOT cumulative — concatenate deltas to get the full reply). */
+  delta: string;
+}
+
 /**
  * The single provider contract. Implementations are pure text transducers:
  * prompt in, text out. They perform NO tool use, routing, or side effects on the matrix.
@@ -60,6 +66,15 @@ export interface LlmProvider {
   readonly model: string;
   /** Turn a prompt into text. Must reject (throw) on transport / API errors. */
   complete(prompt: string, opts?: CompleteOptions): Promise<CompletionResult>;
+  /**
+   * OPTIONAL token-by-token streaming variant of `complete`. Yields `{ delta }` chunks as they
+   * arrive from the backend; concatenating every `delta` in order reconstructs the same text
+   * `complete()` would have returned. Not every provider implements this (e.g. the offline
+   * StubProvider does not) — callers MUST check for its presence (`typeof provider.completeStream
+   * === 'function'`) before calling it and fall back to `complete()` (or a canned reply) when
+   * absent. Like `complete`, this performs NO tool use, routing, or side effects on the matrix.
+   */
+  completeStream?(prompt: string, opts?: CompleteOptions): AsyncIterable<CompletionDelta>;
 }
 
 /** Recognized provider selector values for the env-driven factory. */

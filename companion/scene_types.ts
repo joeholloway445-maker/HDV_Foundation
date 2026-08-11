@@ -19,6 +19,16 @@ export interface ScenePersona {
   appearance?: string;
   /** Required. Must be >= 18 — see the module-level safety floor note above. */
   age: number;
+  /**
+   * Optional stable persona identifier — SAME field/id space as
+   * companion/portrait_types.ts's PortraitPersona.personaId (e.g. "jordyn", matching FuckLike/
+   * web's PRESETS ids). A scene is typically animating a portrait of the SAME persona, so this
+   * is threaded through purely for creator-marketplace usage attribution (see
+   * companion/scene_handlers.ts's fire-and-forget recordLikenessUsage call) — unlike portraits,
+   * it is NOT currently forwarded to the VideoProvider (providers/video_types.ts has no
+   * per-character LoRA routing seam yet). Omit for one-off/custom companions with no persona id.
+   */
+  personaId?: string;
 }
 
 export interface SceneRequestInput {
@@ -48,6 +58,9 @@ const MAX_BACKSTORY_CHARS = 2000;
 const MAX_APPEARANCE_CHARS = 400;
 const MAX_ACTION_STRING_CHARS = 400;
 const MIN_ADULT_AGE = 18;
+const MAX_PERSONA_ID_CHARS = 80;
+/** Same "safe identifier" shape used by companion/portrait_types.ts's PortraitPersona.personaId. */
+const PERSONA_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 // A base64 image is at minimum a few dozen bytes; this just catches obviously-empty/garbage
 // input early. Real size limits belong at the HTTP layer (body size caps), not here.
 const MIN_SEED_IMAGE_CHARS = 64;
@@ -106,7 +119,16 @@ export function parseSceneRequest(body: unknown): {
     if (trimmed) actionString = trimmed;
   }
 
-  return { persona: { name, personality, backstory, appearance, age }, seedImage, actionString };
+  let personaId: string | undefined;
+  if (typeof p.personaId === 'string' && p.personaId.trim()) {
+    const trimmed = p.personaId.trim().slice(0, MAX_PERSONA_ID_CHARS);
+    if (!PERSONA_ID_PATTERN.test(trimmed)) {
+      throw new SceneValidationError('"persona.personaId" may only contain letters, numbers, "_", and "-"');
+    }
+    personaId = trimmed;
+  }
+
+  return { persona: { name, personality, backstory, appearance, age, personaId }, seedImage, actionString };
 }
 
 function normalisePersonality(value: unknown): CompanionPersonality {

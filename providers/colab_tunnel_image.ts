@@ -8,11 +8,14 @@
  *
  * Wire contract (see colab/07_portrait_server.py for the reference server):
  *   POST {baseUrl}/generate
- *   body: { prompt, style?, negative_prompt?, width?, height?, steps?, seed? }
+ *   body: { prompt, style?, persona_id?, negative_prompt?, width?, height?, steps?, seed? }
  *   200 -> { image_base64, mime_type?, model? }
  *
  * `style` (e.g. "realistic" | "anime", from PortraitPersona.style) lets the server route to a
  * different checkpoint per persona style — see colab/07_portrait_server.py's MODEL_ROUTES.
+ * `persona_id` (from PortraitPersona.personaId) additionally lets the server layer a
+ * character-specific trained LoRA on top of that checkpoint — see PERSONA_LORA_ROUTES in the
+ * same file — so the SAME character stays visually consistent across separate requests.
  *
  * Fit: this is where an NSFW-capable checkpoint/LoRA lives, fully under your control — the
  * gateway never knows or cares which model is behind the tunnel, same as it doesn't know which
@@ -92,6 +95,7 @@ export class ColabTunnelImageProvider implements ImageProvider {
   async generate(prompt: string, opts: GenerateImageOptions = {}): Promise<ImageResult> {
     const body: Record<string, unknown> = { prompt };
     if (opts.style) body.style = opts.style;
+    if (opts.personaId) body.persona_id = opts.personaId;
     if (opts.negativePrompt) body.negative_prompt = opts.negativePrompt;
     if (opts.width) body.width = opts.width;
     if (opts.height) body.height = opts.height;

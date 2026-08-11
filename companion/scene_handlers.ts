@@ -9,6 +9,8 @@
  * that module for the LingBot-World action_string format this is built against.
  */
 import type { GenerateVideoOptions, VideoProvider } from '../providers/video_types.js';
+import type { CreatorPersonaRepository, LikenessUsageEventRepository } from '../persistence/repositories.js';
+import { recordLikenessUsage } from '../creator/handlers.js';
 import { parseSceneRequest, SceneValidationError, type ScenePersona } from './scene_types.js';
 import { buildActionString } from './action_string.js';
 
@@ -21,6 +23,16 @@ export interface SceneOptions {
   /** Optional video provider (dependency-injected). Omitted ⇒ "unavailable" response, no crash. */
   provider?: VideoProvider;
   generateOptions?: Omit<GenerateVideoOptions, 'actionString'>;
+  /**
+   * Optional creator-marketplace usage-attribution wiring (creator/). When BOTH are provided
+   * AND `persona.personaId` matches a creator-submitted CreatorPersona, a successful real-
+   * provider scene generation is recorded in the background as a small billable
+   * LikenessUsageEvent (creator/handlers.ts's recordLikenessUsage). Fire-and-forget: never adds
+   * latency, never fails the scene response, and is a clean no-op — exactly today's behavior —
+   * whenever either is omitted or personaId isn't creator-owned (the common case).
+   */
+  creatorPersonaRepository?: CreatorPersonaRepository;
+  likenessUsageRepository?: LikenessUsageEventRepository;
 }
 
 function buildPrompt(persona: ScenePersona): string {
@@ -67,6 +79,12 @@ export async function handleSceneRequest(body: unknown, options: SceneOptions = 
     const result = await options.provider.generate(buildPrompt(persona), seedImage, {
       ...options.generateOptions,
       actionString: effectiveActionString,
+    });
+    // Fire-and-forget: attribute this real generation to a creator persona in the background —
+    // see SceneOptions's doc comment above. No-ops cleanly if personaId isn't creator-owned.
+    recordLikenessUsage(persona.personaId, 'scene_generated', {
+      creatorPersonaRepository: options.creatorPersonaRepository,
+      likenessUsageRepository: options.likenessUsageRepository,
     });
     return {
       status: 200,

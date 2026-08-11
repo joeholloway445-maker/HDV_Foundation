@@ -1,15 +1,18 @@
 # deploy/docker-compose.prod.yml — production stack for the HDV Foundation HOPE gateway.
 #
 # What it runs:
-#   gateway   the always-on HOPE HTTP API (node:http, no framework) — the ONLY public-facing
-#             process, bound to 127.0.0.1:8787 so a reverse proxy (Caddy/nginx) terminates TLS.
-#   postgres  durable persistence behind the Prisma repository seam (createRepositories('prisma')).
-#   redis     backing for the router / rate-limit / task-queue stubs.
-#   ollama    (OPTIONAL, `--profile local-llm`) a local OpenAI-compatible LLM on the same box.
+#   gateway    the always-on HOPE HTTP API (node:http, no framework) — the ONLY public-facing
+#              process, bound to 127.0.0.1:8787 so a reverse proxy (Caddy/nginx) terminates TLS.
+#   postgres   durable persistence behind the Prisma repository seam (createRepositories('prisma')).
+#   redis      backing for the router / rate-limit / task-queue stubs.
+#   ollama     (OPTIONAL, `--profile local-llm`) a local OpenAI-compatible LLM on the same box.
+#   kokoro-tts (OPTIONAL, `--profile tts`) a local self-hosted Kokoro-82M TTS server on the same
+#              box — see colab/10_kokoro_tts_server.md. CPU-inference-capable, unlike the
+#              GPU-bound image/video models, so it runs as a same-box sidecar just like ollama.
 #
 # Nothing except the gateway is published to the host, and the gateway is published only on
-# loopback. Postgres/Redis/Ollama are reachable only on the internal Docker network. This keeps
-# the "single legal road" principle at the network layer: no side door into the matrix.
+# loopback. Postgres/Redis/Ollama/kokoro-tts are reachable only on the internal Docker network.
+# This keeps the "single legal road" principle at the network layer: no side door into the matrix.
 #
 # Usage (from big5-matrix/):
 #   cp .env.example .env         # set HDV_API_KEY, DATABASE_URL, REDIS_URL (see deploy/HOSTINGER.md §5)
@@ -21,6 +24,13 @@
 #   # then in .env: HDV_LLM_PROVIDER=openai_compatible
 #   #               HDV_LLM_BASE_URL=http://ollama:11434/v1   HDV_LLM_MODEL=llama3.2:3b
 #   # (companion/chat wants a roleplay-capable model instead — see deploy/OLLAMA.md §6)
+#
+# Optional local TTS (co-located Kokoro-82M speech synthesis, no vendor key leaves the box):
+#   docker compose -f deploy/docker-compose.prod.yml --profile tts up -d
+#   # then in .env: HDV_TTS_PROVIDER=kokoro_tunnel
+#   #               HDV_TTS_BASE_URL=http://kokoro-tts:8880
+#   # (see colab/10_kokoro_tts_server.md for the exact image/port — verify against the
+#   #  remsky/Kokoro-FastAPI README before going live)
 
 services:
   gateway:
@@ -111,6 +121,34 @@ services:
     volumes:
       - hdv_ollama:/root/.ollama
     # Uncomment on a GPU host with the NVIDIA container toolkit installed:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  # Optional co-located self-hosted TTS. Enable with: --profile tts
+  # remsky/Kokoro-FastAPI — an OpenAI-compatible /v1/audio/speech wrapper around Kokoro-82M
+  # (Apache-2.0, ~82M params, CPU-inference-capable). See colab/10_kokoro_tts_server.md for the
+  # verified image tag / run command / port before going live — the values below are the
+  # documented defaults as of this writing and should be reconfirmed against that project's
+  # current README.
+  kokoro-tts:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+    container_name: hdv-kokoro-tts
+    profiles: ["tts"]
+    restart: unless-stopped
+    # Loopback only — never publicly reachable, same posture as ollama above. The gateway
+    # reaches it via Docker service DNS (http://kokoro-tts:8880), not this published port.
+    ports:
+      - "127.0.0.1:8880:8880"
+    expose:
+      - "8880"
+    # Uncomment on a GPU host with the NVIDIA container toolkit installed, and swap the image
+    # above for ghcr.io/remsky/kokoro-fastapi-gpu:latest — Kokoro-82M runs comfortably on CPU
+    # though, so this is optional, unlike the SDXL/LingBot image/video models.
     # deploy:
     #   resources:
     #     reservations:

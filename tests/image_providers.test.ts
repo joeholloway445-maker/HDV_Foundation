@@ -174,6 +174,34 @@ test('ColabTunnelImageProvider passes style through for server-side checkpoint r
   );
 });
 
+test('ColabTunnelImageProvider passes persona_id through for per-character LoRA routing', async () => {
+  await withServer(
+    (req, res) => {
+      assert.deepEqual(req.body, { prompt: 'a portrait', style: 'realistic', persona_id: 'jordyn' });
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ image_base64: TINY_PNG_B64 }));
+    },
+    async (baseUrl) => {
+      const provider = new ColabTunnelImageProvider({ baseUrl });
+      await provider.generate('a portrait', { style: 'realistic', personaId: 'jordyn' });
+    },
+  );
+});
+
+test('ColabTunnelImageProvider omits persona_id from the request body when not set', async () => {
+  await withServer(
+    (req, res) => {
+      assert.deepEqual(req.body, { prompt: 'a portrait' });
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ image_base64: TINY_PNG_B64 }));
+    },
+    async (baseUrl) => {
+      const provider = new ColabTunnelImageProvider({ baseUrl });
+      await provider.generate('a portrait', {});
+    },
+  );
+});
+
 test('ColabTunnelImageProvider omits the Authorization header when no apiKey', async () => {
   await withServer(
     (req, res) => {

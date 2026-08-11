@@ -5,7 +5,8 @@
  * ## Why a write-through cache?
  *
  * The repository interfaces (RequestLogRepository, NodeIdentityRepository,
- * SecurityAuditRepository, IntentArchiveRepository) are **synchronous**: callers such as
+ * SecurityAuditRepository, IntentArchiveRepository, CompanionMemoryRepository) are
+ * **synchronous**: callers such as
  * HOPE's documenter read results inline (`archive.all().map(...)`, `archive.get(id)`),
  * and APEX/KNOLL/nodes write fire-and-forget. Those call sites live in agent packages
  * that must not change. Prisma, however, is asynchronous.
@@ -29,10 +30,22 @@ import type {
   NodeIdentityRecord,
   SecurityAuditRecord,
   IntentDocumentRecord,
+  UserRecord,
+  SessionRecord,
+  CompanionMemoryRecord,
+  CreatorProfileRecord,
+  CreatorPersonaRecord,
+  LikenessUsageEventRecord,
   RequestLogRepository,
   NodeIdentityRepository,
   SecurityAuditRepository,
   IntentArchiveRepository,
+  UserRepository,
+  SessionRepository,
+  CompanionMemoryRepository,
+  CreatorProfileRepository,
+  CreatorPersonaRepository,
+  LikenessUsageEventRepository,
 } from './repositories.js';
 
 // ---------------------------------------------------------------------------
@@ -352,16 +365,412 @@ function asStringArray(value: unknown): string[] {
 }
 
 // ---------------------------------------------------------------------------
+// User (auth/ account identity)
+// ---------------------------------------------------------------------------
+
+export class PrismaUserRepository implements UserRepository {
+  private readonly rows = new Map<string, UserRecord>(); // by id
+  private readonly byEmail = new Map<string, string>(); // email -> id
+
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly writes: WriteQueue,
+  ) {}
+
+  async hydrate(): Promise<void> {
+    const found = await this.prisma.user.findMany();
+    this.rows.clear();
+    this.byEmail.clear();
+    for (const r of found) {
+      const record: UserRecord = {
+        id: r.id,
+        email: r.email,
+        passwordHash: r.passwordHash,
+        createdAt: r.createdAt.getTime(),
+      };
+      this.rows.set(record.id, record);
+      this.byEmail.set(record.email, record.id);
+    }
+  }
+
+  create(record: UserRecord): UserRecord {
+    this.rows.set(record.id, record);
+    this.byEmail.set(record.email, record.id);
+    this.writes.enqueue(async () => {
+      await this.prisma.user.create({
+        data: {
+          id: record.id,
+          email: record.email,
+          passwordHash: record.passwordHash,
+          createdAt: new Date(record.createdAt),
+        },
+      });
+    });
+    return record;
+  }
+
+  findByEmail(email: string): UserRecord | undefined {
+    const id = this.byEmail.get(email);
+    return id === undefined ? undefined : this.rows.get(id);
+  }
+
+  findById(id: string): UserRecord | undefined {
+    return this.rows.get(id);
+  }
+
+  clear(): void {
+    this.rows.clear();
+    this.byEmail.clear();
+    this.writes.enqueue(async () => {
+      await this.prisma.user.deleteMany({});
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Session (auth/ session tokens)
+// ---------------------------------------------------------------------------
+
+export class PrismaSessionRepository implements SessionRepository {
+  private readonly rows = new Map<string, SessionRecord>();
+
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly writes: WriteQueue,
+  ) {}
+
+  async hydrate(): Promise<void> {
+    const found = await this.prisma.session.findMany();
+    this.rows.clear();
+    for (const r of found) {
+      this.rows.set(r.token, {
+        token: r.token,
+        userId: r.userId,
+        createdAt: r.createdAt.getTime(),
+        expiresAt: r.expiresAt.getTime(),
+      });
+    }
+  }
+
+  create(record: SessionRecord): SessionRecord {
+    this.rows.set(record.token, record);
+    this.writes.enqueue(async () => {
+      await this.prisma.session.create({
+        data: {
+          token: record.token,
+          userId: record.userId,
+          createdAt: new Date(record.createdAt),
+          expiresAt: new Date(record.expiresAt),
+        },
+      });
+    });
+    return record;
+  }
+
+  findByToken(token: string): SessionRecord | undefined {
+    return this.rows.get(token);
+  }
+
+  delete(token: string): void {
+    this.rows.delete(token);
+    this.writes.enqueue(async () => {
+      // deleteMany (not delete) so an already-gone/unknown token never throws into the queue.
+      await this.prisma.session.deleteMany({ where: { token } });
+    });
+  }
+
+  clear(): void {
+    this.rows.clear();
+    this.writes.enqueue(async () => {
+      await this.prisma.session.deleteMany({});
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// CompanionMemory (companion/'s opt-in relationship memory — see companion/memory.ts)
+// ---------------------------------------------------------------------------
+
+export class PrismaCompanionMemoryRepository implements CompanionMemoryRepository {
+  private readonly rows = new Map<string, CompanionMemoryRecord>();
+
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly writes: WriteQueue,
+  ) {}
+
+  async hydrate(): Promise<void> {
+    const found = await this.prisma.companionMemory.findMany();
+    this.rows.clear();
+    for (const r of found) {
+      this.rows.set(r.companionId, {
+        companionId: r.companionId,
+        affectionLevel: r.affectionLevel,
+        summary: r.summary,
+        turnCount: r.turnCount,
+        updatedAt: r.updatedAt.getTime(),
+      });
+    }
+  }
+
+  get(companionId: string): CompanionMemoryRecord | undefined {
+    return this.rows.get(companionId);
+  }
+
+  upsert(record: CompanionMemoryRecord): CompanionMemoryRecord {
+    this.rows.set(record.companionId, record);
+    this.writes.enqueue(async () => {
+      // `updatedAt` is a Prisma `@updatedAt` column, so the database manages it.
+      await this.prisma.companionMemory.upsert({
+        where: { companionId: record.companionId },
+        create: {
+          companionId: record.companionId,
+          affectionLevel: record.affectionLevel,
+          summary: record.summary,
+          turnCount: record.turnCount,
+        },
+        update: {
+          affectionLevel: record.affectionLevel,
+          summary: record.summary,
+          turnCount: record.turnCount,
+        },
+      });
+    });
+    return record;
+  }
+
+  all(): readonly CompanionMemoryRecord[] {
+    return Array.from(this.rows.values());
+  }
+
+  clear(): void {
+    this.rows.clear();
+    this.writes.enqueue(async () => {
+      await this.prisma.companionMemory.deleteMany({});
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// CreatorProfile (creator/ — real-person creator accounts, see creator/index.ts)
+// ---------------------------------------------------------------------------
+
+export class PrismaCreatorProfileRepository implements CreatorProfileRepository {
+  private readonly rows = new Map<string, CreatorProfileRecord>();
+
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly writes: WriteQueue,
+  ) {}
+
+  async hydrate(): Promise<void> {
+    const found = await this.prisma.creatorProfile.findMany();
+    this.rows.clear();
+    for (const r of found) {
+      this.rows.set(r.userId, {
+        userId: r.userId,
+        displayName: r.displayName,
+        bio: r.bio ?? undefined,
+        verificationStatus: r.verificationStatus as CreatorProfileRecord['verificationStatus'],
+        createdAt: r.createdAt.getTime(),
+      });
+    }
+  }
+
+  upsert(record: CreatorProfileRecord): CreatorProfileRecord {
+    this.rows.set(record.userId, record);
+    this.writes.enqueue(async () => {
+      await this.prisma.creatorProfile.upsert({
+        where: { userId: record.userId },
+        create: {
+          userId: record.userId,
+          displayName: record.displayName,
+          bio: record.bio ?? null,
+          verificationStatus: record.verificationStatus,
+        },
+        update: {
+          displayName: record.displayName,
+          bio: record.bio ?? null,
+          verificationStatus: record.verificationStatus,
+        },
+      });
+    });
+    return record;
+  }
+
+  get(userId: string): CreatorProfileRecord | undefined {
+    return this.rows.get(userId);
+  }
+
+  clear(): void {
+    this.rows.clear();
+    this.writes.enqueue(async () => {
+      await this.prisma.creatorProfile.deleteMany({});
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// CreatorPersona (creator/ — creator-submitted personas; personaId is the join key)
+// ---------------------------------------------------------------------------
+
+export class PrismaCreatorPersonaRepository implements CreatorPersonaRepository {
+  private readonly rows = new Map<string, CreatorPersonaRecord>(); // by id
+  private readonly byPersonaId = new Map<string, string>(); // personaId -> id
+
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly writes: WriteQueue,
+  ) {}
+
+  async hydrate(): Promise<void> {
+    const found = await this.prisma.creatorPersona.findMany();
+    this.rows.clear();
+    this.byPersonaId.clear();
+    for (const r of found) {
+      const record: CreatorPersonaRecord = {
+        id: r.id,
+        creatorUserId: r.creatorUserId,
+        personaId: r.personaId,
+        displayName: r.displayName,
+        description: r.description ?? undefined,
+        referencePhotoUrls: asStringArray(r.referencePhotoUrls),
+        createdAt: r.createdAt.getTime(),
+      };
+      this.rows.set(record.id, record);
+      this.byPersonaId.set(record.personaId, record.id);
+    }
+  }
+
+  upsert(record: CreatorPersonaRecord): CreatorPersonaRecord {
+    this.rows.set(record.id, record);
+    this.byPersonaId.set(record.personaId, record.id);
+    this.writes.enqueue(async () => {
+      await this.prisma.creatorPersona.upsert({
+        where: { id: record.id },
+        create: {
+          id: record.id,
+          creatorUserId: record.creatorUserId,
+          personaId: record.personaId,
+          displayName: record.displayName,
+          description: record.description ?? null,
+          referencePhotoUrls: record.referencePhotoUrls,
+        },
+        update: {
+          creatorUserId: record.creatorUserId,
+          personaId: record.personaId,
+          displayName: record.displayName,
+          description: record.description ?? null,
+          referencePhotoUrls: record.referencePhotoUrls,
+        },
+      });
+    });
+    return record;
+  }
+
+  findByPersonaId(personaId: string): CreatorPersonaRecord | undefined {
+    const id = this.byPersonaId.get(personaId);
+    return id === undefined ? undefined : this.rows.get(id);
+  }
+
+  findByCreator(creatorUserId: string): readonly CreatorPersonaRecord[] {
+    return this.all().filter((r) => r.creatorUserId === creatorUserId);
+  }
+
+  all(): readonly CreatorPersonaRecord[] {
+    return Array.from(this.rows.values());
+  }
+
+  clear(): void {
+    this.rows.clear();
+    this.byPersonaId.clear();
+    this.writes.enqueue(async () => {
+      await this.prisma.creatorPersona.deleteMany({});
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// LikenessUsageEvent (creator/ — append-only billable usage ledger)
+// ---------------------------------------------------------------------------
+
+export class PrismaLikenessUsageEventRepository implements LikenessUsageEventRepository {
+  private readonly rows: LikenessUsageEventRecord[] = [];
+
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly writes: WriteQueue,
+  ) {}
+
+  async hydrate(): Promise<void> {
+    const found = await this.prisma.likenessUsageEvent.findMany({ orderBy: { createdAt: 'asc' } });
+    this.rows.length = 0;
+    for (const r of found) {
+      this.rows.push({
+        id: r.id,
+        creatorUserId: r.creatorUserId,
+        personaId: r.personaId,
+        eventType: r.eventType as LikenessUsageEventRecord['eventType'],
+        accruedUsd: Number(r.accruedUsd),
+        createdAt: r.createdAt.getTime(),
+      });
+    }
+  }
+
+  append(record: LikenessUsageEventRecord): LikenessUsageEventRecord {
+    this.rows.push(record);
+    this.writes.enqueue(async () => {
+      await this.prisma.likenessUsageEvent.create({
+        data: {
+          id: record.id,
+          creatorUserId: record.creatorUserId,
+          personaId: record.personaId,
+          eventType: record.eventType,
+          accruedUsd: record.accruedUsd,
+          createdAt: new Date(record.createdAt),
+        },
+      });
+    });
+    return record;
+  }
+
+  byCreator(creatorUserId: string): readonly LikenessUsageEventRecord[] {
+    return this.rows.filter((r) => r.creatorUserId === creatorUserId);
+  }
+
+  sumAccruedUsd(creatorUserId: string): number {
+    return this.byCreator(creatorUserId).reduce((sum, r) => sum + r.accruedUsd, 0);
+  }
+
+  all(): readonly LikenessUsageEventRecord[] {
+    return this.rows;
+  }
+
+  clear(): void {
+    this.rows.length = 0;
+    this.writes.enqueue(async () => {
+      await this.prisma.likenessUsageEvent.deleteMany({});
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Bundle + factory
 // ---------------------------------------------------------------------------
 
-/** A cohesive set of the four repositories plus lifecycle helpers. */
+/** A cohesive set of the ten repositories plus lifecycle helpers. */
 export interface PrismaRepositoryBundle {
   readonly prisma: PrismaClient;
   readonly requestLog: PrismaRequestLogRepository;
   readonly nodeIdentity: PrismaNodeIdentityRepository;
   readonly securityAudit: PrismaSecurityAuditRepository;
   readonly intentArchive: PrismaIntentArchiveRepository;
+  readonly user: PrismaUserRepository;
+  readonly session: PrismaSessionRepository;
+  readonly companionMemory: PrismaCompanionMemoryRepository;
+  readonly creatorProfile: PrismaCreatorProfileRepository;
+  readonly creatorPersona: PrismaCreatorPersonaRepository;
+  readonly likenessUsageEvent: PrismaLikenessUsageEventRepository;
   /** Load existing rows from Postgres into every in-memory projection. */
   hydrate(): Promise<void>;
   /** Await all pending Postgres writes across every repository. */
@@ -390,6 +799,12 @@ export function createPrismaRepositories(options: PrismaBundleOptions = {}): Pri
   const nodeIdentity = new PrismaNodeIdentityRepository(prisma, writes);
   const securityAudit = new PrismaSecurityAuditRepository(prisma, writes);
   const intentArchive = new PrismaIntentArchiveRepository(prisma, writes);
+  const user = new PrismaUserRepository(prisma, writes);
+  const session = new PrismaSessionRepository(prisma, writes);
+  const companionMemory = new PrismaCompanionMemoryRepository(prisma, writes);
+  const creatorProfile = new PrismaCreatorProfileRepository(prisma, writes);
+  const creatorPersona = new PrismaCreatorPersonaRepository(prisma, writes);
+  const likenessUsageEvent = new PrismaLikenessUsageEventRepository(prisma, writes);
 
   return {
     prisma,
@@ -397,12 +812,24 @@ export function createPrismaRepositories(options: PrismaBundleOptions = {}): Pri
     nodeIdentity,
     securityAudit,
     intentArchive,
+    user,
+    session,
+    companionMemory,
+    creatorProfile,
+    creatorPersona,
+    likenessUsageEvent,
     async hydrate() {
       await Promise.all([
         requestLog.hydrate(),
         nodeIdentity.hydrate(),
         securityAudit.hydrate(),
         intentArchive.hydrate(),
+        user.hydrate(),
+        session.hydrate(),
+        companionMemory.hydrate(),
+        creatorProfile.hydrate(),
+        creatorPersona.hydrate(),
+        likenessUsageEvent.hydrate(),
       ]);
     },
     async flush() {

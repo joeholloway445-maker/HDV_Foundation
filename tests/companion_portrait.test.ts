@@ -94,6 +94,21 @@ test('parsePortraitRequest keeps an optional appearance descriptor, defaulting t
   assert.equal(without.persona.appearance, undefined);
 });
 
+test('parsePortraitRequest keeps a valid personaId, defaulting to undefined when omitted', () => {
+  const withId = parsePortraitRequest({ persona: { name: 'Jordyn', age: 24, personaId: 'jordyn' } });
+  assert.equal(withId.persona.personaId, 'jordyn');
+
+  const without = parsePortraitRequest({ persona: { name: 'Luna', age: 23 } });
+  assert.equal(without.persona.personaId, undefined);
+});
+
+test('parsePortraitRequest rejects a personaId with characters outside [A-Za-z0-9_-]', () => {
+  assert.throws(
+    () => parsePortraitRequest({ persona: { name: 'Luna', age: 23, personaId: 'not valid!' } }),
+    PortraitValidationError,
+  );
+});
+
 // ---------------------------------------------------------------------------
 // B. handlePortraitRequest
 // ---------------------------------------------------------------------------
@@ -161,6 +176,27 @@ test('handlePortraitRequest forwards persona.style to the provider for checkpoin
     { persona: { name: 'Nova', age: 24, style: 'anime' } },
     { provider },
   );
+  assert.equal(res.status, 200);
+});
+
+test('handlePortraitRequest forwards persona.personaId to the provider for per-character LoRA routing', async () => {
+  const provider = new FakeImageProvider((_prompt, opts) => {
+    assert.equal(opts?.personaId, 'jordyn');
+    return { imageBase64: 'QUJD', mimeType: 'image/png', model: 'fake-image-1' };
+  });
+  const res = await handlePortraitRequest(
+    { persona: { name: 'Jordyn', age: 24, personaId: 'jordyn' } },
+    { provider },
+  );
+  assert.equal(res.status, 200);
+});
+
+test('handlePortraitRequest omits personaId from provider options for a custom companion with none set', async () => {
+  const provider = new FakeImageProvider((_prompt, opts) => {
+    assert.equal(opts?.personaId, undefined);
+    return { imageBase64: 'QUJD', mimeType: 'image/png', model: 'fake-image-1' };
+  });
+  const res = await handlePortraitRequest({ persona: { name: 'Luna', age: 23 } }, { provider });
   assert.equal(res.status, 200);
 });
 

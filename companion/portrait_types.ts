@@ -25,6 +25,14 @@ export interface PortraitPersona {
   appearance?: string;
   /** Required. Must be >= 18 — see the module-level safety floor note above. */
   age: number;
+  /**
+   * Optional stable persona identifier (e.g. "jordyn", matching FuckLike/web's PRESETS ids).
+   * Passed through to the ImageProvider (see providers/image_types.ts's GenerateImageOptions)
+   * so a provider with a per-character LoRA (colab/07_portrait_server.py's
+   * PERSONA_LORA_ROUTES) can generate with that character's trained likeness instead of the
+   * generic style checkpoint. Omit for one-off/custom companions with no trained LoRA yet.
+   */
+  personaId?: string;
 }
 
 export interface PortraitRequestInput {
@@ -46,6 +54,9 @@ const MAX_STYLE_CHARS = 40;
 const MAX_BACKSTORY_CHARS = 2000;
 const MAX_APPEARANCE_CHARS = 400;
 const MIN_ADULT_AGE = 18;
+const MAX_PERSONA_ID_CHARS = 80;
+/** Same "safe identifier" shape used by companion/types.ts's companionId. */
+const PERSONA_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 /** Parse + validate a raw body into a typed persona, enforcing the 18+ floor. */
 export function parsePortraitRequest(body: unknown): { persona: PortraitPersona } {
@@ -87,7 +98,18 @@ export function parsePortraitRequest(body: unknown): { persona: PortraitPersona 
       ? p.appearance.trim().slice(0, MAX_APPEARANCE_CHARS)
       : undefined;
 
-  return { persona: { name, style, personality, backstory, appearance, age } };
+  let personaId: string | undefined;
+  if (typeof p.personaId === 'string' && p.personaId.trim()) {
+    const trimmed = p.personaId.trim().slice(0, MAX_PERSONA_ID_CHARS);
+    if (!PERSONA_ID_PATTERN.test(trimmed)) {
+      throw new PortraitValidationError(
+        '"persona.personaId" may only contain letters, numbers, "_", and "-"',
+      );
+    }
+    personaId = trimmed;
+  }
+
+  return { persona: { name, style, personality, backstory, appearance, age, personaId } };
 }
 
 function normalisePersonality(value: unknown): CompanionPersonality {

@@ -63,3 +63,78 @@ model IntentDocument {
   documentedAt         DateTime @default(now())
   clarificationNeeded  Boolean  @default(false)
 }
+
+/// Real account identity (auth/). One row per registered email+password account. NO email
+/// verification and NO password-reset flow yet — both are deliberate follow-ups, not part of
+/// this minimal-but-correct first pass (see auth/service.ts). `passwordHash` is never the raw
+/// password: it is `scrypt` salt:hash (see auth/service.ts hashPassword/verifyPassword).
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+}
+
+/// A logged-in session token (auth/). One row per active login; `logout` deletes the row,
+/// `getUserBySession` rejects (and lazily deletes) rows past `expiresAt`. Tokens are
+/// cryptographically random (crypto.randomBytes) and used as-is as the primary key.
+model Session {
+  token     String   @id
+  userId    String
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+}
+
+/// companion/ chat's opt-in relationship memory: one row per client-supplied companionId
+/// (see companion/types.ts — there is no user-account system yet, so this is an opaque
+/// client-generated id, not a real user id). One row per companion is enough for this pass;
+/// no relational turn-by-turn history table.
+model CompanionMemory {
+  companionId    String   @id
+  affectionLevel Int      @default(50) // 0-100
+  summary        String   @default("") // running relationship/fact summary, capped length
+  turnCount      Int      @default(0)
+  updatedAt      DateTime @updatedAt
+}
+
+/// creator/ marketplace: one row per User who has applied to become a creator (real people
+/// turning themselves into an AI companion persona and earning when it's used — see
+/// creator/index.ts). `verificationStatus` starts 'unverified' and NOTHING in this pass can
+/// ever set it to 'verified' — see creator/payout_stub.ts's module header for why that is the
+/// actual safety mechanism gating real-money payouts, not this column.
+model CreatorProfile {
+  userId             String   @id
+  displayName        String
+  bio                String?
+  verificationStatus String   @default("unverified") // 'unverified' | 'pending' | 'verified'
+  createdAt          DateTime @default(now())
+}
+
+/// One row per persona a creator has submitted. `personaId` is the SAME id space as
+/// companion/portrait_types.ts's PortraitPersona.personaId / FuckLike's companion presetId —
+/// it is the join key creator/handlers.ts's recordLikenessUsage uses to attribute a
+/// chat/portrait/scene event back to the owning creator. `referencePhotoUrls` are URLs only —
+/// image bytes are never stored here (assumed hosted elsewhere, e.g. the VPS static asset path).
+model CreatorPersona {
+  id                 String   @id @default(uuid())
+  creatorUserId      String
+  personaId          String   @unique
+  displayName        String
+  description        String?
+  referencePhotoUrls Json     @default("[]")
+  createdAt          DateTime @default(now())
+}
+
+/// One row per billable likeness-usage event (a chat turn, portrait, or scene generated using a
+/// creator-owned persona — see creator/handlers.ts's recordLikenessUsage, called fire-and-forget
+/// from companion/handlers.ts, companion/portrait_handlers.ts, companion/scene_handlers.ts).
+/// `accruedUsd` comes from the placeholder per-event rate table in creator/types.ts
+/// (LIKENESS_RATE_USD) — operator-tunable, not final pricing. Append-only.
+model LikenessUsageEvent {
+  id            String   @id @default(uuid())
+  creatorUserId String
+  personaId     String
+  eventType     String // 'chat_turn' | 'portrait_generated' | 'scene_generated'
+  accruedUsd    Decimal  @default(0.00)
+  createdAt     DateTime @default(now())
+}

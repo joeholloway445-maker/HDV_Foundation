@@ -8,6 +8,15 @@
  *   - Optional API-key auth (X-HDV-Key or Authorization: Bearer <key>) against HDV_API_KEY.
  *     When HDV_API_KEY is unset the gateway runs in DEV MODE (auth disabled).
  *   - Per-IP in-memory rate limiting (HDV_RATE_LIMIT, default 60/min) → 429 when exceeded.
+ *     POST /v1/auth/{signup,login} carry a SECOND, stricter per-IP limiter on top of the
+ *     generic one (HDV_AUTH_RATE_LIMIT, default 10/min) — a shared VPS is a realistic
+ *     credential-stuffing target and the generic limit is sized for normal traffic, not that.
+ *   - Per-TENANT in-memory rate limiting (HDV_TENANT_RATE_LIMIT, default 20/min), ADDITIVE to
+ *     the per-IP limiter above and scoped to the companion + billing/checkout product routes
+ *     (see TENANT_RATE_LIMITED_PATHS). A shared VPS/NAT means many distinct users can share one
+ *     IP, so the per-IP bucket alone can unfairly starve one tenant's traffic on another's
+ *     behalf; keying a SECOND bucket by X-HDV-Tenant fixes that without weakening the per-IP
+ *     check (which still guards against one client hammering many fake tenant ids).
  *   - CORS headers (HDV_CORS_ORIGIN, default "*").
  *   - Structured request logging (method, path, status, duration) that NEVER logs secrets.
  *
@@ -19,10 +28,21 @@ import type { GatewayResponse } from './server.js';
 
 /** Default requests-per-window when HDV_RATE_LIMIT is unset/invalid. */
 export const DEFAULT_RATE_LIMIT = 60;
-/** Rate-limit window length. Phase 4.1 uses a fixed one-minute window. */
+/** Default per-tenant requests-per-window when HDV_TENANT_RATE_LIMIT is unset/invalid. */
+export const DEFAULT_TENANT_RATE_LIMIT = 20;
+/** Rate-limit window length. Phase 4.1 uses a fixed one-minute window (shared by both limiters). */
 export const RATE_LIMIT_WINDOW_MS = 60_000;
 /** Default CORS origin when HDV_CORS_ORIGIN is unset. */
 export const DEFAULT_CORS_ORIGIN = '*';
+/**
+ * Default requests-per-window for POST /v1/auth/signup and /v1/auth/login specifically, when
+ * HDV_AUTH_RATE_LIMIT is unset/invalid. Deliberately much stricter than DEFAULT_RATE_LIMIT: the
+ * generic per-IP limiter is shared across every route and sized for normal traffic, not
+ * credential-stuffing — a shared VPS is a realistic target for exactly that. This is a SECOND,
+ * additive limiter (same RateLimiter mechanism, its own bucket set) checked only for those two
+ * paths; the generic limiter still applies to them too.
+ */
+export const DEFAULT_AUTH_RATE_LIMIT = 10;
 
 /**
  * Paths that must always stay reachable (auth- and rate-limit-exempt): health probes and the
@@ -40,14 +60,53 @@ const ALWAYS_PUBLIC_PATHS = new Set<string>(['/v1/health', '/v1/billing/pricing'
 const AUTH_EXEMPT_PATHS = new Set<string>([
   '/v1/waitlist',
   '/v1/companion/chat',
+  // Streaming (SSE) twin of /v1/companion/chat — same public-but-rate-limited posture; see
+  // gateway/server.ts's COMPANION_CHAT_STREAM_PATH and serveCompanionChatStream.
+  '/v1/companion/chat/stream',
   '/v1/companion/portrait',
   '/v1/companion/scene',
+  '/v1/companion/memory',
+  '/v1/companion/speak',
   // Checkout is public because FuckLike/web has no user-account/API-key system yet — it sends
   // a per-browser anonymous tenant id via X-HDV-Tenant instead (see web/app.js). Safe today
   // because billing/stripe_stub.ts is a stub with no real STRIPE_SECRET_KEY (no money moves).
   // MUST be revisited before going live with a real Stripe key: checkout/settle in particular
   // needs to move to a real, signature-verified Stripe webhook rather than staying
   // client-callable — see the handler's doc comment in gateway/server.ts.
+  '/v1/billing/checkout',
+  '/v1/billing/checkout/settle',
+  // Auth (auth/) — these four routes ARE the auth system, so they can't require the HDV_API_KEY
+  // gate themselves (a client has no session/key yet when calling signup/login, and logout/me
+  // authenticate via their OWN X-HDV-Session bearer token, not the operator's HDV_API_KEY). All
+  // four stay rate-limited (see AUTH_RATE_LIMITED_PATHS below for signup/login's tighter cap).
+  // NOT wired into billing/checkout's X-HDV-Tenant resolution yet — see the TODO in
+  // gateway/server.ts by handleBillingCheckout.
+  '/v1/auth/signup',
+  '/v1/auth/login',
+  '/v1/auth/logout',
+  '/v1/auth/me',
+]);
+
+/**
+ * The brute-force-sensitive subset of AUTH_EXEMPT_PATHS: signup and login accept a password
+ * guess directly, so they get their OWN, stricter per-IP limiter in addition to the generic one
+ * (see DEFAULT_AUTH_RATE_LIMIT). logout/me don't guess credentials, so the generic limiter alone
+ * covers them.
+ */
+const AUTH_RATE_LIMITED_PATHS = new Set<string>(['/v1/auth/signup', '/v1/auth/login']);
+
+/**
+ * Paths that get a SECOND, per-tenant rate-limit check (keyed by X-HDV-Tenant), additive to
+ * the always-on per-IP limiter. These are the companion product surfaces and the checkout
+ * surface — the routes a single shared VPS IP (many tenants behind one NAT) could otherwise
+ * unfairly ration between tenants, or a single bad tenant could hammer regardless of how many
+ * IPs it rotates through. Deliberately narrower than AUTH_EXEMPT_PATHS: /v1/waitlist is a
+ * one-shot signup form, not a per-tenant metered surface, so it stays IP-limited only.
+ */
+const TENANT_RATE_LIMITED_PATHS = new Set<string>([
+  '/v1/companion/chat',
+  '/v1/companion/portrait',
+  '/v1/companion/scene',
   '/v1/billing/checkout',
   '/v1/billing/checkout/settle',
 ]);
@@ -57,17 +116,23 @@ export interface GatewaySecurityConfig {
   apiKey?: string;
   /** Max requests per window per client IP. */
   rateLimit: number;
-  /** Window length in ms for the rate limiter. */
+  /** Max requests per window per tenant (X-HDV-Tenant), additive on TENANT_RATE_LIMITED_PATHS. */
+  tenantRateLimit: number;
+  /** Window length in ms for both rate limiters. */
   windowMs: number;
   /** Value for the Access-Control-Allow-Origin header. */
   corsOrigin: string;
+  /** Max requests per window per client IP, specifically for POST /v1/auth/{signup,login}. */
+  authRateLimit: number;
 }
 
 export interface SecurityOverrides {
   apiKey?: string;
   rateLimit?: number;
+  tenantRateLimit?: number;
   windowMs?: number;
   corsOrigin?: string;
+  authRateLimit?: number;
 }
 
 /**
@@ -82,13 +147,17 @@ export function resolveSecurityConfig(
   const apiKey = rawKey && rawKey.trim().length > 0 ? rawKey.trim() : undefined;
 
   const rateLimit = overrides.rateLimit ?? parsePositiveInt(env.HDV_RATE_LIMIT) ?? DEFAULT_RATE_LIMIT;
+  const tenantRateLimit =
+    overrides.tenantRateLimit ?? parsePositiveInt(env.HDV_TENANT_RATE_LIMIT) ?? DEFAULT_TENANT_RATE_LIMIT;
   const windowMs = overrides.windowMs ?? RATE_LIMIT_WINDOW_MS;
   const corsOrigin =
     overrides.corsOrigin ?? (env.HDV_CORS_ORIGIN && env.HDV_CORS_ORIGIN.trim().length > 0
       ? env.HDV_CORS_ORIGIN.trim()
       : DEFAULT_CORS_ORIGIN);
+  const authRateLimit =
+    overrides.authRateLimit ?? parsePositiveInt(env.HDV_AUTH_RATE_LIMIT) ?? DEFAULT_AUTH_RATE_LIMIT;
 
-  return { apiKey, rateLimit, windowMs, corsOrigin };
+  return { apiKey, rateLimit, tenantRateLimit, windowMs, corsOrigin, authRateLimit };
 }
 
 /** A single request's cross-cutting inputs, decoupled from node:http for testability. */
@@ -107,17 +176,30 @@ export interface GuardOutcome {
 }
 
 export interface LogEntry {
+  /** ISO-8601 timestamp of when the request finished, e.g. "2026-08-10T14:03:21.045Z". Greppable
+   *  by day/hour prefix (`grep '"timestamp":"2026-08-10T14'`) without parsing epoch millis. */
+  timestamp: string;
   method: string;
   path: string;
   status: number;
   durationMs: number;
   ip: string;
   authState: 'disabled' | 'authorized' | 'rejected' | 'public';
+  /** X-HDV-Tenant, when the caller actually sent one (billing/companion routes). Omitted
+   *  entirely (not "demo") for requests that carried no tenant header, so a `grep tenant`
+   *  only surfaces genuinely tenant-scoped traffic. */
+  tenant?: string;
 }
 
 export type GatewayLogger = (entry: LogEntry) => void;
 
-/** Default logger: single-line JSON to stdout. Secrets are never included in LogEntry. */
+/**
+ * Default logger: single-line JSON to stdout, one line per request. Deliberately dependency-free
+ * (`console.log(JSON.stringify(...))`) so it needs no logging library and stays trivially
+ * greppable via `docker logs <container> | grep ...` — e.g. `grep '"status":429'` for rate-limit
+ * hits, `grep '"tenant":"<id>"'` for one tenant's traffic, or `grep '"timestamp":"2026-08-10T14'`
+ * for one hour. Secrets are never included in LogEntry.
+ */
 export const defaultLogger: GatewayLogger = (entry) => {
   console.log(JSON.stringify({ gateway: 'hope', ...entry }));
 };
@@ -179,10 +261,15 @@ export class RateLimiter {
 export class GatewayMiddleware {
   readonly config: GatewaySecurityConfig;
   private readonly limiter: RateLimiter;
+  /** Second, stricter limiter for POST /v1/auth/{signup,login} — see AUTH_RATE_LIMITED_PATHS. */
+  private readonly authLimiter: RateLimiter;
+  private readonly tenantLimiter: RateLimiter;
 
   constructor(config: GatewaySecurityConfig) {
     this.config = config;
     this.limiter = new RateLimiter(config.rateLimit, config.windowMs);
+    this.authLimiter = new RateLimiter(config.authRateLimit, config.windowMs);
+    this.tenantLimiter = new RateLimiter(config.tenantRateLimit, config.windowMs);
   }
 
   /** True when no API key is configured (dev mode — auth disabled). */
@@ -200,12 +287,17 @@ export class GatewayMiddleware {
     return ALWAYS_PUBLIC_PATHS.has(pathname) || AUTH_EXEMPT_PATHS.has(pathname);
   }
 
+  /** Whether a path gets the SECOND, per-tenant rate-limit check (additive to per-IP). */
+  isTenantRateLimitedPath(pathname: string): boolean {
+    return TENANT_RATE_LIMITED_PATHS.has(pathname);
+  }
+
   /** Base CORS headers applied to every response. */
   corsHeaders(): Record<string, string> {
     return {
       'access-control-allow-origin': this.config.corsOrigin,
       'access-control-allow-methods': 'GET, POST, OPTIONS',
-      'access-control-allow-headers': 'Content-Type, Authorization, X-HDV-Key, X-HDV-Tenant',
+      'access-control-allow-headers': 'Content-Type, Authorization, X-HDV-Key, X-HDV-Tenant, X-HDV-Session',
       'access-control-max-age': '600',
       vary: 'Origin',
     };
@@ -244,6 +336,60 @@ export class GatewayMiddleware {
           },
         };
       }
+
+      // Extra-strict, additive limiter for the credential-guessing surface (signup/login).
+      if (AUTH_RATE_LIMITED_PATHS.has(req.pathname)) {
+        const authRl = this.authLimiter.hit(req.ip, now);
+        if (Number.isFinite(authRl.remaining)) {
+          headers['x-ratelimit-auth-limit'] = String(authRl.limit);
+          headers['x-ratelimit-auth-remaining'] = String(authRl.remaining);
+        }
+        if (!authRl.allowed) {
+          const retryAfter = Math.max(1, Math.ceil((authRl.resetAt - now) / 1000));
+          headers['retry-after'] = String(retryAfter);
+          return {
+            headers,
+            response: {
+              status: 429,
+              body: {
+                error: 'rate limit exceeded for authentication endpoints',
+                limit: authRl.limit,
+                retryAfterSeconds: retryAfter,
+              },
+            },
+          };
+        }
+      }
+    }
+
+    // ...then the SECOND, additive per-tenant check on the narrower set of product/checkout
+    // routes (still after the per-IP check above, which stays the first line of defense against
+    // one client rotating through many fake tenant ids). Keyed by X-HDV-Tenant so many distinct
+    // tenants sharing one shared-VPS/NAT IP each get their own budget instead of splitting one.
+    if (!isPublic && this.isTenantRateLimitedPath(req.pathname)) {
+      const tenantId = tenantFromHeaders(req.headers);
+      const rl = this.tenantLimiter.hit(`tenant:${tenantId}`, now);
+      if (Number.isFinite(rl.remaining)) {
+        headers['x-ratelimit-tenant-limit'] = String(rl.limit);
+        headers['x-ratelimit-tenant-remaining'] = String(rl.remaining);
+        headers['x-ratelimit-tenant-reset'] = String(Math.ceil(rl.resetAt / 1000));
+      }
+      if (!rl.allowed) {
+        const retryAfter = Math.max(1, Math.ceil((rl.resetAt - now) / 1000));
+        headers['retry-after'] = String(retryAfter);
+        return {
+          headers,
+          response: {
+            status: 429,
+            body: {
+              error: 'tenant rate limit exceeded',
+              tenantId,
+              limit: rl.limit,
+              retryAfterSeconds: retryAfter,
+            },
+          },
+        };
+      }
     }
 
     // ...then auth (health + auth-exempt public writes exempt, dev mode exempt).
@@ -276,6 +422,8 @@ export class GatewayMiddleware {
 
   resetRateLimiter(): void {
     this.limiter.reset();
+    this.authLimiter.reset();
+    this.tenantLimiter.reset();
   }
 }
 
@@ -320,6 +468,25 @@ export function clientIp(
 function firstHeader(value: string | string[] | undefined): string | undefined {
   if (Array.isArray(value)) return value[0];
   return value;
+}
+
+/**
+ * Raw X-HDV-Tenant header value (trimmed), or undefined when absent/blank. Unlike
+ * `tenantFromHeaders` below this does NOT default to "demo" — it's used for logging so a log
+ * entry only carries a `tenant` field when the caller actually sent one.
+ */
+export function rawTenantId(headers: Record<string, string | string[] | undefined>): string | undefined {
+  const trimmed = firstHeader(headers['x-hdv-tenant'])?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : undefined;
+}
+
+/**
+ * Resolve the tenant id from the X-HDV-Tenant header (default "demo"). Shared by the billing
+ * routes (gateway/server.ts) and the per-tenant rate limiter above so both agree on identity.
+ */
+export function tenantFromHeaders(headers?: Record<string, string | string[] | undefined>): string {
+  if (!headers) return 'demo';
+  return rawTenantId(headers) ?? 'demo';
 }
 
 function parsePositiveInt(value: string | undefined): number | undefined {

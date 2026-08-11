@@ -17,6 +17,7 @@
 import {
   emptyUsage,
   type CompleteOptions,
+  type CompletionDelta,
   type CompletionResult,
   type LlmProvider,
   type LlmUsage,
@@ -56,6 +57,12 @@ interface ChatCompletionResponse {
     completion_tokens?: number;
     total_tokens?: number;
   };
+}
+
+/** Shape of one `data: {...}` frame in an OpenAI-compatible chat completions SSE stream. */
+interface ChatCompletionStreamChunk {
+  model?: string;
+  choices?: Array<{ delta?: { content?: string | null } }>;
 }
 
 /** Raised when the remote returns a non-2xx status or an unparseable/empty body. */
@@ -184,11 +191,129 @@ export class OpenAiCompatibleProvider implements LlmProvider {
   }
 
   /**
+   * Streaming variant of `complete`: sets `stream: true` on the same request shape and yields
+   * `{ delta }` chunks as they arrive over the response's `text/event-stream` body, instead of
+   * waiting for the full completion. Ollama and every OpenAI-compatible `/v1/chat/completions`
+   * endpoint support this via SSE frames shaped `data: {"choices":[{"delta":{"content":"..."}}]}`,
+   * terminated by a literal `data: [DONE]` frame. Same auth/timeout/error conventions as
+   * `complete()` — rejects with `OpenAiCompatibleError` on a non-2xx status or transport failure.
+   */
+  async *completeStream(prompt: string, opts: CompleteOptions = {}): AsyncIterable<CompletionDelta> {
+    const model = opts.model ?? this.model;
+    const messages: ChatMessage[] = [];
+    if (opts.system) messages.push({ role: 'system', content: opts.system });
+    messages.push({ role: 'user', content: prompt });
+
+    const body: Record<string, unknown> = {
+      model,
+      messages,
+      temperature: opts.temperature ?? this.temperature,
+      stream: true,
+    };
+    const maxTokens = opts.maxTokens ?? this.maxTokens;
+    if (maxTokens !== undefined) body.max_tokens = maxTokens;
+    if (opts.stop && opts.stop.length > 0) body.stop = opts.stop;
+
+    const headers: Record<string, string> = {
+      'content-type': 'application/json',
+      accept: 'text/event-stream',
+      ...this.extraHeaders,
+    };
+    if (this.apiKey) headers.authorization = `Bearer ${this.apiKey}`;
+
+    const signal = combineSignals(opts.signal, this.timeoutMs);
+
+    let response: Response;
+    try {
+      response = await this.fetchImpl(this.url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: signal.signal,
+      });
+    } catch (err) {
+      signal.cleanup();
+      throw new OpenAiCompatibleError(
+        `Request to ${this.url} failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+
+    if (!response.ok) {
+      const raw = await response.text();
+      signal.cleanup();
+      throw new OpenAiCompatibleError(
+        `OpenAI-compatible endpoint returned HTTP ${response.status}`,
+        response.status,
+        raw,
+      );
+    }
+    if (!response.body) {
+      signal.cleanup();
+      throw new OpenAiCompatibleError('Streaming response had no readable body', response.status);
+    }
+
+    try {
+      yield* parseSseDeltas(response.body);
+    } finally {
+      signal.cleanup();
+    }
+  }
+
+  /**
    * Safe serialization: JSON.stringify(provider) and structured loggers only ever see the
    * provider name, model, and endpoint URL — NEVER the API key (which is also non-enumerable).
    */
   toJSON(): { name: string; model: string; url: string } {
     return { name: this.name, model: this.model, url: this.url };
+  }
+}
+
+/**
+ * Incrementally parse an OpenAI-compatible SSE chat-completions stream from a web
+ * `ReadableStream<Uint8Array>` (what `fetch`'s `response.body` gives us in Node >= 18/20),
+ * yielding one `{ delta }` per non-empty `choices[0].delta.content` frame, in arrival order.
+ * Buffers partial lines across chunk boundaries (SSE frames are not guaranteed to align with
+ * TCP/HTTP chunk boundaries) and stops cleanly on the `data: [DONE]` sentinel.
+ */
+async function* parseSseDeltas(body: ReadableStream<Uint8Array>): AsyncGenerator<CompletionDelta> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (value) buffer += decoder.decode(value, { stream: true });
+      if (done) {
+        buffer += decoder.decode();
+      }
+
+      let newlineIndex: number;
+      while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+        const rawLine = buffer.slice(0, newlineIndex);
+        buffer = buffer.slice(newlineIndex + 1);
+        const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
+        if (!line.startsWith('data:')) continue; // ignore blank lines, comments, other SSE fields
+
+        const data = line.slice(5).trim();
+        if (data.length === 0) continue;
+        if (data === '[DONE]') return;
+
+        let parsed: ChatCompletionStreamChunk;
+        try {
+          parsed = JSON.parse(data) as ChatCompletionStreamChunk;
+        } catch {
+          continue; // tolerate stray/unparseable keep-alive frames rather than aborting the stream
+        }
+        const delta = parsed.choices?.[0]?.delta?.content;
+        if (typeof delta === 'string' && delta.length > 0) {
+          yield { delta };
+        }
+      }
+
+      if (done) return;
+    }
+  } finally {
+    reader.releaseLock();
   }
 }
 

@@ -2,10 +2,12 @@
  * persistence/repositories.ts — repository interfaces + in-memory implementations.
  *
  * Phase 2 persistence layer. These interfaces mirror the Prisma models in
- * `config/schema.prisma` exactly (RequestLog, NodeIdentity, SecurityAudit, and the new
- * IntentDocument). The in-memory implementations are drop-in defaults so the running
- * backbone never requires a real Postgres; a Phase 4 Prisma-backed implementation can
- * satisfy the same interfaces without touching call sites.
+ * `config/schema.prisma` exactly (RequestLog, NodeIdentity, SecurityAudit, IntentDocument,
+ * CompanionMemory — companion/'s opt-in relationship memory, see companion/memory.ts — and
+ * CreatorProfile/CreatorPersona/LikenessUsageEvent — the creator marketplace, see creator/).
+ * The in-memory implementations are drop-in defaults so the running backbone never requires
+ * a real Postgres; a Phase 4 Prisma-backed implementation can satisfy the same interfaces
+ * without touching call sites.
  *
  * This module imports ONLY from `config/` so it stays agent-neutral: APEX (ledger),
  * KNOLL (audit), and HOPE (intent archive) can all optionally wrap a repository without
@@ -63,6 +65,87 @@ export interface IntentDocumentRecord {
   clarificationNeeded: boolean;
 }
 
+/** Mirrors the User model (auth/) — one row per registered email+password account. */
+export interface UserRecord {
+  id: string;
+  email: string;
+  /** `scrypt` salt:hash encoding — see auth/service.ts. NEVER the raw password. */
+  passwordHash: string;
+  createdAt: number;
+}
+
+/** Mirrors the Session model (auth/) — one row per active login. */
+export interface SessionRecord {
+  token: string;
+  userId: string;
+  createdAt: number;
+  expiresAt: number;
+}
+
+/**
+ * Mirrors the CompanionMemory model (companion/'s opt-in relationship memory — see
+ * companion/memory.ts). One row per client-supplied companionId; there is no user-account
+ * system yet, so this is an opaque client-generated id, not a real user id.
+ */
+export interface CompanionMemoryRecord {
+  companionId: string;
+  /** 0-100. */
+  affectionLevel: number;
+  /** Running relationship/fact summary, capped length. */
+  summary: string;
+  turnCount: number;
+  updatedAt: number;
+}
+
+/**
+ * Mirrors the CreatorProfile model (creator/) — one row per User who has applied to become a
+ * creator (real people turning themselves into an AI companion persona — see creator/index.ts).
+ * `verificationStatus` starts 'unverified' and NOTHING in this pass can ever set it to
+ * 'verified' — see creator/payout_stub.ts's module header for why that is the actual safety
+ * mechanism gating real-money payouts.
+ */
+export interface CreatorProfileRecord {
+  userId: string;
+  displayName: string;
+  bio?: string;
+  verificationStatus: 'unverified' | 'pending' | 'verified';
+  createdAt: number;
+}
+
+/**
+ * Mirrors the CreatorPersona model (creator/) — one row per persona a creator has submitted.
+ * `personaId` is the SAME id space as companion/portrait_types.ts's PortraitPersona.personaId /
+ * FuckLike's companion presetId — it is the join key creator/handlers.ts's recordLikenessUsage
+ * uses to attribute a chat/portrait/scene event back to the owning creator.
+ * `referencePhotoUrls` are URLs only — image bytes are never stored here or in Postgres; they
+ * are assumed hosted elsewhere (e.g. the VPS's static asset path, same as the existing
+ * pregenerated-assets pattern).
+ */
+export interface CreatorPersonaRecord {
+  id: string;
+  creatorUserId: string;
+  personaId: string;
+  displayName: string;
+  description?: string;
+  referencePhotoUrls: string[];
+  createdAt: number;
+}
+
+/**
+ * Mirrors the LikenessUsageEvent model (creator/) — one row per billable likeness-usage event
+ * (a chat turn, portrait, or scene generated using a creator-owned persona). `accruedUsd` comes
+ * from the placeholder per-event rate table in creator/types.ts (LIKENESS_RATE_USD) — an
+ * operator-tunable figure, not final pricing. Append-only; never mutated after creation.
+ */
+export interface LikenessUsageEventRecord {
+  id: string;
+  creatorUserId: string;
+  personaId: string;
+  eventType: 'chat_turn' | 'portrait_generated' | 'scene_generated';
+  accruedUsd: number;
+  createdAt: number;
+}
+
 // ---------------------------------------------------------------------------
 // Repository interfaces
 // ---------------------------------------------------------------------------
@@ -95,6 +178,56 @@ export interface IntentArchiveRepository {
   get(id: string): IntentDocumentRecord | undefined;
   all(): readonly IntentDocumentRecord[];
   needingClarification(): readonly IntentDocumentRecord[];
+  clear(): void;
+}
+
+/** Account identity (auth/). Email is the natural key; findByEmail must be case-normalized
+ *  by the caller (AuthService lower-cases before every read/write). */
+export interface UserRepository {
+  create(record: UserRecord): UserRecord;
+  findByEmail(email: string): UserRecord | undefined;
+  findById(id: string): UserRecord | undefined;
+  clear(): void;
+}
+
+/** Session tokens (auth/). Token is the primary key. */
+export interface SessionRepository {
+  create(record: SessionRecord): SessionRecord;
+  findByToken(token: string): SessionRecord | undefined;
+  delete(token: string): void;
+  clear(): void;
+}
+
+export interface CompanionMemoryRepository {
+  get(companionId: string): CompanionMemoryRecord | undefined;
+  upsert(record: CompanionMemoryRecord): CompanionMemoryRecord;
+  all(): readonly CompanionMemoryRecord[];
+  clear(): void;
+}
+
+/** Creator profiles (creator/). userId is the natural key — one profile per User. */
+export interface CreatorProfileRepository {
+  upsert(record: CreatorProfileRecord): CreatorProfileRecord;
+  get(userId: string): CreatorProfileRecord | undefined;
+  clear(): void;
+}
+
+/** Creator personas (creator/). `id` is the primary key; `personaId` is the join key every
+ *  lookup outside creator/ itself actually cares about (see findByPersonaId). */
+export interface CreatorPersonaRepository {
+  upsert(record: CreatorPersonaRecord): CreatorPersonaRecord;
+  findByPersonaId(personaId: string): CreatorPersonaRecord | undefined;
+  findByCreator(creatorUserId: string): readonly CreatorPersonaRecord[];
+  all(): readonly CreatorPersonaRecord[];
+  clear(): void;
+}
+
+/** Likeness-usage events (creator/). Append-only; sumAccruedUsd powers GET /v1/creator/earnings. */
+export interface LikenessUsageEventRepository {
+  append(record: LikenessUsageEventRecord): LikenessUsageEventRecord;
+  byCreator(creatorUserId: string): readonly LikenessUsageEventRecord[];
+  sumAccruedUsd(creatorUserId: string): number;
+  all(): readonly LikenessUsageEventRecord[];
   clear(): void;
 }
 
@@ -182,6 +315,125 @@ export class InMemoryIntentArchiveRepository implements IntentArchiveRepository 
   }
   clear(): void {
     this.rows.clear();
+  }
+}
+
+export class InMemoryUserRepository implements UserRepository {
+  private readonly rows = new Map<string, UserRecord>(); // keyed by id
+  private readonly byEmail = new Map<string, string>(); // email -> id
+
+  create(record: UserRecord): UserRecord {
+    this.rows.set(record.id, record);
+    this.byEmail.set(record.email, record.id);
+    return record;
+  }
+  findByEmail(email: string): UserRecord | undefined {
+    const id = this.byEmail.get(email);
+    return id === undefined ? undefined : this.rows.get(id);
+  }
+  findById(id: string): UserRecord | undefined {
+    return this.rows.get(id);
+  }
+  clear(): void {
+    this.rows.clear();
+    this.byEmail.clear();
+  }
+}
+
+export class InMemorySessionRepository implements SessionRepository {
+  private readonly rows = new Map<string, SessionRecord>();
+
+  create(record: SessionRecord): SessionRecord {
+    this.rows.set(record.token, record);
+    return record;
+  }
+  findByToken(token: string): SessionRecord | undefined {
+    return this.rows.get(token);
+  }
+  delete(token: string): void {
+    this.rows.delete(token);
+  }
+  clear(): void {
+    this.rows.clear();
+  }
+}
+
+export class InMemoryCompanionMemoryRepository implements CompanionMemoryRepository {
+  private readonly rows = new Map<string, CompanionMemoryRecord>();
+
+  get(companionId: string): CompanionMemoryRecord | undefined {
+    return this.rows.get(companionId);
+  }
+  upsert(record: CompanionMemoryRecord): CompanionMemoryRecord {
+    this.rows.set(record.companionId, record);
+    return record;
+  }
+  all(): readonly CompanionMemoryRecord[] {
+    return Array.from(this.rows.values());
+  }
+  clear(): void {
+    this.rows.clear();
+  }
+}
+
+export class InMemoryCreatorProfileRepository implements CreatorProfileRepository {
+  private readonly rows = new Map<string, CreatorProfileRecord>();
+
+  upsert(record: CreatorProfileRecord): CreatorProfileRecord {
+    this.rows.set(record.userId, record);
+    return record;
+  }
+  get(userId: string): CreatorProfileRecord | undefined {
+    return this.rows.get(userId);
+  }
+  clear(): void {
+    this.rows.clear();
+  }
+}
+
+export class InMemoryCreatorPersonaRepository implements CreatorPersonaRepository {
+  private readonly rows = new Map<string, CreatorPersonaRecord>(); // keyed by id
+  private readonly byPersonaId = new Map<string, string>(); // personaId -> id
+
+  upsert(record: CreatorPersonaRecord): CreatorPersonaRecord {
+    this.rows.set(record.id, record);
+    this.byPersonaId.set(record.personaId, record.id);
+    return record;
+  }
+  findByPersonaId(personaId: string): CreatorPersonaRecord | undefined {
+    const id = this.byPersonaId.get(personaId);
+    return id === undefined ? undefined : this.rows.get(id);
+  }
+  findByCreator(creatorUserId: string): readonly CreatorPersonaRecord[] {
+    return this.all().filter((r) => r.creatorUserId === creatorUserId);
+  }
+  all(): readonly CreatorPersonaRecord[] {
+    return Array.from(this.rows.values());
+  }
+  clear(): void {
+    this.rows.clear();
+    this.byPersonaId.clear();
+  }
+}
+
+export class InMemoryLikenessUsageEventRepository implements LikenessUsageEventRepository {
+  private readonly rows: LikenessUsageEventRecord[] = [];
+
+  append(record: LikenessUsageEventRecord): LikenessUsageEventRecord {
+    this.rows.push(record);
+    return record;
+  }
+  byCreator(creatorUserId: string): readonly LikenessUsageEventRecord[] {
+    return this.rows.filter((r) => r.creatorUserId === creatorUserId);
+  }
+  sumAccruedUsd(creatorUserId: string): number {
+    return this.byCreator(creatorUserId).reduce((sum, r) => sum + r.accruedUsd, 0);
+  }
+  all(): readonly LikenessUsageEventRecord[] {
+    return this.rows;
+  }
+  clear(): void {
+    this.rows.length = 0;
   }
 }
 

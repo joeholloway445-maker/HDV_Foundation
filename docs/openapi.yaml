@@ -18,8 +18,10 @@ tags:
   - name: health
   - name: metrics
   - name: billing
+  - name: auth
   - name: waitlist
   - name: companion
+  - name: creator
 components:
   securitySchemes:
     bearerAuth:
@@ -34,6 +36,18 @@ components:
       schema:
         type: string
       description: Tenant identifier for tenant-scoped routes (defaults to "demo").
+    SessionHeader:
+      name: X-HDV-Session
+      in: header
+      required: false
+      schema:
+        type: string
+      description: >-
+        Bearer session token minted by POST /v1/auth/signup or /v1/auth/login. Required (401
+        otherwise) for GET /v1/auth/me; POST /v1/auth/logout also accepts it in a
+        `{ sessionToken }` JSON body as a fallback. Also REQUIRED (401 otherwise) for every
+        /v1/creator/* route — UNLIKE /v1/auth/me, those routes are also NOT exempt from
+        `bearerAuth` (the operator's HDV_API_KEY), so both may be required together.
   schemas:
     Error:
       type: object
@@ -114,6 +128,48 @@ components:
                 nullable: true
         knollGate:
           type: string
+    DeepCheckResult:
+      type: object
+      description: >
+        One dependency's reachability result from GET /v1/health/deep. `skipped: true` means no
+        probe ran (the dependency isn't configured, or — for google_ai_studio images — no cheap
+        probe exists) and is NEVER a failure; `ok` is only meaningful when `skipped` is false.
+      properties:
+        configured:
+          type: boolean
+          description: Whether this dependency has any configuration at all.
+        skipped:
+          type: boolean
+          description: True when no reachability probe ran (unconfigured, or no cheap probe exists).
+        ok:
+          type: boolean
+          description: Meaningful only when skipped is false — whether the probe reached the dependency.
+        detail:
+          type: string
+          nullable: true
+        latencyMs:
+          type: number
+          nullable: true
+      required: [configured, skipped, ok]
+    HealthDeepResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+          description: True only if every CONFIGURED, non-skipped dependency reported ok.
+        checks:
+          type: object
+          properties:
+            postgres: { $ref: '#/components/schemas/DeepCheckResult' }
+            redis: { $ref: '#/components/schemas/DeepCheckResult' }
+            llm: { $ref: '#/components/schemas/DeepCheckResult' }
+            image: { $ref: '#/components/schemas/DeepCheckResult' }
+            video: { $ref: '#/components/schemas/DeepCheckResult' }
+          required: [postgres, redis, llm, image, video]
+        timestamp:
+          type: string
+          format: date-time
+      required: [ok, checks, timestamp]
     WaitlistSignupRequest:
       type: object
       properties:
@@ -148,6 +204,43 @@ components:
         last7d: { type: integer }
         firstAt: { type: integer, nullable: true }
         lastAt: { type: integer, nullable: true }
+    User:
+      type: object
+      description: Public-safe account view. NEVER includes passwordHash.
+      properties:
+        userId: { type: string, format: uuid }
+        email: { type: string, format: email }
+      required: [userId, email]
+    AuthSignupRequest:
+      type: object
+      properties:
+        email: { type: string, format: email }
+        password:
+          type: string
+          minLength: 8
+          description: Minimum 8 characters. No other complexity rules in this pass.
+      required: [email, password]
+    AuthLoginRequest:
+      type: object
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+      required: [email, password]
+    AuthResponse:
+      type: object
+      description: Returned by both signup and login. Never includes the password or its hash.
+      properties:
+        userId: { type: string, format: uuid }
+        email: { type: string, format: email }
+        sessionToken:
+          type: string
+          description: Opaque bearer token — send back via the X-HDV-Session header.
+      required: [userId, email, sessionToken]
+    AuthLogoutRequest:
+      type: object
+      description: Optional fallback body when the X-HDV-Session header isn't used.
+      properties:
+        sessionToken: { type: string }
     CompanionPersona:
       type: object
       properties:
@@ -191,6 +284,17 @@ components:
           description: Trimmed transcript so far (last ~20 turns). Stateless — sent every call.
         message:
           type: string
+        companionId:
+          type: string
+          maxLength: 128
+          pattern: '^[A-Za-z0-9_-]+$'
+          description: >
+            Optional, ENTIRELY OPT-IN. An opaque, client-generated stable id for "which saved
+            companion is this" — NOT a real user id (there is no user-account system yet).
+            Alphanumeric plus "_"/"-" only. When present AND persistent memory is available
+            server-side, the companion's remembered relationship state (see CompanionMemory) is
+            folded into the reply and updated afterward. Omitted ⇒ chat is fully stateless, byte-
+            for-byte identical to calling this endpoint with no memory feature at all.
       required: [persona, message]
     CompanionChatResponse:
       type: object
@@ -205,6 +309,30 @@ components:
           type: string
           nullable: true
       required: [reply, source]
+    CompanionMemory:
+      type: object
+      description: >
+        Opt-in companion relationship memory (companion/memory.ts). One row per companionId.
+        Never 404s from GET /v1/companion/memory — an unknown companionId simply returns these
+        defaults (affectionLevel 50, empty summary, turnCount 0).
+      properties:
+        companionId:
+          type: string
+        affectionLevel:
+          type: integer
+          minimum: 0
+          maximum: 100
+          default: 50
+        summary:
+          type: string
+          description: Running relationship/fact summary, length-capped.
+        turnCount:
+          type: integer
+          default: 0
+        updatedAt:
+          type: integer
+          description: Epoch milliseconds.
+      required: [companionId, affectionLevel, summary, turnCount, updatedAt]
     PortraitPersona:
       type: object
       properties:
@@ -284,6 +412,135 @@ components:
           type: string
           description: Present only when source is "unavailable" due to a real provider failure.
       required: [video, source]
+    SpeakRequest:
+      type: object
+      properties:
+        text:
+          type: string
+          description: 'Already-approved chat text to synthesize. Capped at MAX_MESSAGE_CHARS (4000 chars, same limit companion/chat applies to messages).'
+        voice:
+          type: string
+          description: 'Optional named voice (Kokoro-82M ships several, e.g. "af_bella"). Omit to use the provider default.'
+      required: [text]
+    SpeakResponse:
+      type: object
+      properties:
+        audio:
+          type: string
+          nullable: true
+          description: A `data:<mimeType>;base64,<bytes>` URI (mimeType is audio/wav or audio/mpeg), or null when unavailable.
+        source:
+          type: string
+          description: The provider name on success (e.g. kokoro_tunnel), or "unavailable".
+        model:
+          type: string
+          nullable: true
+        error:
+          type: string
+          description: Present only when source is "unavailable" due to a real provider failure.
+      required: [audio, source]
+    CreatorProfile:
+      type: object
+      description: >
+        A creator's marketplace profile (creator/). Just an auth/ User plus this — no parallel
+        identity system. verificationStatus starts 'unverified' and NOTHING in this build can
+        ever set it to 'verified' — see the payout stub note on POST /v1/creator/payout.
+      properties:
+        userId: { type: string, format: uuid }
+        displayName: { type: string }
+        bio: { type: string }
+        verificationStatus:
+          type: string
+          enum: [unverified, pending, verified]
+        createdAt:
+          type: integer
+          description: Epoch milliseconds.
+      required: [userId, displayName, verificationStatus, createdAt]
+    CreatorApplyRequest:
+      type: object
+      properties:
+        displayName: { type: string }
+        bio: { type: string }
+      required: [displayName]
+    CreatorPersona:
+      type: object
+      description: >
+        A creator-submitted persona. `personaId` is the SAME id space as
+        PortraitPersona.personaId / CompanionChatRequest.companionId / FuckLike's companion
+        presetId — it is the join key usage-attribution keys off of.
+      properties:
+        id: { type: string, format: uuid }
+        creatorUserId: { type: string, format: uuid }
+        personaId:
+          type: string
+          maxLength: 80
+          pattern: '^[A-Za-z0-9_-]+$'
+        displayName: { type: string }
+        description: { type: string }
+        referencePhotoUrls:
+          type: array
+          items: { type: string, format: uri }
+          description: URLs only — image bytes are never accepted or stored here.
+        createdAt:
+          type: integer
+          description: Epoch milliseconds.
+      required: [id, creatorUserId, personaId, displayName, referencePhotoUrls, createdAt]
+    CreatorPersonaRequest:
+      type: object
+      properties:
+        personaId:
+          type: string
+          maxLength: 80
+          pattern: '^[A-Za-z0-9_-]+$'
+        displayName: { type: string }
+        description: { type: string }
+        referencePhotoUrls:
+          type: array
+          items: { type: string, format: uri }
+          description: Optional; defaults to []. http(s) URLs only.
+      required: [personaId, displayName]
+    CreatorEarningsResponse:
+      type: object
+      description: >
+        `payoutAvailable` is ALWAYS false in this build: nothing can set verificationStatus to
+        'verified' yet (see POST /v1/creator/payout), so payouts are unconditionally blocked
+        regardless of this flag — it exists purely so a frontend can render a clear "payouts
+        coming soon" state instead of inferring it from a 403.
+      properties:
+        accruedUsd:
+          type: number
+          description: Sum of every LikenessUsageEvent.accruedUsd recorded for this creator.
+        verificationStatus:
+          type: string
+          enum: [unverified, pending, verified]
+        payoutAvailable:
+          type: boolean
+          enum: [false]
+      required: [accruedUsd, verificationStatus, payoutAvailable]
+    CreatorVerificationSession:
+      type: object
+      description: >
+        A stub Stripe Identity verification session (creator/payout_stub.ts). ALWAYS
+        'requires_input' in this build — it never auto-completes; there is no real ID-check
+        backend wired up yet.
+      properties:
+        id: { type: string }
+        status:
+          type: string
+          enum: [requires_input, processing, verified, rejected]
+        livemode: { type: boolean }
+        url: { type: string, format: uri }
+        createdAt:
+          type: integer
+          description: Epoch milliseconds.
+      required: [id, status, livemode, url, createdAt]
+    CreatorPayoutRequest:
+      type: object
+      properties:
+        amountUsd:
+          type: number
+          exclusiveMinimum: 0
+      required: [amountUsd]
     AllowanceRequest:
       type: object
       properties:
@@ -330,6 +587,42 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HealthResponse'
+  /v1/health/deep:
+    get:
+      tags: [health]
+      summary: Per-dependency reachability diagnostics (Postgres, Redis, LLM, image, video)
+      description: >
+        Distinct from GET /v1/health above: this endpoint makes real (bounded, parallel) network
+        calls to whichever dependencies are configured — a Postgres `SELECT 1` when DATABASE_URL
+        is set, a Redis TCP+PING when REDIS_URL is set, and a cheap reachability probe for the
+        configured LLM/image/video providers (e.g. `GET {baseUrl}/models` for an
+        `openai_compatible` provider such as Ollama, or `GET {baseUrl}/health` for a
+        `colab_tunnel` provider). Unconfigured dependencies report `skipped: true` rather than a
+        false failure. The whole call is bounded to a few seconds (checks run in parallel, each
+        raced against a shared timeout) so it can never hang. PROTECTED — same posture as
+        GET /v1/matrix/stats (requires the API key when one is configured); it is NOT rate-limit-
+        or auth-exempt like GET /v1/health, since dependency topology is operational information.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Every configured, non-skipped dependency is reachable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthDeepResponse'
+        '503':
+          description: At least one configured, non-skipped dependency is unreachable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthDeepResponse'
+        '401':
+          description: Missing/invalid API key (when HDV_API_KEY is configured).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /v1/metrics:
     get:
       tags: [metrics]
@@ -453,8 +746,9 @@ paths:
       summary: Start a (stub) Stripe Checkout session for a plan tier
       description: >-
         Auth-exempt (public — FuckLike/web has no account system, only an anonymous per-browser
-        tenant id). STUB by default (no STRIPE_SECRET_KEY): a fake, well-formed test-mode
-        session with no real charge. Returns a hosted `url` to redirect to.
+        tenant id). Rate-limited per-IP AND additively per-tenant (X-HDV-Tenant,
+        HDV_TENANT_RATE_LIMIT). STUB by default (no STRIPE_SECRET_KEY): a fake, well-formed
+        test-mode session with no real charge. Returns a hosted `url` to redirect to.
       parameters:
         - $ref: '#/components/parameters/TenantHeader'
       requestBody:
@@ -537,6 +831,129 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /v1/auth/signup:
+    post:
+      tags: [auth]
+      summary: Create a new email+password account
+      description: >-
+        Auth-exempt (public — this route IS the auth system) but rate-limited, with a stricter,
+        dedicated per-IP cap on top of the generic gateway limiter (brute-force defense; see
+        HDV_AUTH_RATE_LIMIT in gateway/middleware.ts). NOT wired into billing/checkout's
+        X-HDV-Tenant resolution yet — see the TODO in gateway/server.ts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthSignupRequest'
+      responses:
+        '200':
+          description: Account created; a fresh session token is returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Missing fields, malformed email, or a password under 8 characters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: An account with that email already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Signup-specific rate limit exceeded for this IP.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/auth/login:
+    post:
+      tags: [auth]
+      summary: Authenticate an existing account
+      description: >-
+        Auth-exempt (public) but rate-limited with the same stricter, dedicated per-IP cap as
+        signup. An unknown email and a wrong password return the EXACT SAME 401 message
+        ("invalid email or password") — this never reveals which, so a caller can't enumerate
+        registered emails.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthLoginRequest'
+      responses:
+        '200':
+          description: Authenticated; a fresh session token is returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Missing/malformed email or password fields.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Invalid email or password (identical message either way).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Login-specific rate limit exceeded for this IP.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/auth/logout:
+    post:
+      tags: [auth]
+      summary: Invalidate a session token
+      description: Auth-exempt (public — authenticates via its OWN session token, not HDV_API_KEY). Idempotent — always 200, even for an unknown/already-expired token.
+      parameters:
+        - $ref: '#/components/parameters/SessionHeader'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthLogoutRequest'
+      responses:
+        '200':
+          description: Session invalidated (or was already invalid — always ok).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                required: [ok]
+  /v1/auth/me:
+    get:
+      tags: [auth]
+      summary: Resolve the current session to its account
+      description: Auth-exempt (public — authenticates via its OWN session token, not HDV_API_KEY).
+      parameters:
+        - $ref: '#/components/parameters/SessionHeader'
+      responses:
+        '200':
+          description: The account for a valid, unexpired session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          description: Missing, invalid, or expired session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /v1/waitlist:
     post:
       tags: [waitlist]
@@ -580,9 +997,17 @@ paths:
       summary: One in-character companion reply
       description: >
         Auth-exempt but rate-limited (the web client calls this directly, with no API key).
-        Stateless: the client sends the persona + trimmed history on every call. Never routes
-        through APEX/KNOLL — it only calls the configured LlmProvider (or a deterministic
-        per-personality fallback when none is configured / it fails).
+        TWO rate limits apply, additively: the always-on per-IP limit (HDV_RATE_LIMIT), plus a
+        per-tenant limit keyed by X-HDV-Tenant (HDV_TENANT_RATE_LIMIT, default 20/min) so many
+        tenants sharing one shared-VPS/NAT IP each get their own budget. Either can 429
+        independently — the response body's `error` field distinguishes "rate limit exceeded"
+        (per-IP) from "tenant rate limit exceeded" (per-tenant, includes `tenantId`). Stateless
+        by default: the client sends the persona + trimmed history on every call. Optionally
+        supply `companionId` to opt into persistent relationship memory (see
+        CompanionChatRequest.companionId and GET /v1/companion/memory) — omit it and behavior
+        is unchanged. Never routes through APEX/KNOLL — it only calls the configured
+        LlmProvider (or a deterministic per-personality fallback when none is configured / it
+        fails).
       requestBody:
         required: true
         content:
@@ -602,12 +1027,59 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /v1/companion/chat/stream:
+    post:
+      tags: [companion]
+      summary: One in-character companion reply, streamed token-by-token (SSE)
+      description: >
+        The streaming twin of POST /v1/companion/chat: identical request body, identical
+        validation (including the 18+ floor — a rejected persona gets a normal buffered 400
+        JSON error, exactly like the non-streaming route, BEFORE any event-stream framing is
+        written), and the same auth-exempt-but-rate-limited posture. The only difference is
+        delivery: the response is `text/event-stream` instead of one buffered JSON object.
+
+        OpenAPI 3.0 has no native SSE modeling, so the event shape is documented here instead
+        of as a schema. On success (200) the body is a sequence of `text/event-stream` frames,
+        each `data: <json>\n\n`:
+          - zero or more `{"delta": "<next chunk of text>"}` frames, in order — concatenating
+            every `delta` reconstructs the full reply (mirrors CompanionChatResponse.reply);
+          - exactly one final `{"done": true, "source": "llm"|"fallback", "model": string|null,
+            "error"?: string}` frame, then the connection closes.
+        When the configured LlmProvider implements streaming, real deltas are forwarded as the
+        model produces them. When there is no provider, the provider is the offline stub, or the
+        configured provider doesn't implement streaming, the SAME deterministic per-personality
+        fallback text POST /v1/companion/chat would have returned is sent as a single `delta`
+        frame followed by `done` — the SSE contract never changes shape based on what's
+        configured server-side.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompanionChatRequest'
+      responses:
+        '200':
+          description: >
+            SSE stream established. Body is `text/event-stream`: see the description above for
+            the frame shapes (`delta` chunks followed by one `done` frame).
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: 'Raw SSE bytes: repeated `data: {"delta":"..."}\n\n` frames, then one `data: {"done":true,...}\n\n` frame.'
+        '400':
+          description: Invalid request (e.g. missing persona.name, empty message, or persona.age < 18). No SSE framing is written — this is a normal buffered JSON error, same as POST /v1/companion/chat.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /v1/companion/portrait:
     post:
       tags: [companion]
       summary: One companion portrait image
       description: >
-        Auth-exempt but rate-limited, same posture as /v1/companion/chat. Provider-agnostic —
+        Auth-exempt but rate-limited (per-IP AND additively per-tenant, same posture as
+        /v1/companion/chat). Provider-agnostic —
         HDV_IMAGE_PROVIDER selects Google AI Studio (SFW) or a self-hosted Colab-tunnel model
         with no client changes. Refuses (400) any persona under 18, regardless of provider.
         Never routes through APEX/KNOLL.
@@ -635,7 +1107,8 @@ paths:
       tags: [companion]
       summary: Animate a companion portrait into a short scene/loop video
       description: >
-        Auth-exempt but rate-limited, same posture as chat/portrait. Provider-agnostic —
+        Auth-exempt but rate-limited (per-IP AND additively per-tenant, same posture as
+        chat/portrait). Provider-agnostic —
         HDV_VIDEO_PROVIDER selects a Colab-tunneled world model (e.g. LingBot-World). Refuses
         (400) any persona under 18, regardless of provider. Never routes through APEX/KNOLL.
         Video generation is slow (minutes, not seconds) — this is meant for generate-once,
@@ -655,6 +1128,263 @@ paths:
                 $ref: '#/components/schemas/SceneResponse'
         '400':
           description: Invalid request (missing persona.name/age/seedImage, or persona.age < 18).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/companion/memory:
+    get:
+      tags: [companion]
+      summary: Read a companion's remembered relationship state
+      description: >
+        Auth-exempt but rate-limited, same posture as chat/portrait/scene. Read-only —
+        never routes through APEX/KNOLL. Backed by an in-memory store by default, or Postgres
+        (via Prisma) when DATABASE_URL is set — see persistence/repositories.ts's
+        CompanionMemoryRepository. Never 404s: an unknown/never-seen companionId returns
+        fresh defaults so a frontend can render a "relationship level" UI immediately.
+      parameters:
+        - name: companionId
+          in: query
+          required: true
+          schema:
+            type: string
+            maxLength: 128
+            pattern: '^[A-Za-z0-9_-]+$'
+      responses:
+        '200':
+          description: The companion's memory record (existing or default).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  memory:
+                    $ref: '#/components/schemas/CompanionMemory'
+                required: [memory]
+        '400':
+          description: Missing companionId query parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/companion/speak:
+    post:
+      tags: [companion]
+      summary: Synthesize speech audio for one line of text
+      description: >
+        Auth-exempt but rate-limited, same posture as chat/portrait/scene. Provider-agnostic —
+        HDV_TTS_PROVIDER selects a self-hosted Kokoro-82M server (kokoro_tunnel). Unlike
+        portrait/scene there is no persona/age-floor check here: this only converts text the
+        client already has (already-approved chat output) into audio rather than generating new
+        content about a character, so the 18+ floor is enforced upstream, at the text's origin.
+        Never routes through APEX/KNOLL.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SpeakRequest'
+      responses:
+        '200':
+          description: Generation attempted — audio on success, null + source "unavailable" otherwise.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpeakResponse'
+        '400':
+          description: Invalid request (missing/empty text, or text over the length cap).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/creator/apply:
+    post:
+      tags: [creator]
+      summary: Become (or update) a creator
+      description: >
+        Backs the fucklike.me pivot: real people can turn themselves into an AI companion
+        persona and earn when it's used. A creator is just the authenticated auth/ User plus a
+        CreatorProfile — NOT a parallel identity system. Idempotent upsert keyed on the
+        authenticated userId; `verificationStatus` is preserved across re-applications (starts
+        'unverified' for a brand-new profile) and is NEVER set by this route. REQUIRES a valid
+        X-HDV-Session (401 otherwise) — UNLIKE most companion/ routes, this is also NOT exempt
+        from `bearerAuth` (the operator's HDV_API_KEY) when one is configured.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SessionHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatorApplyRequest'
+      responses:
+        '200':
+          description: The creator's profile (created or updated).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  profile:
+                    $ref: '#/components/schemas/CreatorProfile'
+                required: [profile]
+        '400':
+          description: Invalid request (missing/empty displayName).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing, invalid, or expired X-HDV-Session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/creator/persona:
+    post:
+      tags: [creator]
+      summary: Submit or update a creator persona
+      description: >
+        `personaId` is the join key (SAME id space as PortraitPersona.personaId /
+        CompanionChatRequest.companionId) that attributes a chat/portrait/scene generation back
+        to this creator — see recordLikenessUsage in creator/handlers.ts. Re-submitting the same
+        creator's own personaId updates it in place; a personaId already claimed by a DIFFERENT
+        creator is rejected with 409. REQUIRES a valid X-HDV-Session (401 otherwise); also NOT
+        auth-exempt from `bearerAuth` when an operator API key is configured.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SessionHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatorPersonaRequest'
+      responses:
+        '200':
+          description: The persona (created or updated).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  persona:
+                    $ref: '#/components/schemas/CreatorPersona'
+                required: [persona]
+        '400':
+          description: Invalid request (missing/malformed personaId or displayName, or a non-http(s) referencePhotoUrls entry).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing, invalid, or expired X-HDV-Session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: personaId is already claimed by a different creator.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/creator/earnings:
+    get:
+      tags: [creator]
+      summary: Accrued balance + verification status
+      description: >
+        Sums every LikenessUsageEvent recorded for the authenticated creator. `payoutAvailable`
+        is ALWAYS false in this build — see CreatorEarningsResponse and POST /v1/creator/payout.
+        REQUIRES a valid X-HDV-Session (401 otherwise); also NOT auth-exempt from `bearerAuth`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SessionHeader'
+      responses:
+        '200':
+          description: The creator's accrued earnings and verification status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatorEarningsResponse'
+        '401':
+          description: Missing, invalid, or expired X-HDV-Session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/creator/verification:
+    post:
+      tags: [creator]
+      summary: Start the stub identity-verification flow
+      description: >
+        Thin wrapper over creator/payout_stub.ts's requestVerification. ALWAYS returns a session
+        stuck in `requires_input` — there is intentionally no real Stripe Identity backend wired
+        in this pass, so a creator's status can never progress to `verified` through this (or
+        any other) route. REQUIRES a valid X-HDV-Session (401 otherwise); also NOT auth-exempt
+        from `bearerAuth`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SessionHeader'
+      responses:
+        '200':
+          description: A stub verification session (always requires_input).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  verification:
+                    $ref: '#/components/schemas/CreatorVerificationSession'
+                required: [verification]
+        '401':
+          description: Missing, invalid, or expired X-HDV-Session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/creator/payout:
+    post:
+      tags: [creator]
+      summary: Request a payout — ALWAYS blocked in this build
+      description: >
+        THIS ALWAYS RETURNS 403. That is correct, expected behavior: see
+        creator/payout_stub.ts's module doc comment. No real Stripe Identity + Stripe Connect
+        integration exists yet, so a creator's verificationStatus can never reach 'verified',
+        and requestPayout is unconditionally blocked by construction — not by a runtime check
+        that could accidentally be satisfied. Earnings still accrue (GET /v1/creator/earnings)
+        for when a real integration lands in a future pass. REQUIRES a valid X-HDV-Session (401
+        otherwise); also NOT auth-exempt from `bearerAuth`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SessionHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatorPayoutRequest'
+      responses:
+        '400':
+          description: Invalid/missing amountUsd.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing, invalid, or expired X-HDV-Session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: ALWAYS returned in this build — identity verification required before payout, and none exists yet.
           content:
             application/json:
               schema:
