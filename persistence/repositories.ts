@@ -100,9 +100,19 @@ export interface CompanionMemoryRecord {
 /**
  * Mirrors the CreatorProfile model (creator/) — one row per User who has applied to become a
  * creator (real people turning themselves into an AI companion persona — see creator/index.ts).
- * `verificationStatus` starts 'unverified' and NOTHING in this pass can ever set it to
- * 'verified' — see creator/payout_stub.ts's module header for why that is the actual safety
- * mechanism gating real-money payouts.
+ * `verificationStatus` starts 'unverified' and NOTHING in creator/payout_stub.ts (the default,
+ * unconfigured build) ever sets it to 'verified' — see that module's header for why that is the
+ * safety mechanism gating real-money payouts in the stub-only build.
+ *
+ * `stripeAccountId` / `stripeVerificationSessionId` / `verificationStatusCache` are used ONLY by
+ * creator/payout_stripe_live.ts (the real Stripe Identity + Connect implementation, wired only
+ * when STRIPE_SECRET_KEY + STRIPE_WEBHOOK_SECRET are both configured — see
+ * creator/payout_factory.ts). `verificationStatusCache` is updated exclusively by a verified
+ * Stripe webhook event (creator/stripe_webhook.ts) — it is a fast LOCAL read for display
+ * purposes (e.g. GET /v1/creator/earnings) and is NEVER the sole gate for money movement: a real
+ * payout re-checks Stripe live, first-hand, every time (see CreatorPayoutStripeLive.requestPayout's
+ * doc comment). All three fields are optional/undefined for every creator until the live
+ * provider is actually configured and used — the stub-only build never touches them.
  */
 export interface CreatorProfileRecord {
   userId: string;
@@ -110,6 +120,13 @@ export interface CreatorProfileRecord {
   bio?: string;
   verificationStatus: 'unverified' | 'pending' | 'verified';
   createdAt: number;
+  /** Stripe Connect Express account id (creator/payout_stripe_live.ts only). */
+  stripeAccountId?: string;
+  /** Stripe Identity VerificationSession id (creator/payout_stripe_live.ts only). */
+  stripeVerificationSessionId?: string;
+  /** Webhook-updated LOCAL cache of verification status (creator/payout_stripe_live.ts only) —
+   *  display-only, never authoritative for a payout decision. */
+  verificationStatusCache?: 'unverified' | 'pending' | 'verified';
 }
 
 /**

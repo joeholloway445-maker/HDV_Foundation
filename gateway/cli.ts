@@ -31,8 +31,13 @@
  *                          submit/update a creator persona (requires X-HDV-Session)
  *   GET  /v1/creator/earnings → accrued balance + verification status (requires X-HDV-Session)
  *   POST /v1/creator/verification → start the stub identity-verification flow (requires X-HDV-Session)
- *   POST /v1/creator/payout { amountUsd } → ALWAYS 403s in this build (payouts stubbed — see
- *                          creator/payout_stub.ts); requires X-HDV-Session
+ *   POST /v1/creator/payout { amountUsd } → blocked unless real Stripe keys are configured (see
+ *                          creator/payout_stub.ts / creator/payout_stripe_live.ts); requires
+ *                          X-HDV-Session
+ *   POST /v1/creator/webhooks/stripe → Stripe's own callback (Identity + Connect events). NO
+ *                          X-HDV-Session/HDV_API_KEY — gated entirely by the `stripe-signature`
+ *                          header (see creator/stripe_webhook.ts). 503s unless STRIPE_SECRET_KEY
+ *                          + STRIPE_WEBHOOK_SECRET are both configured.
  *
  * KNOLL gates every routed packet; the gateway never bypasses APEX.
  *
@@ -59,6 +64,13 @@
  *                    ApexOrchestrator and starts a consumer that drains async `intake()` through
  *                    the SAME KNOLL-gated dispatch path. Requires the `kafkajs` package and a
  *                    reachable broker (KAFKA_BROKERS). Anything else ⇒ the in-memory queue.
+ *
+ * Creator payouts (creator/payout_factory.ts — OFFLINE-FIRST, defaults to blocked):
+ *   STRIPE_SECRET_KEY + STRIPE_WEBHOOK_SECRET   when BOTH are set, the gateway wires a REAL
+ *                    Stripe Identity + Connect payout provider (creator/payout_stripe_live.ts)
+ *                    instead of the default CreatorPayoutStub — see deploy/STRIPE_CONNECT_SETUP.md
+ *                    for the one-time Stripe setup. Unset (either or both) ⇒ payouts remain
+ *                    unconditionally blocked, byte-for-byte the same as before this existed.
  */
 import { HopeGateway } from './server.js';
 import {
@@ -70,6 +82,7 @@ import {
   type TaskQueue,
 } from '../persistence/index.js';
 import { sealProductionOrExplain } from './production.js';
+import { CreatorPayoutStripeLive } from '../creator/index.js';
 
 function parsePort(): number {
   const fromEnv = Number(process.env.PORT);
@@ -193,7 +206,8 @@ async function main(): Promise<void> {
     'POST /v1/creator/persona   (requires X-HDV-Session — { personaId, displayName, description?, referencePhotoUrls? })',
     'GET  /v1/creator/earnings  (requires X-HDV-Session — accrued balance + verification status)',
     'POST /v1/creator/verification (requires X-HDV-Session — starts the stub identity-verification flow)',
-    'POST /v1/creator/payout    (requires X-HDV-Session — ALWAYS 403s in this build; see creator/payout_stub.ts)',
+    'POST /v1/creator/payout    (requires X-HDV-Session — blocked unless real Stripe keys configured; see creator/payout_stub.ts)',
+    'POST /v1/creator/webhooks/stripe (Stripe only — no session/API key; gated by stripe-signature, see creator/stripe_webhook.ts)',
   ];
   const { config } = gateway.middleware;
   const authMode = config.apiKey ? 'ENABLED (X-HDV-Key / Bearer)' : 'DISABLED (dev mode — set HDV_API_KEY)';
@@ -206,6 +220,9 @@ async function main(): Promise<void> {
     `Tenant rate limit: ${config.tenantRateLimit}/min per X-HDV-Tenant (additive; companion + billing checkout routes)`,
   );
   console.log(`Persistence: ${repositories?.mode ?? 'memory'} · Queue: ${queueMode}`);
+  console.log(
+    `Creator payouts: ${gateway.creatorPayoutProvider instanceof CreatorPayoutStripeLive ? 'LIVE (Stripe Identity + Connect configured)' : 'STUBBED (unconditionally blocked — set STRIPE_SECRET_KEY + STRIPE_WEBHOOK_SECRET to enable, see deploy/STRIPE_CONNECT_SETUP.md)'}`,
+  );
   console.log('/v1/health is always public (auth- and rate-limit-exempt) for probes');
   console.log('-'.repeat(72));
   for (const r of routes) console.log(`  ${r}`);

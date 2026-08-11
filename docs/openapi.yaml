@@ -46,8 +46,12 @@ components:
         Bearer session token minted by POST /v1/auth/signup or /v1/auth/login. Required (401
         otherwise) for GET /v1/auth/me; POST /v1/auth/logout also accepts it in a
         `{ sessionToken }` JSON body as a fallback. Also REQUIRED (401 otherwise) for every
-        /v1/creator/* route — UNLIKE /v1/auth/me, those routes are also NOT exempt from
-        `bearerAuth` (the operator's HDV_API_KEY), so both may be required together.
+        client-facing /v1/creator/* route (apply, persona, earnings, verification, payout) —
+        UNLIKE /v1/auth/me, those routes are also NOT exempt from `bearerAuth` (the operator's
+        HDV_API_KEY), so both may be required together. The ONE exception is
+        POST /v1/creator/webhooks/stripe, which Stripe itself calls and which carries NEITHER
+        this header nor an API key — see that route's own description for its (different)
+        security model.
   schemas:
     Error:
       type: object
@@ -502,10 +506,12 @@ components:
     CreatorEarningsResponse:
       type: object
       description: >
-        `payoutAvailable` is ALWAYS false in this build: nothing can set verificationStatus to
-        'verified' yet (see POST /v1/creator/payout), so payouts are unconditionally blocked
-        regardless of this flag — it exists purely so a frontend can render a clear "payouts
-        coming soon" state instead of inferring it from a 403.
+        `payoutAvailable` is ALWAYS false, REGARDLESS of whether real Stripe keys are
+        configured: even when verificationStatus reads 'verified' here (a fast, LOCAL,
+        webhook-updated cache — see POST /v1/creator/verification), POST /v1/creator/payout
+        independently re-checks Stripe LIVE before ever moving money, so this flag is display
+        guidance only, never a promise — it exists purely so a frontend can render a "payouts
+        available" vs. "coming soon" state instead of inferring it from a 403.
       properties:
         accruedUsd:
           type: number
@@ -520,14 +526,17 @@ components:
     CreatorVerificationSession:
       type: object
       description: >
-        A stub Stripe Identity verification session (creator/payout_stub.ts). ALWAYS
-        'requires_input' in this build — it never auto-completes; there is no real ID-check
-        backend wired up yet.
+        Two modes, selected server-side by whether STRIPE_SECRET_KEY + STRIPE_WEBHOOK_SECRET are
+        configured (creator/payout_factory.ts): UNCONFIGURED (default) ⇒ a stub session
+        (creator/payout_stub.ts), ALWAYS `requires_input` and never auto-completes — no real
+        ID-check backend is wired. CONFIGURED ⇒ a REAL Stripe Identity VerificationSession +
+        Stripe Connect Express onboarding link (creator/payout_stripe_live.ts) — `url` is where
+        the client redirects the creator to actually complete both flows.
       properties:
         id: { type: string }
         status:
           type: string
-          enum: [requires_input, processing, verified, rejected]
+          enum: [requires_input, processing, verified, rejected, canceled]
         livemode: { type: boolean }
         url: { type: string, format: uri }
         createdAt:
@@ -1320,12 +1329,16 @@ paths:
   /v1/creator/verification:
     post:
       tags: [creator]
-      summary: Start the stub identity-verification flow
+      summary: Start the identity-verification + Connect-onboarding flow
       description: >
-        Thin wrapper over creator/payout_stub.ts's requestVerification. ALWAYS returns a session
-        stuck in `requires_input` — there is intentionally no real Stripe Identity backend wired
-        in this pass, so a creator's status can never progress to `verified` through this (or
-        any other) route. REQUIRES a valid X-HDV-Session (401 otherwise); also NOT auth-exempt
+        Thin wrapper over the configured CreatorPayoutProvider's requestVerification
+        (creator/payout_factory.ts selects the implementation). UNCONFIGURED (default, no real
+        Stripe keys): always returns a session stuck in `requires_input` — a creator's status can
+        never progress to `verified` through this build. CONFIGURED (STRIPE_SECRET_KEY +
+        STRIPE_WEBHOOK_SECRET both set): creates a real Stripe Identity VerificationSession and
+        Stripe Connect Express account, and `verified` only ever happens via a genuine,
+        signature-verified Stripe webhook event (POST /v1/creator/webhooks/stripe) — never through
+        this route directly. REQUIRES a valid X-HDV-Session (401 otherwise); also NOT auth-exempt
         from `bearerAuth`.
       security:
         - bearerAuth: []
@@ -1351,15 +1364,25 @@ paths:
   /v1/creator/payout:
     post:
       tags: [creator]
-      summary: Request a payout — ALWAYS blocked in this build
+      summary: Request a payout
       description: >
-        THIS ALWAYS RETURNS 403. That is correct, expected behavior: see
-        creator/payout_stub.ts's module doc comment. No real Stripe Identity + Stripe Connect
-        integration exists yet, so a creator's verificationStatus can never reach 'verified',
-        and requestPayout is unconditionally blocked by construction — not by a runtime check
-        that could accidentally be satisfied. Earnings still accrue (GET /v1/creator/earnings)
-        for when a real integration lands in a future pass. REQUIRES a valid X-HDV-Session (401
-        otherwise); also NOT auth-exempt from `bearerAuth`.
+        Two modes (creator/payout_factory.ts selects the implementation from
+        STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET):
+
+        UNCONFIGURED (default): THIS ALWAYS RETURNS 403. That is correct, expected behavior —
+        see creator/payout_stub.ts's module doc comment. No creator's verificationStatus can
+        ever reach 'verified' through the stub, so requestPayout is unconditionally blocked by
+        construction, not by a runtime check that could accidentally be satisfied.
+
+        CONFIGURED (creator/payout_stripe_live.ts): before ever moving money, the server
+        re-verifies LIVE, directly against Stripe's own API (never a local cache), that the
+        creator's Identity VerificationSession is genuinely `verified` AND their Connect account
+        has `payouts_enabled`. Only if BOTH are true at the moment of this call does a real
+        Stripe transfer happen; otherwise this still returns 403. This live recheck means a bug
+        in the webhook/cache-update path can never by itself let an unverified creator get paid.
+
+        Earnings always accrue (GET /v1/creator/earnings) regardless of mode. REQUIRES a valid
+        X-HDV-Session (401 otherwise); also NOT auth-exempt from `bearerAuth`.
       security:
         - bearerAuth: []
       parameters:
@@ -1384,7 +1407,62 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '403':
-          description: ALWAYS returned in this build — identity verification required before payout, and none exists yet.
+          description: >-
+            Payout blocked. UNCONFIGURED build: always returned (see creator/payout_stub.ts).
+            CONFIGURED build: returned when the LIVE Stripe recheck fails (not verified, or
+            payouts_enabled is false), regardless of what the local cache says.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/creator/webhooks/stripe:
+    post:
+      tags: [creator]
+      summary: Stripe webhook — Identity + Connect events (Stripe calls this, not clients)
+      description: >
+        Receives `identity.verification_session.*` and `account.updated` events from Stripe
+        (creator/stripe_webhook.ts). *** NOT authenticated by X-HDV-Session or HDV_API_KEY — this
+        route cannot require either, since Stripe itself is the caller and cannot present them.
+        Its ENTIRE security boundary is the `stripe-signature` header, verified via the Stripe
+        SDK's own `stripe.webhooks.constructEvent()` before a single field of the body is
+        trusted; an invalid/missing/forged signature is rejected with 400. This is NOT a
+        precedent for other unauthenticated routes — see gateway/middleware.ts's
+        AUTH_EXEMPT_PATHS comment. *** Returns 503 (not a crash) when Stripe hasn't been
+        configured on this server (no STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET). Configure this
+        exact URL as the endpoint in the Stripe dashboard — see deploy/STRIPE_CONNECT_SETUP.md.
+        Unhandled event types are a safe 200 no-op, never an error.
+      parameters:
+        - name: stripe-signature
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Stripe's HMAC signature over the raw request body. Verified server-side.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: A raw Stripe Event payload. The body is read as RAW bytes (not JSON-parsed by the gateway) so the signature can be verified against the exact bytes Stripe sent.
+      responses:
+        '200':
+          description: Signature verified; event processed (or safely no-op'd for an unhandled type).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  received: { type: boolean }
+                  type: { type: string }
+        '400':
+          description: Missing, invalid, or forged stripe-signature — nothing in the body was trusted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Stripe is not configured on this server (no live payout provider to verify against).
           content:
             application/json:
               schema:
