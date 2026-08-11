@@ -26,6 +26,13 @@
  *   GET  /v1/auth/me       X-HDV-Session header → { userId, email }, or 401 (public)
  *   GET  /v1/companion/memory ?companionId=... → read-only relationship memory lookup (public, rate-limited)
  *   POST /v1/companion/speak { text, voice? } → one speech-audio clip (public, rate-limited)
+ *   POST /v1/creator/apply { displayName, bio? } → become a creator (requires X-HDV-Session)
+ *   POST /v1/creator/persona { personaId, displayName, description?, referencePhotoUrls? } →
+ *                          submit/update a creator persona (requires X-HDV-Session)
+ *   GET  /v1/creator/earnings → accrued balance + verification status (requires X-HDV-Session)
+ *   POST /v1/creator/verification → start the stub identity-verification flow (requires X-HDV-Session)
+ *   POST /v1/creator/payout { amountUsd } → ALWAYS 403s in this build (payouts stubbed — see
+ *                          creator/payout_stub.ts); requires X-HDV-Session
  *
  * KNOLL gates every routed packet; the gateway never bypasses APEX.
  *
@@ -143,6 +150,11 @@ async function main(): Promise<void> {
     // requestLog/securityAudit above. Undefined ⇒ HopeGateway falls back to a fresh in-memory
     // repository.
     memoryRepository: repositories?.companionMemory,
+    // Creator marketplace (creator/): same DATABASE_URL-gated wiring as memoryRepository above.
+    // Undefined ⇒ HopeGateway falls back to fresh in-memory repositories.
+    creatorProfileRepository: repositories?.creatorProfile,
+    creatorPersonaRepository: repositories?.creatorPersona,
+    likenessUsageRepository: repositories?.likenessUsageEvent,
     queue,
   });
 
@@ -177,6 +189,11 @@ async function main(): Promise<void> {
     'POST /v1/companion/scene   (public — { persona: { name, age (18+) }, seedImage, actionString? })',
     'GET  /v1/companion/memory  (public — ?companionId=...; returns defaults if none saved yet)',
     'POST /v1/companion/speak   (public — { text, voice? })',
+    'POST /v1/creator/apply     (requires X-HDV-Session — { displayName, bio? })',
+    'POST /v1/creator/persona   (requires X-HDV-Session — { personaId, displayName, description?, referencePhotoUrls? })',
+    'GET  /v1/creator/earnings  (requires X-HDV-Session — accrued balance + verification status)',
+    'POST /v1/creator/verification (requires X-HDV-Session — starts the stub identity-verification flow)',
+    'POST /v1/creator/payout    (requires X-HDV-Session — ALWAYS 403s in this build; see creator/payout_stub.ts)',
   ];
   const { config } = gateway.middleware;
   const authMode = config.apiKey ? 'ENABLED (X-HDV-Key / Bearer)' : 'DISABLED (dev mode — set HDV_API_KEY)';

@@ -21,6 +21,7 @@ tags:
   - name: auth
   - name: waitlist
   - name: companion
+  - name: creator
 components:
   securitySchemes:
     bearerAuth:
@@ -44,7 +45,9 @@ components:
       description: >-
         Bearer session token minted by POST /v1/auth/signup or /v1/auth/login. Required (401
         otherwise) for GET /v1/auth/me; POST /v1/auth/logout also accepts it in a
-        `{ sessionToken }` JSON body as a fallback.
+        `{ sessionToken }` JSON body as a fallback. Also REQUIRED (401 otherwise) for every
+        /v1/creator/* route — UNLIKE /v1/auth/me, those routes are also NOT exempt from
+        `bearerAuth` (the operator's HDV_API_KEY), so both may be required together.
   schemas:
     Error:
       type: object
@@ -436,6 +439,108 @@ components:
           type: string
           description: Present only when source is "unavailable" due to a real provider failure.
       required: [audio, source]
+    CreatorProfile:
+      type: object
+      description: >
+        A creator's marketplace profile (creator/). Just an auth/ User plus this — no parallel
+        identity system. verificationStatus starts 'unverified' and NOTHING in this build can
+        ever set it to 'verified' — see the payout stub note on POST /v1/creator/payout.
+      properties:
+        userId: { type: string, format: uuid }
+        displayName: { type: string }
+        bio: { type: string }
+        verificationStatus:
+          type: string
+          enum: [unverified, pending, verified]
+        createdAt:
+          type: integer
+          description: Epoch milliseconds.
+      required: [userId, displayName, verificationStatus, createdAt]
+    CreatorApplyRequest:
+      type: object
+      properties:
+        displayName: { type: string }
+        bio: { type: string }
+      required: [displayName]
+    CreatorPersona:
+      type: object
+      description: >
+        A creator-submitted persona. `personaId` is the SAME id space as
+        PortraitPersona.personaId / CompanionChatRequest.companionId / FuckLike's companion
+        presetId — it is the join key usage-attribution keys off of.
+      properties:
+        id: { type: string, format: uuid }
+        creatorUserId: { type: string, format: uuid }
+        personaId:
+          type: string
+          maxLength: 80
+          pattern: '^[A-Za-z0-9_-]+$'
+        displayName: { type: string }
+        description: { type: string }
+        referencePhotoUrls:
+          type: array
+          items: { type: string, format: uri }
+          description: URLs only — image bytes are never accepted or stored here.
+        createdAt:
+          type: integer
+          description: Epoch milliseconds.
+      required: [id, creatorUserId, personaId, displayName, referencePhotoUrls, createdAt]
+    CreatorPersonaRequest:
+      type: object
+      properties:
+        personaId:
+          type: string
+          maxLength: 80
+          pattern: '^[A-Za-z0-9_-]+$'
+        displayName: { type: string }
+        description: { type: string }
+        referencePhotoUrls:
+          type: array
+          items: { type: string, format: uri }
+          description: Optional; defaults to []. http(s) URLs only.
+      required: [personaId, displayName]
+    CreatorEarningsResponse:
+      type: object
+      description: >
+        `payoutAvailable` is ALWAYS false in this build: nothing can set verificationStatus to
+        'verified' yet (see POST /v1/creator/payout), so payouts are unconditionally blocked
+        regardless of this flag — it exists purely so a frontend can render a clear "payouts
+        coming soon" state instead of inferring it from a 403.
+      properties:
+        accruedUsd:
+          type: number
+          description: Sum of every LikenessUsageEvent.accruedUsd recorded for this creator.
+        verificationStatus:
+          type: string
+          enum: [unverified, pending, verified]
+        payoutAvailable:
+          type: boolean
+          enum: [false]
+      required: [accruedUsd, verificationStatus, payoutAvailable]
+    CreatorVerificationSession:
+      type: object
+      description: >
+        A stub Stripe Identity verification session (creator/payout_stub.ts). ALWAYS
+        'requires_input' in this build — it never auto-completes; there is no real ID-check
+        backend wired up yet.
+      properties:
+        id: { type: string }
+        status:
+          type: string
+          enum: [requires_input, processing, verified, rejected]
+        livemode: { type: boolean }
+        url: { type: string, format: uri }
+        createdAt:
+          type: integer
+          description: Epoch milliseconds.
+      required: [id, status, livemode, url, createdAt]
+    CreatorPayoutRequest:
+      type: object
+      properties:
+        amountUsd:
+          type: number
+          exclusiveMinimum: 0
+      required: [amountUsd]
     AllowanceRequest:
       type: object
       properties:
@@ -1088,6 +1193,198 @@ paths:
                 $ref: '#/components/schemas/SpeakResponse'
         '400':
           description: Invalid request (missing/empty text, or text over the length cap).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/creator/apply:
+    post:
+      tags: [creator]
+      summary: Become (or update) a creator
+      description: >
+        Backs the fucklike.me pivot: real people can turn themselves into an AI companion
+        persona and earn when it's used. A creator is just the authenticated auth/ User plus a
+        CreatorProfile — NOT a parallel identity system. Idempotent upsert keyed on the
+        authenticated userId; `verificationStatus` is preserved across re-applications (starts
+        'unverified' for a brand-new profile) and is NEVER set by this route. REQUIRES a valid
+        X-HDV-Session (401 otherwise) — UNLIKE most companion/ routes, this is also NOT exempt
+        from `bearerAuth` (the operator's HDV_API_KEY) when one is configured.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SessionHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatorApplyRequest'
+      responses:
+        '200':
+          description: The creator's profile (created or updated).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  profile:
+                    $ref: '#/components/schemas/CreatorProfile'
+                required: [profile]
+        '400':
+          description: Invalid request (missing/empty displayName).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing, invalid, or expired X-HDV-Session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/creator/persona:
+    post:
+      tags: [creator]
+      summary: Submit or update a creator persona
+      description: >
+        `personaId` is the join key (SAME id space as PortraitPersona.personaId /
+        CompanionChatRequest.companionId) that attributes a chat/portrait/scene generation back
+        to this creator — see recordLikenessUsage in creator/handlers.ts. Re-submitting the same
+        creator's own personaId updates it in place; a personaId already claimed by a DIFFERENT
+        creator is rejected with 409. REQUIRES a valid X-HDV-Session (401 otherwise); also NOT
+        auth-exempt from `bearerAuth` when an operator API key is configured.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SessionHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatorPersonaRequest'
+      responses:
+        '200':
+          description: The persona (created or updated).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  persona:
+                    $ref: '#/components/schemas/CreatorPersona'
+                required: [persona]
+        '400':
+          description: Invalid request (missing/malformed personaId or displayName, or a non-http(s) referencePhotoUrls entry).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing, invalid, or expired X-HDV-Session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: personaId is already claimed by a different creator.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/creator/earnings:
+    get:
+      tags: [creator]
+      summary: Accrued balance + verification status
+      description: >
+        Sums every LikenessUsageEvent recorded for the authenticated creator. `payoutAvailable`
+        is ALWAYS false in this build — see CreatorEarningsResponse and POST /v1/creator/payout.
+        REQUIRES a valid X-HDV-Session (401 otherwise); also NOT auth-exempt from `bearerAuth`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SessionHeader'
+      responses:
+        '200':
+          description: The creator's accrued earnings and verification status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatorEarningsResponse'
+        '401':
+          description: Missing, invalid, or expired X-HDV-Session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/creator/verification:
+    post:
+      tags: [creator]
+      summary: Start the stub identity-verification flow
+      description: >
+        Thin wrapper over creator/payout_stub.ts's requestVerification. ALWAYS returns a session
+        stuck in `requires_input` — there is intentionally no real Stripe Identity backend wired
+        in this pass, so a creator's status can never progress to `verified` through this (or
+        any other) route. REQUIRES a valid X-HDV-Session (401 otherwise); also NOT auth-exempt
+        from `bearerAuth`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SessionHeader'
+      responses:
+        '200':
+          description: A stub verification session (always requires_input).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  verification:
+                    $ref: '#/components/schemas/CreatorVerificationSession'
+                required: [verification]
+        '401':
+          description: Missing, invalid, or expired X-HDV-Session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/creator/payout:
+    post:
+      tags: [creator]
+      summary: Request a payout — ALWAYS blocked in this build
+      description: >
+        THIS ALWAYS RETURNS 403. That is correct, expected behavior: see
+        creator/payout_stub.ts's module doc comment. No real Stripe Identity + Stripe Connect
+        integration exists yet, so a creator's verificationStatus can never reach 'verified',
+        and requestPayout is unconditionally blocked by construction — not by a runtime check
+        that could accidentally be satisfied. Earnings still accrue (GET /v1/creator/earnings)
+        for when a real integration lands in a future pass. REQUIRES a valid X-HDV-Session (401
+        otherwise); also NOT auth-exempt from `bearerAuth`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SessionHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatorPayoutRequest'
+      responses:
+        '400':
+          description: Invalid/missing amountUsd.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing, invalid, or expired X-HDV-Session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: ALWAYS returned in this build — identity verification required before payout, and none exists yet.
           content:
             application/json:
               schema:

@@ -15,7 +15,13 @@
  * With either one missing, behavior is EXACTLY the stateless behavior above — zero change.
  */
 import type { CompleteOptions, LlmProvider } from '../providers/types.js';
-import type { CompanionMemoryRecord, CompanionMemoryRepository } from '../persistence/repositories.js';
+import type {
+  CompanionMemoryRecord,
+  CompanionMemoryRepository,
+  CreatorPersonaRepository,
+  LikenessUsageEventRepository,
+} from '../persistence/repositories.js';
+import { recordLikenessUsage } from '../creator/handlers.js';
 import { buildMemoryContext, defaultCompanionMemory, updateMemoryAfterTurn } from './memory.js';
 import {
   parseCompanionChatInput,
@@ -46,6 +52,18 @@ export interface CompanionChatOptions {
    * prompt and updated after a successful real-provider reply. See companion/memory.ts.
    */
   memoryRepository?: CompanionMemoryRepository;
+  /**
+   * Optional creator-marketplace usage-attribution wiring (creator/). When BOTH are provided
+   * AND the request's `companionId` matches a creator-submitted CreatorPersona.personaId (SAME
+   * id space — see companion/portrait_types.ts's PortraitPersona.personaId), a successful
+   * real-provider chat turn is recorded in the background as a small billable
+   * LikenessUsageEvent (creator/handlers.ts's recordLikenessUsage). Fire-and-forget, same
+   * pattern as `memoryRepository` above: never adds latency, never fails the chat response, and
+   * is a clean no-op — exactly today's behavior — whenever either is omitted or `companionId`
+   * doesn't belong to a creator (the common case, unaffected either way).
+   */
+  creatorPersonaRepository?: CreatorPersonaRepository;
+  likenessUsageRepository?: LikenessUsageEventRepository;
 }
 
 /** Deterministic fallback pool, one per personality — used with no provider or on provider failure. */
@@ -226,6 +244,13 @@ export async function handleCompanionChat(
     if (memory && memoryRepository) {
       void persistMemoryUpdate(memoryRepository, memory, message, cleaned, options.provider);
     }
+    // Same fire-and-forget posture as the memory write above: attribute this turn to a creator
+    // persona in the background (see companion/handlers.ts's CompanionChatOptions doc comment).
+    // companionId doubles as the join key here — see creator/types.ts's module doc comment.
+    recordLikenessUsage(companionId, 'chat_turn', {
+      creatorPersonaRepository: options.creatorPersonaRepository,
+      likenessUsageRepository: options.likenessUsageRepository,
+    });
     return { status: 200, body: { reply: cleaned, source: 'llm', model: result.model } };
   } catch (err) {
     return {

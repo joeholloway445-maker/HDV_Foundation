@@ -14,6 +14,9 @@ export type {
   UserRecord,
   SessionRecord,
   CompanionMemoryRecord,
+  CreatorProfileRecord,
+  CreatorPersonaRecord,
+  LikenessUsageEventRecord,
   RequestLogRepository,
   NodeIdentityRepository,
   SecurityAuditRepository,
@@ -21,6 +24,9 @@ export type {
   UserRepository,
   SessionRepository,
   CompanionMemoryRepository,
+  CreatorProfileRepository,
+  CreatorPersonaRepository,
+  LikenessUsageEventRepository,
 } from './repositories.js';
 export {
   InMemoryRequestLogRepository,
@@ -30,6 +36,9 @@ export {
   InMemoryUserRepository,
   InMemorySessionRepository,
   InMemoryCompanionMemoryRepository,
+  InMemoryCreatorProfileRepository,
+  InMemoryCreatorPersonaRepository,
+  InMemoryLikenessUsageEventRepository,
   newRowId,
 } from './repositories.js';
 
@@ -44,6 +53,9 @@ export {
   PrismaUserRepository,
   PrismaSessionRepository,
   PrismaCompanionMemoryRepository,
+  PrismaCreatorProfileRepository,
+  PrismaCreatorPersonaRepository,
+  PrismaLikenessUsageEventRepository,
   createPrismaRepositories,
 } from './prisma_repos.js';
 export type { PrismaRepositoryBundle, PrismaBundleOptions } from './prisma_repos.js';

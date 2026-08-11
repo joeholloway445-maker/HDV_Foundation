@@ -40,10 +40,19 @@ import type {
   TaskQueue,
   UserRepository,
   SessionRepository,
+  CreatorProfileRepository,
+  CreatorPersonaRepository,
+  LikenessUsageEventRepository,
 } from '../persistence/index.js';
 import { InMemoryUserRepository, InMemorySessionRepository } from '../persistence/index.js';
 import { AuthService, AuthError } from '../auth/index.js';
-import { InMemoryCompanionMemoryRepository } from '../persistence/index.js';
+import type { AuthUser } from '../auth/index.js';
+import {
+  InMemoryCompanionMemoryRepository,
+  InMemoryCreatorProfileRepository,
+  InMemoryCreatorPersonaRepository,
+  InMemoryLikenessUsageEventRepository,
+} from '../persistence/index.js';
 import { MetricsCollector, PacketTracer, combineObservers } from '../observability/index.js';
 import { BillingService, isPlanTier, type PlanTier } from '../billing/index.js';
 import { IntentInterpreter, HopeDocumenter, HopeVoice, IntentEnricher } from '../hope/index.js';
@@ -60,6 +69,14 @@ import {
   defaultCompanionMemory,
   handleSpeakRequest,
 } from '../companion/index.js';
+import {
+  handleCreatorApply,
+  handleCreatePersona,
+  handleGetEarnings,
+  handleRequestVerification,
+  handleRequestPayout,
+  CreatorPayoutStub,
+} from '../creator/index.js';
 import { createImageProviderOrStub } from '../providers/image_factory.js';
 import type { ImageProvider } from '../providers/image_types.js';
 import { createVideoProviderOrStub } from '../providers/video_factory.js';
@@ -159,6 +176,24 @@ export interface HopeGatewayOptions {
    * `companionId` — see companion/handlers.ts. Also backs GET /v1/companion/memory.
    */
   memoryRepository?: CompanionMemoryRepository;
+  /**
+   * Creator marketplace (creator/) — the fucklike.me pivot: real people turn themselves into an
+   * AI companion persona and earn when it's used. Threaded through to handleCreatorApply and
+   * the companion chat/portrait/scene handlers' fire-and-forget usage attribution exactly like
+   * `memoryRepository` above. Defaults to fresh in-memory repositories when omitted; when the
+   * caller (gateway/cli.ts) builds a Prisma-backed repository bundle because DATABASE_URL is
+   * set, it forwards `repositories.creatorProfile`/`creatorPersona`/`likenessUsageEvent` here.
+   */
+  creatorProfileRepository?: CreatorProfileRepository;
+  creatorPersonaRepository?: CreatorPersonaRepository;
+  likenessUsageRepository?: LikenessUsageEventRepository;
+  /**
+   * Stripe Identity + Connect STUB (creator/payout_stub.ts) backing POST /v1/creator/verification
+   * and POST /v1/creator/payout. Defaults to a fresh CreatorPayoutStub. Payouts are
+   * unconditionally blocked in this pass — see that module's doc comment; this is NOT a place
+   * to inject a bypass.
+   */
+  creatorPayoutStub?: CreatorPayoutStub;
   /**
    * Phase 5 async intake. When provided (and the gateway builds its own orchestrator), the
    * task queue is wired into the ApexOrchestrator so callers can `intake()` packets and a
@@ -260,6 +295,16 @@ export class HopeGateway {
    */
   private readonly companionMemory: CompanionMemoryRepository;
   /**
+   * Creator marketplace repositories (creator/) — defaults to fresh in-memory repositories when
+   * not injected; gateway/cli.ts injects Prisma-backed ones when DATABASE_URL is set (same
+   * wiring as `companionMemory` above). See HopeGatewayOptions for the full doc comment.
+   */
+  private readonly creatorProfileRepository: CreatorProfileRepository;
+  private readonly creatorPersonaRepository: CreatorPersonaRepository;
+  private readonly likenessUsageRepository: LikenessUsageEventRepository;
+  /** Stripe Identity + Connect stub (creator/payout_stub.ts) — see HopeGatewayOptions.creatorPayoutStub. */
+  private readonly creatorPayoutStub: CreatorPayoutStub;
+  /**
    * Shared ImageProvider instance used for companion portraits (companion/portrait_*), same
    * env-driven offline-first construction as companionProvider. Undefined ⇒ "unavailable"
    * response only (still fully functional offline — no crash, no placeholder pixel shown).
@@ -342,6 +387,11 @@ export class HopeGateway {
     this.videoProvider =
       options.videoProvider === false ? undefined : options.videoProvider ?? createVideoProviderOrStub();
     this.companionMemory = options.memoryRepository ?? new InMemoryCompanionMemoryRepository();
+    // Creator marketplace: same offline-first, DATABASE_URL-gated wiring as companionMemory.
+    this.creatorProfileRepository = options.creatorProfileRepository ?? new InMemoryCreatorProfileRepository();
+    this.creatorPersonaRepository = options.creatorPersonaRepository ?? new InMemoryCreatorPersonaRepository();
+    this.likenessUsageRepository = options.likenessUsageRepository ?? new InMemoryLikenessUsageEventRepository();
+    this.creatorPayoutStub = options.creatorPayoutStub ?? new CreatorPayoutStub();
     // Companion speech: same offline-first construction, independent of the text/image/video
     // providers (an operator may run Kokoro-82M for speech alongside Ollama for text, etc).
     this.ttsProvider =
@@ -961,7 +1011,12 @@ export class HopeGateway {
    * companionId, the handler never touches it.
    */
   async handleCompanionChat(body: unknown): Promise<GatewayResponse> {
-    return handleCompanionChat(body, { provider: this.companionProvider, memoryRepository: this.companionMemory });
+    return handleCompanionChat(body, {
+      provider: this.companionProvider,
+      memoryRepository: this.companionMemory,
+      creatorPersonaRepository: this.creatorPersonaRepository,
+      likenessUsageRepository: this.likenessUsageRepository,
+    });
   }
 
   /**
@@ -1050,7 +1105,11 @@ export class HopeGateway {
    * frontend changes required either way.
    */
   async handlePortraitRequest(body: unknown): Promise<GatewayResponse> {
-    return handlePortraitRequest(body, { provider: this.imageProvider });
+    return handlePortraitRequest(body, {
+      provider: this.imageProvider,
+      creatorPersonaRepository: this.creatorPersonaRepository,
+      likenessUsageRepository: this.likenessUsageRepository,
+    });
   }
 
   /**
@@ -1060,7 +1119,11 @@ export class HopeGateway {
    * Colab tunnel — see colab/08_scene_server.py).
    */
   async handleSceneRequest(body: unknown): Promise<GatewayResponse> {
-    return handleSceneRequest(body, { provider: this.videoProvider });
+    return handleSceneRequest(body, {
+      provider: this.videoProvider,
+      creatorPersonaRepository: this.creatorPersonaRepository,
+      likenessUsageRepository: this.likenessUsageRepository,
+    });
   }
 
   /**
@@ -1073,6 +1136,68 @@ export class HopeGateway {
    */
   async handleSpeakRequest(body: unknown): Promise<GatewayResponse> {
     return handleSpeakRequest(body, { provider: this.ttsProvider });
+  }
+
+  // -------------------------------------------------------------------------
+  // Creator marketplace (creator/) — POST /v1/creator/{apply,persona,verification,payout},
+  // GET /v1/creator/earnings. Backs the fucklike.me pivot: real people turn themselves into an
+  // AI companion persona and earn when it's used (fucklike.ai's fully-fictional companion
+  // product is untouched). UNLIKE the companion/ and auth/ routes above, these are NOT in
+  // AUTH_EXEMPT_PATHS (gateway/middleware.ts) — a creator must ALSO present a valid X-HDV-Session
+  // (same lookup GET /v1/auth/me uses) on top of whatever the operator's HDV_API_KEY gate
+  // requires. Payouts are a deliberately conservative stub — see creator/payout_stub.ts.
+  // -------------------------------------------------------------------------
+
+  /** Resolve the authenticated user from the caller's X-HDV-Session header, or null. Shared by
+   *  every /v1/creator/* route below — same lookup handleAuthMe uses. */
+  private creatorSessionUser(headers?: Record<string, string | string[] | undefined>): AuthUser | null {
+    return this.auth.getUserBySession(sessionTokenFromRequest(headers, undefined));
+  }
+
+  /** POST /v1/creator/apply — { displayName, bio? } → become (or update) a creator. Requires a
+   *  valid X-HDV-Session; 401 otherwise. */
+  handleCreatorApply(body: unknown, headers?: Record<string, string | string[] | undefined>): GatewayResponse {
+    const user = this.creatorSessionUser(headers);
+    if (!user) return { status: 401, body: { error: 'invalid, missing, or expired session' } };
+    return handleCreatorApply(user.userId, body, { creatorProfileRepository: this.creatorProfileRepository });
+  }
+
+  /** POST /v1/creator/persona — submit/update a creator persona. Requires a valid
+   *  X-HDV-Session; 401 otherwise. 409 if personaId is already claimed by another creator. */
+  handleCreatorPersona(body: unknown, headers?: Record<string, string | string[] | undefined>): GatewayResponse {
+    const user = this.creatorSessionUser(headers);
+    if (!user) return { status: 401, body: { error: 'invalid, missing, or expired session' } };
+    return handleCreatePersona(user.userId, body, { creatorPersonaRepository: this.creatorPersonaRepository });
+  }
+
+  /** GET /v1/creator/earnings — accrued balance + verification status. `payoutAvailable` is
+   *  always false in this pass — see creator/handlers.ts's EarningsResponse doc comment.
+   *  Requires a valid X-HDV-Session; 401 otherwise. */
+  handleCreatorEarnings(headers?: Record<string, string | string[] | undefined>): GatewayResponse {
+    const user = this.creatorSessionUser(headers);
+    if (!user) return { status: 401, body: { error: 'invalid, missing, or expired session' } };
+    return handleGetEarnings(user.userId, {
+      likenessUsageRepository: this.likenessUsageRepository,
+      payoutStub: this.creatorPayoutStub,
+    });
+  }
+
+  /** POST /v1/creator/verification — start the stub identity-verification flow. Always returns
+   *  a session stuck in 'requires_input' — see creator/payout_stub.ts. Requires a valid
+   *  X-HDV-Session; 401 otherwise. */
+  handleCreatorVerification(headers?: Record<string, string | string[] | undefined>): GatewayResponse {
+    const user = this.creatorSessionUser(headers);
+    if (!user) return { status: 401, body: { error: 'invalid, missing, or expired session' } };
+    return handleRequestVerification(user.userId, { payoutStub: this.creatorPayoutStub });
+  }
+
+  /** POST /v1/creator/payout — { amountUsd } → ALWAYS 403s in this build (correct, expected
+   *  behavior — see creator/payout_stub.ts: no creator can reach 'verified' yet). Requires a
+   *  valid X-HDV-Session; 401 otherwise. */
+  handleCreatorPayout(body: unknown, headers?: Record<string, string | string[] | undefined>): GatewayResponse {
+    const user = this.creatorSessionUser(headers);
+    if (!user) return { status: 401, body: { error: 'invalid, missing, or expired session' } };
+    return handleRequestPayout(user.userId, body, { payoutStub: this.creatorPayoutStub });
   }
 
   /**
@@ -1123,6 +1248,12 @@ export class HopeGateway {
     if (m === 'GET' && pathname === '/v1/companion/memory') return this.handleCompanionMemoryGet(query.get('companionId'));
     // --- Companion speech. Same public posture as chat, portrait, and scene.
     if (m === 'POST' && pathname === '/v1/companion/speak') return await this.handleSpeakRequest(body);
+    // --- Creator marketplace. Requires a valid X-HDV-Session — NOT in AUTH_EXEMPT_PATHS.
+    if (m === 'POST' && pathname === '/v1/creator/apply') return this.handleCreatorApply(body, headers);
+    if (m === 'POST' && pathname === '/v1/creator/persona') return this.handleCreatorPersona(body, headers);
+    if (m === 'GET' && pathname === '/v1/creator/earnings') return this.handleCreatorEarnings(headers);
+    if (m === 'POST' && pathname === '/v1/creator/verification') return this.handleCreatorVerification(headers);
+    if (m === 'POST' && pathname === '/v1/creator/payout') return this.handleCreatorPayout(body, headers);
     return { status: 404, body: { error: `no route for ${m} ${pathname}` } };
   }
 

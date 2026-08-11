@@ -44,9 +44,33 @@ server (no framework) that exposes:
 | GET    | `/v1/companion/memory`| Read a companion's remembered relationship state, defaults if none saved yet (public, rate-limited per-IP AND per-tenant; see `companion/memory.ts`) |
 | POST   | `/v1/companion/speak`| One companion speech-audio clip from already-approved text (public, rate-limited per-IP AND per-tenant; see `providers/tts_*` + `colab/10_kokoro_tts_server.md`) |
 | POST   | `/v1/billing/checkout`, `/v1/billing/checkout/settle` | (Stub) Stripe Checkout (public, rate-limited per-IP AND per-tenant) |
+| POST   | `/v1/creator/apply` | Become (or update) a creator — `{ displayName, bio? }` (requires `X-HDV-Session`; **not** auth-exempt from `HDV_API_KEY`; see `creator/`) |
+| POST   | `/v1/creator/persona` | Submit/update a creator persona — `{ personaId, displayName, description?, referencePhotoUrls? }`, `409` if `personaId` is claimed by another creator (requires `X-HDV-Session`) |
+| GET    | `/v1/creator/earnings` | Accrued balance + verification status; `payoutAvailable` is always `false` (requires `X-HDV-Session`; see §0.1 below) |
+| POST   | `/v1/creator/verification` | Start the stub identity-verification flow — always `requires_input` (requires `X-HDV-Session`) |
+| POST   | `/v1/creator/payout` | Request a payout — **always `403`** in this build, by design (requires `X-HDV-Session`; see §0.1 below) |
 
 It binds `PORT` (default `8787`) on loopback; a reverse proxy (Caddy or nginx)
 terminates TLS on `443` and forwards to it.
+
+### 0.1 Creator marketplace payouts are intentionally stubbed
+
+The `/v1/creator/*` routes back the fucklike.me pivot (real people turn themselves into an AI
+companion persona and earn when it's used — `fucklike.ai`'s fully-fictional companion product
+is untouched). **`POST /v1/creator/payout` always returns `403` in this build** — this is
+correct, expected behavior, not a bug to work around. No real Stripe Identity + Stripe Connect
+integration exists yet (`creator/payout_stub.ts`), so a creator's `verificationStatus` can never
+reach `'verified'` through any code path, and payouts are blocked **by construction** rather
+than by a runtime check that could accidentally be satisfied. Earnings still accrue normally
+(`GET /v1/creator/earnings`) so the product/UI can be built and demoed now, with zero
+real-money or impersonation risk, ahead of that future integration. Do not "fix" the 403 by
+adding a bypass, admin override, or test key — wire a real Stripe Identity + Connect
+integration instead when that pass is ready.
+
+Unlike the `companion/` product routes above, `/v1/creator/*` is **not** in
+`AUTH_EXEMPT_PATHS` (`gateway/middleware.ts`): every call needs a valid `X-HDV-Session` bearer
+token (same lookup `GET /v1/auth/me` uses) AND, when `HDV_API_KEY` is configured, the operator
+key too — the two checks are independent and both must pass.
 
 **Recommended KVM4 sizing.** KVM4 (≈4 vCPU / 16 GB RAM / 200 GB NVMe) comfortably runs
 the gateway + Postgres + Redis with headroom. If you also run **Ollama with a 7B–8B

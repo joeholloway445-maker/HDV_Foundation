@@ -15,6 +15,9 @@ import type {
   UserRepository,
   SessionRepository,
   CompanionMemoryRepository,
+  CreatorProfileRepository,
+  CreatorPersonaRepository,
+  LikenessUsageEventRepository,
 } from './repositories.js';
 import {
   InMemoryRequestLogRepository,
@@ -24,6 +27,9 @@ import {
   InMemoryUserRepository,
   InMemorySessionRepository,
   InMemoryCompanionMemoryRepository,
+  InMemoryCreatorProfileRepository,
+  InMemoryCreatorPersonaRepository,
+  InMemoryLikenessUsageEventRepository,
 } from './repositories.js';
 import { createPrismaRepositories, type PrismaBundleOptions } from './prisma_repos.js';
 
@@ -39,6 +45,9 @@ export interface RepositoryBundle {
   readonly user: UserRepository;
   readonly session: SessionRepository;
   readonly companionMemory: CompanionMemoryRepository;
+  readonly creatorProfile: CreatorProfileRepository;
+  readonly creatorPersona: CreatorPersonaRepository;
+  readonly likenessUsageEvent: LikenessUsageEventRepository;
   /** Prisma: load rows from Postgres into the projection. Memory: no-op. */
   hydrate(): Promise<void>;
   /** Prisma: await pending Postgres writes. Memory: no-op. */
@@ -68,6 +77,9 @@ export function createRepositories(
       user: bundle.user,
       session: bundle.session,
       companionMemory: bundle.companionMemory,
+      creatorProfile: bundle.creatorProfile,
+      creatorPersona: bundle.creatorPersona,
+      likenessUsageEvent: bundle.likenessUsageEvent,
       hydrate: () => bundle.hydrate(),
       flush: () => bundle.flush(),
       close: () => bundle.close(),
@@ -83,6 +95,9 @@ export function createRepositories(
     user: new InMemoryUserRepository(),
     session: new InMemorySessionRepository(),
     companionMemory: new InMemoryCompanionMemoryRepository(),
+    creatorProfile: new InMemoryCreatorProfileRepository(),
+    creatorPersona: new InMemoryCreatorPersonaRepository(),
+    likenessUsageEvent: new InMemoryLikenessUsageEventRepository(),
     hydrate: async () => {},
     flush: async () => {},
     close: async () => {},

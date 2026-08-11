@@ -96,3 +96,45 @@ model CompanionMemory {
   turnCount      Int      @default(0)
   updatedAt      DateTime @updatedAt
 }
+
+/// creator/ marketplace: one row per User who has applied to become a creator (real people
+/// turning themselves into an AI companion persona and earning when it's used — see
+/// creator/index.ts). `verificationStatus` starts 'unverified' and NOTHING in this pass can
+/// ever set it to 'verified' — see creator/payout_stub.ts's module header for why that is the
+/// actual safety mechanism gating real-money payouts, not this column.
+model CreatorProfile {
+  userId             String   @id
+  displayName        String
+  bio                String?
+  verificationStatus String   @default("unverified") // 'unverified' | 'pending' | 'verified'
+  createdAt          DateTime @default(now())
+}
+
+/// One row per persona a creator has submitted. `personaId` is the SAME id space as
+/// companion/portrait_types.ts's PortraitPersona.personaId / FuckLike's companion presetId —
+/// it is the join key creator/handlers.ts's recordLikenessUsage uses to attribute a
+/// chat/portrait/scene event back to the owning creator. `referencePhotoUrls` are URLs only —
+/// image bytes are never stored here (assumed hosted elsewhere, e.g. the VPS static asset path).
+model CreatorPersona {
+  id                 String   @id @default(uuid())
+  creatorUserId      String
+  personaId          String   @unique
+  displayName        String
+  description        String?
+  referencePhotoUrls Json     @default("[]")
+  createdAt          DateTime @default(now())
+}
+
+/// One row per billable likeness-usage event (a chat turn, portrait, or scene generated using a
+/// creator-owned persona — see creator/handlers.ts's recordLikenessUsage, called fire-and-forget
+/// from companion/handlers.ts, companion/portrait_handlers.ts, companion/scene_handlers.ts).
+/// `accruedUsd` comes from the placeholder per-event rate table in creator/types.ts
+/// (LIKENESS_RATE_USD) — operator-tunable, not final pricing. Append-only.
+model LikenessUsageEvent {
+  id            String   @id @default(uuid())
+  creatorUserId String
+  personaId     String
+  eventType     String // 'chat_turn' | 'portrait_generated' | 'scene_generated'
+  accruedUsd    Decimal  @default(0.00)
+  createdAt     DateTime @default(now())
+}

@@ -7,6 +7,8 @@
  * dependency-injected, optional, never used to route, execute, or create.
  */
 import type { GenerateImageOptions, ImageProvider } from '../providers/image_types.js';
+import type { CreatorPersonaRepository, LikenessUsageEventRepository } from '../persistence/repositories.js';
+import { recordLikenessUsage } from '../creator/handlers.js';
 import {
   parsePortraitRequest,
   PortraitValidationError,
@@ -23,6 +25,16 @@ export interface PortraitOptions {
   /** Optional image provider (dependency-injected). Omitted ⇒ "unavailable" response, no crash. */
   provider?: ImageProvider;
   generateOptions?: GenerateImageOptions;
+  /**
+   * Optional creator-marketplace usage-attribution wiring (creator/). When BOTH are provided
+   * AND `persona.personaId` matches a creator-submitted CreatorPersona, a successful real-
+   * provider portrait generation is recorded in the background as a small billable
+   * LikenessUsageEvent (creator/handlers.ts's recordLikenessUsage). Fire-and-forget: never adds
+   * latency, never fails the portrait response, and is a clean no-op — exactly today's behavior
+   * — whenever either is omitted or personaId isn't creator-owned (the common case).
+   */
+  creatorPersonaRepository?: CreatorPersonaRepository;
+  likenessUsageRepository?: LikenessUsageEventRepository;
 }
 
 function buildPrompt(persona: PortraitPersona): string {
@@ -73,6 +85,12 @@ export async function handlePortraitRequest(
       ...options.generateOptions,
       style: persona.style,
       personaId: persona.personaId,
+    });
+    // Fire-and-forget: attribute this real generation to a creator persona in the background —
+    // see PortraitOptions's doc comment above. No-ops cleanly if personaId isn't creator-owned.
+    recordLikenessUsage(persona.personaId, 'portrait_generated', {
+      creatorPersonaRepository: options.creatorPersonaRepository,
+      likenessUsageRepository: options.likenessUsageRepository,
     });
     return {
       status: 200,
