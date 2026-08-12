@@ -15,6 +15,7 @@ gates every routed packet, and no side service (Postgres/Redis/Ollama) is public
 | [`nginx.conf.sample`](./nginx.conf.sample) | nginx + certbot reverse-proxy alternative. |
 | [`hdv-gateway.service`](./hdv-gateway.service) | systemd unit for the bare-metal (no Docker) path. |
 | [`OLLAMA.md`](./OLLAMA.md) | Local 7B/8B inference on the same VPS; wiring `HDV_LLM_*` for self-host / BYOK. |
+| [`STRIPE_CONNECT_SETUP.md`](./STRIPE_CONNECT_SETUP.md) | Plain-English, numbered steps to turn on real creator-marketplace payouts (Stripe Identity + Connect). Optional — everything works without it. |
 
 Quick start (bare metal): [`HOSTINGER.md`](./HOSTINGER.md) §1–§6.
 Quick start (Docker): [`HOSTINGER.md`](./HOSTINGER.md) §7.

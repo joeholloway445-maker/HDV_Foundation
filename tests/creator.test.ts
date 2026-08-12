@@ -121,9 +121,9 @@ test('CreatorPayoutStub.checkVerificationStatus starts every creator at "unverif
   assert.equal(stub.checkVerificationStatus('creator-1'), 'unverified');
 });
 
-test('CreatorPayoutStub.requestVerification always returns a session in "requires_input"', () => {
+test('CreatorPayoutStub.requestVerification always returns a session in "requires_input" (async — interface compatibility, no behavior change)', async () => {
   const stub = new CreatorPayoutStub();
-  const session = stub.requestVerification('creator-1');
+  const session = await stub.requestVerification('creator-1');
   assert.equal(session.status, 'requires_input');
   assert.equal(session.creatorUserId, 'creator-1');
   assert.ok(session.id.length > 0);
@@ -131,48 +131,48 @@ test('CreatorPayoutStub.requestVerification always returns a session in "require
 
   // Never auto-completes, and status moves to 'pending' — NEVER 'verified'.
   assert.equal(stub.checkVerificationStatus('creator-1'), 'pending');
-  const again = stub.requestVerification('creator-1');
+  const again = await stub.requestVerification('creator-1');
   assert.equal(again.status, 'requires_input');
   assert.equal(stub.checkVerificationStatus('creator-1'), 'pending');
 });
 
-test('CreatorPayoutStub.requestPayout ALWAYS throws PayoutBlockedError(not_verified), regardless of verification requests or amount — THE SAFETY GATE', () => {
+test('CreatorPayoutStub.requestPayout ALWAYS rejects with PayoutBlockedError(not_verified), regardless of verification requests or amount — THE SAFETY GATE', async () => {
   const stub = new CreatorPayoutStub();
 
   // Fresh, never-verified creator.
-  assert.throws(
+  await assert.rejects(
     () => stub.requestPayout('creator-a', 10),
     (err: unknown) => err instanceof PayoutBlockedError && err.code === 'not_verified',
   );
 
   // Even after requesting (stub) verification — status is 'pending', never 'verified'.
-  stub.requestVerification('creator-b');
+  await stub.requestVerification('creator-b');
   assert.equal(stub.checkVerificationStatus('creator-b'), 'pending');
-  assert.throws(
+  await assert.rejects(
     () => stub.requestPayout('creator-b', 1),
     (err: unknown) => err instanceof PayoutBlockedError && err.code === 'not_verified',
   );
 
   // Regardless of how large the requested amount is.
-  assert.throws(
+  await assert.rejects(
     () => stub.requestPayout('creator-b', 1_000_000),
     (err: unknown) => err instanceof PayoutBlockedError,
   );
 
   // Repeated calls: still always blocked, every single time.
   for (let i = 0; i < 5; i += 1) {
-    assert.throws(
+    await assert.rejects(
       () => stub.requestPayout('creator-b', 5),
       (err: unknown) => err instanceof PayoutBlockedError,
     );
   }
 });
 
-test('CreatorPayoutStub.requestPayout rejects a non-positive amount with PayoutStubError', () => {
+test('CreatorPayoutStub.requestPayout rejects a non-positive amount with PayoutStubError', async () => {
   const stub = new CreatorPayoutStub();
-  assert.throws(() => stub.requestPayout('creator-a', 0), PayoutStubError);
-  assert.throws(() => stub.requestPayout('creator-a', -5), PayoutStubError);
-  assert.throws(() => stub.requestPayout('creator-a', NaN), PayoutStubError);
+  await assert.rejects(() => stub.requestPayout('creator-a', 0), PayoutStubError);
+  await assert.rejects(() => stub.requestPayout('creator-a', -5), PayoutStubError);
+  await assert.rejects(() => stub.requestPayout('creator-a', NaN), PayoutStubError);
 });
 
 // ---------------------------------------------------------------------------
@@ -307,46 +307,46 @@ test('handleGetEarnings reports 0 when no likenessUsageRepository is configured 
   assert.equal((res.body as { payoutAvailable: boolean }).payoutAvailable, false);
 });
 
-test('handleGetEarnings reflects the payout stub verification status when configured', () => {
+test('handleGetEarnings reflects the payout provider verification status when configured', async () => {
   const stub = new CreatorPayoutStub();
-  stub.requestVerification('user-1');
-  const res = handleGetEarnings('user-1', { payoutStub: stub });
+  await stub.requestVerification('user-1');
+  const res = handleGetEarnings('user-1', { payoutProvider: stub });
   assert.equal((res.body as { verificationStatus: string }).verificationStatus, 'pending');
 });
 
-test('handleRequestVerification returns a "requires_input" session and 503s without a stub', () => {
-  const noStub = handleRequestVerification('user-1');
-  assert.equal(noStub.status, 503);
+test('handleRequestVerification returns a "requires_input" session and 503s without a provider', async () => {
+  const noProvider = await handleRequestVerification('user-1');
+  assert.equal(noProvider.status, 503);
 
   const stub = new CreatorPayoutStub();
-  const res = handleRequestVerification('user-1', { payoutStub: stub });
+  const res = await handleRequestVerification('user-1', { payoutProvider: stub });
   assert.equal(res.status, 200);
   const verification = res.body.verification as { status: string };
   assert.equal(verification.status, 'requires_input');
 });
 
-test('handleRequestPayout ALWAYS 403s with a clear message, and 503s without a stub — THE SAFETY GATE at the handler level', () => {
-  const noStub = handleRequestPayout('user-1', { amountUsd: 5 });
-  assert.equal(noStub.status, 503);
+test('handleRequestPayout ALWAYS 403s with a clear message, and 503s without a provider — THE SAFETY GATE at the handler level', async () => {
+  const noProvider = await handleRequestPayout('user-1', { amountUsd: 5 });
+  assert.equal(noProvider.status, 503);
 
   const stub = new CreatorPayoutStub();
-  const res = handleRequestPayout('user-1', { amountUsd: 5 }, { payoutStub: stub });
+  const res = await handleRequestPayout('user-1', { amountUsd: 5 }, { payoutProvider: stub });
   assert.equal(res.status, 403);
   assert.equal(res.body.code, 'not_verified');
-  assert.match(res.body.error as string, /identity verification required/i);
+  assert.match(res.body.error as string, /not identity-verified/i);
 
   // Even after a huge accrued balance is implied and verification was requested.
-  stub.requestVerification('user-1');
-  const stillBlocked = handleRequestPayout('user-1', { amountUsd: 1_000_000 }, { payoutStub: stub });
+  await stub.requestVerification('user-1');
+  const stillBlocked = await handleRequestPayout('user-1', { amountUsd: 1_000_000 }, { payoutProvider: stub });
   assert.equal(stillBlocked.status, 403);
   assert.equal(stillBlocked.body.code, 'not_verified');
 });
 
-test('handleRequestPayout rejects a missing/invalid amountUsd with 400', () => {
+test('handleRequestPayout rejects a missing/invalid amountUsd with 400', async () => {
   const stub = new CreatorPayoutStub();
-  const missing = handleRequestPayout('user-1', {}, { payoutStub: stub });
+  const missing = await handleRequestPayout('user-1', {}, { payoutProvider: stub });
   assert.equal(missing.status, 400);
-  const negative = handleRequestPayout('user-1', { amountUsd: -1 }, { payoutStub: stub });
+  const negative = await handleRequestPayout('user-1', { amountUsd: -1 }, { payoutProvider: stub });
   assert.equal(negative.status, 400);
 });
 

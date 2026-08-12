@@ -99,15 +99,23 @@ model CompanionMemory {
 
 /// creator/ marketplace: one row per User who has applied to become a creator (real people
 /// turning themselves into an AI companion persona and earning when it's used — see
-/// creator/index.ts). `verificationStatus` starts 'unverified' and NOTHING in this pass can
-/// ever set it to 'verified' — see creator/payout_stub.ts's module header for why that is the
-/// actual safety mechanism gating real-money payouts, not this column.
+/// creator/index.ts). `verificationStatus` starts 'unverified' and NOTHING in the default
+/// (unconfigured) build ever sets it to 'verified' — see creator/payout_stub.ts's module header.
+/// `stripeAccountId` / `stripeVerificationSessionId` / `verificationStatusCache` are used ONLY by
+/// creator/payout_stripe_live.ts (the real Stripe Identity + Connect implementation — see
+/// creator/payout_factory.ts for when it's wired instead of the stub). `verificationStatusCache`
+/// is updated exclusively by a signature-verified Stripe webhook event
+/// (creator/stripe_webhook.ts) and is a display-only cache, never the sole gate for a real
+/// payout — see CreatorPayoutStripeLive.requestPayout's doc comment.
 model CreatorProfile {
-  userId             String   @id
-  displayName        String
-  bio                String?
-  verificationStatus String   @default("unverified") // 'unverified' | 'pending' | 'verified'
-  createdAt          DateTime @default(now())
+  userId                      String   @id
+  displayName                 String
+  bio                         String?
+  verificationStatus          String   @default("unverified") // 'unverified' | 'pending' | 'verified'
+  createdAt                   DateTime @default(now())
+  stripeAccountId             String?
+  stripeVerificationSessionId String?
+  verificationStatusCache     String? // 'unverified' | 'pending' | 'verified' | null (never set)
 }
 
 /// One row per persona a creator has submitted. `personaId` is the SAME id space as

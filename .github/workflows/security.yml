@@ -27,8 +27,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Non-blocking: this repo doesn't have GitHub's Dependency Graph enabled (Settings ->
+      # Security analysis), which makes the action fail with "Dependency review is not
+      # supported on this repository" regardless of what any PR actually changes. Until that's
+      # turned on this can't produce a real signal, so — like npm audit below — it must not
+      # gate merges.
       - name: Dependency Review
         uses: actions/dependency-review-action@v4
+        continue-on-error: true
         with:
           fail-on-severity: high
 

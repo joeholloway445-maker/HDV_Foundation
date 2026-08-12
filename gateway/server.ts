@@ -75,8 +75,11 @@ import {
   handleGetEarnings,
   handleRequestVerification,
   handleRequestPayout,
-  CreatorPayoutStub,
+  handleStripeWebhook,
+  createCreatorPayoutProviderOrStub,
+  CreatorPayoutStripeLive,
 } from '../creator/index.js';
+import type { CreatorPayoutProvider } from '../creator/index.js';
 import { createImageProviderOrStub } from '../providers/image_factory.js';
 import type { ImageProvider } from '../providers/image_types.js';
 import { createVideoProviderOrStub } from '../providers/video_factory.js';
@@ -105,6 +108,23 @@ import {
  * limited posture as /v1/companion/chat — no API key, but still rate-limited).
  */
 export const COMPANION_CHAT_STREAM_PATH = '/v1/companion/chat/stream';
+
+/**
+ * POST /v1/creator/webhooks/stripe — Stripe's server-to-server callback for Identity
+ * verification + Connect account events (creator/stripe_webhook.ts). Its own module-level
+ * constant, checked in the SAME two places as COMPANION_CHAT_STREAM_PATH above: the `serve()`
+ * bypass below (this route needs the RAW, unparsed request body — see the bypass's comment) and
+ * gateway/middleware.ts's AUTH_EXEMPT_PATHS.
+ *
+ * *** READ BEFORE ADDING ANOTHER ROUTE HERE ***: unlike every other AUTH_EXEMPT_PATHS entry,
+ * this route isn't exempt because it's genuinely public — it's exempt because Stripe calls it
+ * directly with NO X-HDV-Session and NO HDV_API_KEY, and its ENTIRE security boundary is the
+ * cryptographically-verified `stripe-signature` header (see creator/stripe_webhook.ts's
+ * `handleStripeWebhook`, which uses the Stripe SDK's own `stripe.webhooks.constructEvent` and
+ * rejects anything with a missing/invalid/forged signature BEFORE trusting a single field of the
+ * body). Do not use this as a precedent for adding other unauthenticated routes.
+ */
+export const CREATOR_STRIPE_WEBHOOK_PATH = '/v1/creator/webhooks/stripe';
 
 export interface GatewayResponse {
   status: number;
@@ -188,12 +208,17 @@ export interface HopeGatewayOptions {
   creatorPersonaRepository?: CreatorPersonaRepository;
   likenessUsageRepository?: LikenessUsageEventRepository;
   /**
-   * Stripe Identity + Connect STUB (creator/payout_stub.ts) backing POST /v1/creator/verification
-   * and POST /v1/creator/payout. Defaults to a fresh CreatorPayoutStub. Payouts are
-   * unconditionally blocked in this pass — see that module's doc comment; this is NOT a place
-   * to inject a bypass.
+   * Stripe Identity + Connect provider (creator/payout_types.ts's CreatorPayoutProvider)
+   * backing POST /v1/creator/verification, POST /v1/creator/payout, and (when the concrete
+   * instance is a CreatorPayoutStripeLive) POST /v1/creator/webhooks/stripe. Defaults to
+   * `createCreatorPayoutProviderOrStub()` (creator/payout_factory.ts) — the safe
+   * CreatorPayoutStub UNLESS both STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET are configured, in
+   * which case a real CreatorPayoutStripeLive is built instead. With the stub, payouts remain
+   * unconditionally blocked — see creator/payout_stub.ts's doc comment; this is NOT a place to
+   * inject a bypass. With the live provider, every payout re-checks Stripe LIVE (never a local
+   * cache) immediately before moving money — see creator/payout_stripe_live.ts's doc comment.
    */
-  creatorPayoutStub?: CreatorPayoutStub;
+  creatorPayoutProvider?: CreatorPayoutProvider;
   /**
    * Phase 5 async intake. When provided (and the gateway builds its own orchestrator), the
    * task queue is wired into the ApexOrchestrator so callers can `intake()` packets and a
@@ -302,8 +327,10 @@ export class HopeGateway {
   private readonly creatorProfileRepository: CreatorProfileRepository;
   private readonly creatorPersonaRepository: CreatorPersonaRepository;
   private readonly likenessUsageRepository: LikenessUsageEventRepository;
-  /** Stripe Identity + Connect stub (creator/payout_stub.ts) — see HopeGatewayOptions.creatorPayoutStub. */
-  private readonly creatorPayoutStub: CreatorPayoutStub;
+  /** Stripe Identity + Connect provider — see HopeGatewayOptions.creatorPayoutProvider. Public
+   *  (not private) so tests/introspection can check `instanceof CreatorPayoutStripeLive` the
+   *  same way `handleCreatorStripeWebhook` below does. */
+  readonly creatorPayoutProvider: CreatorPayoutProvider;
   /**
    * Shared ImageProvider instance used for companion portraits (companion/portrait_*), same
    * env-driven offline-first construction as companionProvider. Undefined ⇒ "unavailable"
@@ -391,7 +418,15 @@ export class HopeGateway {
     this.creatorProfileRepository = options.creatorProfileRepository ?? new InMemoryCreatorProfileRepository();
     this.creatorPersonaRepository = options.creatorPersonaRepository ?? new InMemoryCreatorPersonaRepository();
     this.likenessUsageRepository = options.likenessUsageRepository ?? new InMemoryLikenessUsageEventRepository();
-    this.creatorPayoutStub = options.creatorPayoutStub ?? new CreatorPayoutStub();
+    // Same offline-first, safe-by-default posture as imageProvider/ttsProvider above: the
+    // factory returns CreatorPayoutStub (unconditionally blocked) unless BOTH
+    // STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET are configured. creatorProfileRepository is
+    // ALREADY resolved above (in-memory or Prisma-backed via gateway/cli.ts) — the live
+    // provider (when selected) persists Connect account ids and the webhook-updated
+    // verification cache through that SAME repository.
+    this.creatorPayoutProvider =
+      options.creatorPayoutProvider ??
+      createCreatorPayoutProviderOrStub({ creatorProfileRepository: this.creatorProfileRepository });
     // Companion speech: same offline-first construction, independent of the text/image/video
     // providers (an operator may run Kokoro-82M for speech alongside Ollama for text, etc).
     this.ttsProvider =
@@ -1178,26 +1213,63 @@ export class HopeGateway {
     if (!user) return { status: 401, body: { error: 'invalid, missing, or expired session' } };
     return handleGetEarnings(user.userId, {
       likenessUsageRepository: this.likenessUsageRepository,
-      payoutStub: this.creatorPayoutStub,
+      payoutProvider: this.creatorPayoutProvider,
     });
   }
 
-  /** POST /v1/creator/verification — start the stub identity-verification flow. Always returns
-   *  a session stuck in 'requires_input' — see creator/payout_stub.ts. Requires a valid
-   *  X-HDV-Session; 401 otherwise. */
-  handleCreatorVerification(headers?: Record<string, string | string[] | undefined>): GatewayResponse {
+  /** POST /v1/creator/verification — start the identity-verification flow. With the default
+   *  stub (creator/payout_stub.ts), always returns a session stuck in 'requires_input'. With the
+   *  real provider (creator/payout_stripe_live.ts), starts a genuine Stripe Identity +
+   *  Connect-onboarding flow. Requires a valid X-HDV-Session; 401 otherwise. */
+  async handleCreatorVerification(
+    headers?: Record<string, string | string[] | undefined>,
+  ): Promise<GatewayResponse> {
     const user = this.creatorSessionUser(headers);
     if (!user) return { status: 401, body: { error: 'invalid, missing, or expired session' } };
-    return handleRequestVerification(user.userId, { payoutStub: this.creatorPayoutStub });
+    return handleRequestVerification(user.userId, { payoutProvider: this.creatorPayoutProvider });
   }
 
-  /** POST /v1/creator/payout — { amountUsd } → ALWAYS 403s in this build (correct, expected
-   *  behavior — see creator/payout_stub.ts: no creator can reach 'verified' yet). Requires a
-   *  valid X-HDV-Session; 401 otherwise. */
-  handleCreatorPayout(body: unknown, headers?: Record<string, string | string[] | undefined>): GatewayResponse {
+  /** POST /v1/creator/payout — { amountUsd }. With the default stub (creator/payout_stub.ts)
+   *  this ALWAYS 403s (correct, expected behavior: no creator can reach 'verified' through the
+   *  stub). With the real provider (creator/payout_stripe_live.ts), this re-checks Stripe LIVE
+   *  before ever moving money. Requires a valid X-HDV-Session; 401 otherwise. */
+  async handleCreatorPayout(
+    body: unknown,
+    headers?: Record<string, string | string[] | undefined>,
+  ): Promise<GatewayResponse> {
     const user = this.creatorSessionUser(headers);
     if (!user) return { status: 401, body: { error: 'invalid, missing, or expired session' } };
-    return handleRequestPayout(user.userId, body, { payoutStub: this.creatorPayoutStub });
+    return handleRequestPayout(user.userId, body, { payoutProvider: this.creatorPayoutProvider });
+  }
+
+  /**
+   * POST /v1/creator/webhooks/stripe — Stripe's server-to-server callback (creator/stripe_webhook.ts).
+   *
+   * *** SECURITY NOTE — see CREATOR_STRIPE_WEBHOOK_PATH's doc comment above for why this route
+   * carries NO session/API-key check: its entire security boundary is the signature verified
+   * inside handleStripeWebhook. ***
+   *
+   * 503s (never a crash) when the configured creatorPayoutProvider isn't a CreatorPayoutStripeLive
+   * — i.e. whenever Stripe hasn't actually been configured (the default), there is no webhook
+   * secret or live provider to verify against, so this correctly refuses to process anything.
+   */
+  async handleCreatorStripeWebhook(
+    rawBody: Buffer,
+    signatureHeader: string | undefined,
+  ): Promise<GatewayResponse> {
+    if (!(this.creatorPayoutProvider instanceof CreatorPayoutStripeLive)) {
+      return {
+        status: 503,
+        body: {
+          error:
+            'Stripe webhooks are not configured on this server (STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET not set)',
+        },
+      };
+    }
+    return handleStripeWebhook(rawBody, signatureHeader, {
+      webhookSecret: this.creatorPayoutProvider.webhookSecret,
+      payoutProvider: this.creatorPayoutProvider,
+    });
   }
 
   /**
@@ -1252,8 +1324,8 @@ export class HopeGateway {
     if (m === 'POST' && pathname === '/v1/creator/apply') return this.handleCreatorApply(body, headers);
     if (m === 'POST' && pathname === '/v1/creator/persona') return this.handleCreatorPersona(body, headers);
     if (m === 'GET' && pathname === '/v1/creator/earnings') return this.handleCreatorEarnings(headers);
-    if (m === 'POST' && pathname === '/v1/creator/verification') return this.handleCreatorVerification(headers);
-    if (m === 'POST' && pathname === '/v1/creator/payout') return this.handleCreatorPayout(body, headers);
+    if (m === 'POST' && pathname === '/v1/creator/verification') return await this.handleCreatorVerification(headers);
+    if (m === 'POST' && pathname === '/v1/creator/payout') return await this.handleCreatorPayout(body, headers);
     return { status: 404, body: { error: `no route for ${m} ${pathname}` } };
   }
 
@@ -1314,6 +1386,22 @@ export class HopeGateway {
         const streamBody = await readJsonBody(req);
         const status = await this.serveCompanionChatStream(streamBody, res, guard.headers);
         log(status);
+        return;
+      }
+
+      // POST /v1/creator/webhooks/stripe is the OTHER route that bypasses the normal JSON-body
+      // path — same one-route-exception precedent as COMPANION_CHAT_STREAM_PATH above, but for a
+      // different reason: Stripe signature verification (stripe.webhooks.constructEvent, inside
+      // handleStripeWebhook) needs the EXACT raw request bytes, not the JSON.parse()'d-and-
+      // re-serialized object readJsonBody produces — verification fails (correctly, safely) if
+      // it's handed anything else. See CREATOR_STRIPE_WEBHOOK_PATH's doc comment for the auth
+      // posture of this route.
+      if (method.toUpperCase() === 'POST' && url.pathname === CREATOR_STRIPE_WEBHOOK_PATH) {
+        const rawBody = await readRawBody(req);
+        const signatureHeader = firstHeaderValue(req.headers['stripe-signature']);
+        const result = await this.handleCreatorStripeWebhook(rawBody, signatureHeader);
+        writeJson(res, result.status, result.body, guard.headers);
+        log(result.status);
         return;
       }
 
@@ -1497,6 +1585,36 @@ function readJsonBody(req: http.IncomingMessage): Promise<unknown> {
     });
     req.on('error', reject);
   });
+}
+
+/**
+ * Read the EXACT raw request body bytes, with no JSON parsing — used ONLY by
+ * POST /v1/creator/webhooks/stripe (see CREATOR_STRIPE_WEBHOOK_PATH's doc comment). Stripe
+ * signature verification needs the untouched bytes it originally sent; re-serializing through
+ * JSON.parse/JSON.stringify would (correctly) break signature verification. Same 1 MiB cap and
+ * error semantics as readJsonBody.
+ */
+function readRawBody(req: http.IncomingMessage): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > 1_048_576) {
+        reject(new Error('request body too large'));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
+/** First value from a possibly-array header (node:http lower-cases header names). */
+function firstHeaderValue(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
 }
 
 function writeJson(
