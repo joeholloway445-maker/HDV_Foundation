@@ -157,17 +157,6 @@ This will:
 - Run `certbot renew --dry-run` to test renewal
 - Certificates auto-renew; check `/var/log/letsencrypt/` for issues
 
-## Creator Marketplace (fucklike.me) Web App
-
-When the creator marketplace web app is ready:
-
-1. Build the web app (framework TBD)
-2. Copy the static files to `/var/www/fucklike.me/public_html/`
-3. Update the nginx config if needed (currently assumes a SPA with /index.html as fallback)
-4. Reload nginx
-
-The web app will automatically proxy `/v1/` calls to the HDV gateway, just like fucklike.ai.
-
 ## Related Documentation
 
 - HOSTINGER.md — Full VPS deployment & Docker setup
