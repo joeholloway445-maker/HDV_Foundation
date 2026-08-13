@@ -85,6 +85,23 @@ const AUTH_EXEMPT_PATHS = new Set<string>([
   '/v1/auth/login',
   '/v1/auth/logout',
   '/v1/auth/me',
+  // Creator marketplace (creator/) client-facing routes — fucklike.me's whole premise is a
+  // real stranger, with no relationship to the operator, signing up and becoming a creator.
+  // Each of these ALREADY independently authenticates the caller via their own X-HDV-Session
+  // (same lookup GET /v1/auth/me uses) inside the handler itself — see gateway/server.ts's
+  // resolveCreatorUser and creator/handlers.ts. Requiring the operator's HDV_API_KEY on TOP of
+  // that would mean no member of the public could ever reach these without the operator's own
+  // private key, which defeats the entire point of a self-serve marketplace — the exact same
+  // reasoning as auth/signup above. The one route that stays genuinely privileged is
+  // POST /v1/creator/payout, and that's not solved by an API key anyway: it's the
+  // CreatorPayoutProvider's live-Stripe-recheck (creator/payout_stripe_live.ts) and the stub's
+  // unconditional block (creator/payout_stub.ts) that actually gate money movement, not this
+  // list — see deploy/HOSTINGER.md §0.1.
+  '/v1/creator/apply',
+  '/v1/creator/persona',
+  '/v1/creator/earnings',
+  '/v1/creator/verification',
+  '/v1/creator/payout',
   // *** '/v1/creator/webhooks/stripe' — READ THIS BEFORE ADDING ANOTHER ENTRY BELOW IT ***
   //
   // Stripe calls this route directly, server-to-server, with NO X-HDV-Session and NO

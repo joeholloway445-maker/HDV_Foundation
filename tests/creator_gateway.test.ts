@@ -2,9 +2,11 @@
  * tests/creator_gateway.test.ts — creator marketplace HTTP integration (gateway/server.ts).
  *
  * Coverage:
- *   A. Every /v1/creator/* route requires a valid X-HDV-Session (401 otherwise) — UNLIKE
- *      companion/chat etc., these are NOT in AUTH_EXEMPT_PATHS, so with an operator API key
- *      configured they ALSO 401 without that key, even with a perfectly valid session.
+ *   A. Every /v1/creator/* route requires a valid X-HDV-Session (401 otherwise). Unlike the
+ *      product routes gated by companion/chat's tenant-rate-limit posture, these ARE in
+ *      AUTH_EXEMPT_PATHS (same reasoning as auth/signup) — a valid session is sufficient even
+ *      when an operator API key is configured, since fucklike.me's whole premise is a member
+ *      of the public (with no relationship to the operator) signing up as a creator.
  *   B. Happy-path flow: signup → apply → submit a persona → GET earnings (starts at 0).
  *   C. POST /v1/creator/persona 409s when personaId is already claimed by another creator.
  *   D. End-to-end usage attribution: a real-provider companion chat turn using a creator's
@@ -102,7 +104,7 @@ test('every POST/GET /v1/creator/* route 401s without a valid X-HDV-Session', as
   });
 });
 
-test('/v1/creator/* routes are NOT auth-exempt: with an operator API key configured, a valid session ALONE is not enough', async () => {
+test('/v1/creator/* routes ARE auth-exempt: a valid session alone is enough even with an operator API key configured', async () => {
   const gw = new HopeGateway({
     security: { apiKey: 'operator-secret', rateLimit: 1000, authRateLimit: 1000 },
     logger: false,
@@ -111,20 +113,24 @@ test('/v1/creator/* routes are NOT auth-exempt: with an operator API key configu
     // Signup/login themselves are auth-exempt from the API key, so this still works with no key.
     const sessionToken = await signupAndGetSession(base, 'creator.noKey@example.com');
 
-    // Valid session, but NO operator API key on a route that requires one — 401 from the
-    // FRONT-DOOR middleware guard, before the route handler's own session check ever runs.
-    const res = await fetch(`${base}/v1/creator/earnings`, {
+    // Valid session, NO operator API key — succeeds. A member of the public signing up as a
+    // creator has no way to ever know the operator's private key, and shouldn't need to.
+    const noKey = await fetch(`${base}/v1/creator/earnings`, {
       headers: { 'X-HDV-Session': sessionToken },
     });
-    assert.equal(res.status, 401);
-    const body = (await res.json()) as { error: string };
-    assert.equal(body.error, 'unauthorized');
+    assert.equal(noKey.status, 200);
 
-    // BOTH the operator key AND the session together succeed.
-    const ok = await fetch(`${base}/v1/creator/earnings`, {
+    // The operator key is also accepted alongside the session (harmless, not required).
+    const withKey = await fetch(`${base}/v1/creator/earnings`, {
       headers: { 'X-HDV-Session': sessionToken, 'X-HDV-Key': 'operator-secret' },
     });
-    assert.equal(ok.status, 200);
+    assert.equal(withKey.status, 200);
+
+    // Still 401 with no session at all, key or not — the session check itself is unaffected.
+    const noSession = await fetch(`${base}/v1/creator/earnings`, {
+      headers: { 'X-HDV-Key': 'operator-secret' },
+    });
+    assert.equal(noSession.status, 401);
   });
 });
 

@@ -73,18 +73,24 @@ come from this one script — see the file's header comment for the full explana
 how to run it on free Colab GPU instead if you'd rather have it finish in minutes instead of
 hours (still free, just needs a browser tab open).
 
-## Step 3: Set up fucklike.me (placeholder)
+## Step 3: Set up fucklike.me (creator marketplace)
 
 ```bash
 # Create the web root
 mkdir -p /var/www/fucklike.me/public_html
 
-# Create placeholder index (replace with real app when ready)
-echo '<html><body><h1>FuckLike Creator Marketplace</h1><p>Coming soon...</p></body></html>' > /var/www/fucklike.me/public_html/index.html
+# Copy the creator marketplace app (signup/login, submit a persona, see earnings, verify, payout)
+cp -r /root/fucklike/web-creator/* /var/www/fucklike.me/public_html/
 
 # Verify permissions
 chown -R www-data:www-data /var/www/fucklike.me/public_html
 ```
+
+This talks to the SAME gateway as fucklike.ai (`/v1/` is proxied the same way by
+`nginx-fucklike.me.conf`) — a creator signs up with email+password, submits a persona, and can
+see their accrued balance. Payouts stay blocked with a clear "not available yet" message until
+`STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET` are configured (see `STRIPE_CONNECT_SETUP.md`) —
+nothing to do here for that, it's automatic.
 
 ## Step 4: Test and reload nginx
 
@@ -125,8 +131,12 @@ This will:
 ### Test fucklike.me
 
 1. Open https://fucklike.me in a browser
-2. You should see "Coming soon" placeholder
-3. Once the creator marketplace web app is built, replace `/var/www/fucklike.me/public_html/index.html` with the real app
+2. Click "Become a creator", sign up with a test email + password
+3. Fill in the creator profile form and save — should show "Profile saved"
+4. Fill in the persona form (any persona ID, e.g. `test-creator`) and save — should show "Persona saved"
+5. Balance should show `$0.00` and status `Unverified` (that's correct — nobody has used your persona yet, and identity verification isn't turned on by default)
+6. Click "Start identity verification" — should show a "pending" notice, no error
+7. Try "Request payout" for any amount — should show a clear "not available yet" message (this is the intended safety behavior, not a bug — see `deploy/HOSTINGER.md` §0.1)
 
 ## Troubleshooting
 
@@ -146,17 +156,6 @@ This will:
 **HTTPS certificate issues**
 - Run `certbot renew --dry-run` to test renewal
 - Certificates auto-renew; check `/var/log/letsencrypt/` for issues
-
-## Creator Marketplace (fucklike.me) Web App
-
-When the creator marketplace web app is ready:
-
-1. Build the web app (framework TBD)
-2. Copy the static files to `/var/www/fucklike.me/public_html/`
-3. Update the nginx config if needed (currently assumes a SPA with /index.html as fallback)
-4. Reload nginx
-
-The web app will automatically proxy `/v1/` calls to the HDV gateway, just like fucklike.ai.
 
 ## Related Documentation
 
