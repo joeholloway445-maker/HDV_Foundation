@@ -112,6 +112,32 @@ test('parseCreatorPersonaRequest rejects non-URL / non-http(s) referencePhotoUrl
   );
 });
 
+test('parseCreatorPersonaRequest defaults scanUrls to [] and accepts valid http(s) URLs', () => {
+  const withUrls = parseCreatorPersonaRequest({
+    personaId: 'jordyn',
+    displayName: 'Jordyn',
+    scanUrls: ['https://poly.cam/capture/abc123', 'https://cdn.example.com/scan.glb'],
+  });
+  assert.deepEqual(withUrls.scanUrls, [
+    'https://poly.cam/capture/abc123',
+    'https://cdn.example.com/scan.glb',
+  ]);
+
+  const without = parseCreatorPersonaRequest({ personaId: 'jordyn', displayName: 'Jordyn' });
+  assert.deepEqual(without.scanUrls, []);
+});
+
+test('parseCreatorPersonaRequest rejects non-URL / non-http(s) scanUrls entries (never raw scan bytes)', () => {
+  assert.throws(
+    () => parseCreatorPersonaRequest({ personaId: 'jordyn', displayName: 'Jordyn', scanUrls: ['not-a-url'] }),
+    (err: unknown) => err instanceof CreatorValidationError && err.code === 'invalid_scan_url',
+  );
+  assert.throws(
+    () => parseCreatorPersonaRequest({ personaId: 'jordyn', displayName: 'Jordyn', scanUrls: 'nope' }),
+    CreatorValidationError,
+  );
+});
+
 // ---------------------------------------------------------------------------
 // B. CreatorPayoutStub — the safety gate
 // ---------------------------------------------------------------------------
@@ -384,6 +410,7 @@ test('recordLikenessUsage appends a LikenessUsageEvent at the placeholder rate f
     personaId: 'jordyn',
     displayName: 'Jordyn',
     referencePhotoUrls: [],
+    scanUrls: [],
     createdAt: Date.now(),
   });
 
@@ -410,6 +437,7 @@ test('recordLikenessUsage never throws even when the repository itself throws on
     personaId: 'jordyn',
     displayName: 'Jordyn',
     referencePhotoUrls: [],
+    scanUrls: [],
     createdAt: Date.now(),
   });
   const throwingUsageRepo = {

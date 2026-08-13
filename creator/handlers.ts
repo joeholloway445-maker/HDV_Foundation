@@ -132,6 +132,7 @@ export function handleCreatePersona(
     displayName: parsed.displayName,
     description: parsed.description,
     referencePhotoUrls: parsed.referencePhotoUrls,
+    scanUrls: parsed.scanUrls,
     createdAt: existing?.createdAt ?? now,
   };
   const saved = options.creatorPersonaRepository.upsert(record);

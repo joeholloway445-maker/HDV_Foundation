@@ -134,9 +134,11 @@ export interface CreatorProfileRecord {
  * `personaId` is the SAME id space as companion/portrait_types.ts's PortraitPersona.personaId /
  * FuckLike's companion presetId — it is the join key creator/handlers.ts's recordLikenessUsage
  * uses to attribute a chat/portrait/scene event back to the owning creator.
- * `referencePhotoUrls` are URLs only — image bytes are never stored here or in Postgres; they
- * are assumed hosted elsewhere (e.g. the VPS's static asset path, same as the existing
- * pregenerated-assets pattern).
+ * `referencePhotoUrls`/`scanUrls` are URLs only — no file bytes (photo, 3D scan, or otherwise)
+ * are ever stored here or in Postgres; the creator hosts the file elsewhere (a 3D-scan app's
+ * own share link, cloud storage, etc.) and pastes the link. Same reasoning both fields: this
+ * server has no upload/object-storage layer, so accepting raw bytes would mean building and
+ * paying for one — a link costs nothing and works with any hosting the creator already has.
  */
 export interface CreatorPersonaRecord {
   id: string;
@@ -145,6 +147,9 @@ export interface CreatorPersonaRecord {
   displayName: string;
   description?: string;
   referencePhotoUrls: string[];
+  /** Links to a 3D scan/model (e.g. a Polycam/RealityScan/in3D share link, or any hosted .glb/
+   *  .usdz/.obj) or a multi-angle photo set — same link-only posture as referencePhotoUrls. */
+  scanUrls: string[];
   createdAt: number;
 }
 

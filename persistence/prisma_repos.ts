@@ -645,6 +645,7 @@ export class PrismaCreatorPersonaRepository implements CreatorPersonaRepository 
         displayName: r.displayName,
         description: r.description ?? undefined,
         referencePhotoUrls: asStringArray(r.referencePhotoUrls),
+        scanUrls: asStringArray(r.scanUrls),
         createdAt: r.createdAt.getTime(),
       };
       this.rows.set(record.id, record);
@@ -665,6 +666,7 @@ export class PrismaCreatorPersonaRepository implements CreatorPersonaRepository 
           displayName: record.displayName,
           description: record.description ?? null,
           referencePhotoUrls: record.referencePhotoUrls,
+          scanUrls: record.scanUrls,
         },
         update: {
           creatorUserId: record.creatorUserId,
@@ -672,6 +674,7 @@ export class PrismaCreatorPersonaRepository implements CreatorPersonaRepository 
           displayName: record.displayName,
           description: record.description ?? null,
           referencePhotoUrls: record.referencePhotoUrls,
+          scanUrls: record.scanUrls,
         },
       });
     });
