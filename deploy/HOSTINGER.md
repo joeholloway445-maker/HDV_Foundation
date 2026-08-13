@@ -92,11 +92,14 @@ before a single field of the request body is trusted. This is the ONE exception 
 posture below; it is **not** a precedent for adding other unauthenticated routes — see the loud
 comment next to it in `gateway/middleware.ts`'s `AUTH_EXEMPT_PATHS`.
 
-Unlike the `companion/` product routes above, the client-facing `/v1/creator/*` routes (apply,
-persona, earnings, verification, payout) are **not** in `AUTH_EXEMPT_PATHS`
-(`gateway/middleware.ts`): every call needs a valid `X-HDV-Session` bearer token (same lookup
-`GET /v1/auth/me` uses) AND, when `HDV_API_KEY` is configured, the operator key too — the two
-checks are independent and both must pass.
+Like the `auth/` routes above, the client-facing `/v1/creator/*` routes (apply, persona,
+earnings, verification, payout) **are** in `AUTH_EXEMPT_PATHS` (`gateway/middleware.ts`): a
+valid `X-HDV-Session` bearer token (same lookup `GET /v1/auth/me` uses) is sufficient on its
+own, even when `HDV_API_KEY` is configured — a member of the public signing up as a creator has
+no way to know the operator's private key, and fucklike.me's whole premise depends on that not
+being required. This does **not** weaken payout safety: `POST /v1/creator/payout` is still
+gated entirely by the `CreatorPayoutProvider` (the stub's unconditional block, or the live
+provider's Stripe recheck) described above, not by this list.
 
 **Recommended KVM4 sizing.** KVM4 (≈4 vCPU / 16 GB RAM / 200 GB NVMe) comfortably runs
 the gateway + Postgres + Redis with headroom. If you also run **Ollama with a 7B–8B
