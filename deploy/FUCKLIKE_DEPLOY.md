@@ -38,6 +38,41 @@ cp -r /root/fucklike/web/* /var/www/fucklike.ai/public_html/
 chown -R www-data:www-data /var/www/fucklike.ai/public_html
 ```
 
+## Step 2.5: Generate the free art library (fixes blank gallery / no images on Create)
+
+Without this step, the gallery shows solid-color placeholder cards and newly created
+companions show only an initial-letter avatar — nothing is broken, there's just no art on
+disk yet. This is a **one-time, $0 job** — no Colab account, no paid GPU, no signup. It runs
+directly on this VPS's CPU (slower than a GPU, but free and unattended):
+
+```bash
+cd /root/hdv_foundation
+pip install -q diffusers transformers accelerate safetensors torch --index-url https://download.pytorch.org/whl/cpu
+
+# Point the output straight at the web root — no zip/upload round-trip needed.
+# Runs in the background so it survives your SSH session disconnecting; expect this to take
+# a while on CPU (potentially hours for the full 28-image matrix) — that's fine, let it churn.
+BATCH_OUTPUT_DIR=/var/www/fucklike.ai/public_html/assets \
+  nohup python3 colab/09_batch_pregenerate.py > /root/pregenerate.log 2>&1 &
+
+# Check progress any time:
+tail -f /root/pregenerate.log
+```
+
+It's resumable — if it gets interrupted, just re-run the same command; anything already on
+disk is skipped. Once it finishes (or even partway through — it fills in one persona/archetype
+at a time), copy the same `assets/` folder into fucklike.me too:
+
+```bash
+cp -r /var/www/fucklike.ai/public_html/assets /var/www/fucklike.me/public_html/assets
+```
+
+Both the 16 named gallery presets (`assets/personas/<id>/`) and the style×personality
+archetype library that gives brand-new custom companions real art (`assets/templates/<id>/`)
+come from this one script — see the file's header comment for the full explanation, including
+how to run it on free Colab GPU instead if you'd rather have it finish in minutes instead of
+hours (still free, just needs a browser tab open).
+
 ## Step 3: Set up fucklike.me (placeholder)
 
 ```bash
@@ -80,9 +115,12 @@ This will:
 
 1. Open https://fucklike.ai in a browser
 2. You should see the FuckLike companion app
-3. Open Settings → Developer → "Gateway base URL override"
-4. Enter your gateway URL (e.g., `https://hopedreamvision.com` or `http://localhost:8787` if testing locally)
-5. Try the companion chat — you should get real responses from the gateway
+3. Browse the gallery — cards should show real pre-generated art (once Step 2.5 has produced
+   at least a few images) instead of solid-color placeholders, no gateway needed
+4. Try Create a companion — it should get real archetype art immediately, no gateway needed
+5. For live chat: Open Settings → Developer → "Gateway base URL override", enter your gateway
+   URL (e.g., `https://hopedreamvision.com` or `http://localhost:8787` if testing locally), and
+   try the companion chat — you should get real responses from the gateway
 
 ### Test fucklike.me
 
