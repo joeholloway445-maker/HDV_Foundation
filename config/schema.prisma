@@ -130,6 +130,9 @@ model CreatorPersona {
   displayName        String
   description        String?
   referencePhotoUrls Json     @default("[]")
+  /// Links to a 3D scan/model (Polycam/RealityScan/in3D share link, hosted .glb/.usdz/.obj) or
+  /// a multi-angle photo set — same URL-only posture as referencePhotoUrls (creator/types.ts).
+  scanUrls           Json     @default("[]")
   createdAt          DateTime @default(now())
 }
 

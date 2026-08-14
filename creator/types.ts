@@ -97,6 +97,11 @@ export interface CreatorPersonaInput {
   description?: string;
   /** URLs only — see the module doc comment. Defaults to an empty array when omitted. */
   referencePhotoUrls: string[];
+  /** Links to a 3D scan/model (e.g. a Polycam/RealityScan/in3D share link, or any hosted
+   *  .glb/.usdz/.obj) or a multi-angle photo set. Same URL-only posture and validation as
+   *  referencePhotoUrls — this server has no upload/object-storage layer, so a creator hosts
+   *  the file wherever they made it and pastes the link. Defaults to [] when omitted. */
+  scanUrls: string[];
 }
 
 /** Parse + validate a raw body into a CreatorPersonaInput. */
@@ -129,31 +134,34 @@ export function parseCreatorPersonaRequest(body: unknown): CreatorPersonaInput {
       ? b.description.trim().slice(0, MAX_DESCRIPTION_CHARS)
       : undefined;
 
-  const referencePhotoUrls = normalisePhotoUrls(b.referencePhotoUrls);
+  const referencePhotoUrls = normaliseUrlList('referencePhotoUrls', b.referencePhotoUrls, 'invalid_photo_url');
+  const scanUrls = normaliseUrlList('scanUrls', b.scanUrls, 'invalid_scan_url');
 
-  return { personaId, displayName, description, referencePhotoUrls };
+  return { personaId, displayName, description, referencePhotoUrls, scanUrls };
 }
 
 /** Validate an optional array of http(s) URLs. Absent/undefined ⇒ []. Never accepts raw bytes
- *  (e.g. a data: URI) — see the module doc comment on why image bytes are never stored here. */
-function normalisePhotoUrls(value: unknown): string[] {
+ *  (e.g. a data: URI) — see the module doc comment on why file bytes are never stored here.
+ *  Shared by referencePhotoUrls and scanUrls — same shape, same reasoning, different field
+ *  name in the error messages so a caller can tell which one it got wrong. */
+function normaliseUrlList(fieldName: string, value: unknown, invalidUrlCode: string): string[] {
   if (value === undefined || value === null) return [];
   if (!Array.isArray(value)) {
-    throw new CreatorValidationError('"referencePhotoUrls" must be an array of URL strings');
+    throw new CreatorValidationError(`"${fieldName}" must be an array of URL strings`);
   }
   if (value.length > MAX_PHOTO_URLS) {
-    throw new CreatorValidationError(`"referencePhotoUrls" exceeds the maximum of ${MAX_PHOTO_URLS} entries`);
+    throw new CreatorValidationError(`"${fieldName}" exceeds the maximum of ${MAX_PHOTO_URLS} entries`);
   }
   const urls: string[] = [];
   for (const raw of value) {
     if (typeof raw !== 'string' || !raw.trim()) {
-      throw new CreatorValidationError('"referencePhotoUrls" entries must be non-empty strings');
+      throw new CreatorValidationError(`"${fieldName}" entries must be non-empty strings`);
     }
     const trimmed = raw.trim().slice(0, MAX_PHOTO_URL_CHARS);
     if (!/^https?:\/\//i.test(trimmed)) {
       throw new CreatorValidationError(
-        '"referencePhotoUrls" entries must be http(s) URLs — raw image bytes are never accepted here',
-        'invalid_photo_url',
+        `"${fieldName}" entries must be http(s) URLs — raw file bytes are never accepted here`,
+        invalidUrlCode,
       );
     }
     urls.push(trimmed);

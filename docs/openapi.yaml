@@ -485,10 +485,17 @@ components:
           type: array
           items: { type: string, format: uri }
           description: URLs only — image bytes are never accepted or stored here.
+        scanUrls:
+          type: array
+          items: { type: string, format: uri }
+          description: >
+            URLs only, same posture as referencePhotoUrls — a link to a 3D scan/model (e.g. a
+            Polycam/RealityScan/in3D share link, or any hosted .glb/.usdz/.obj) or a
+            multi-angle photo set. No file bytes are ever accepted or stored here.
         createdAt:
           type: integer
           description: Epoch milliseconds.
-      required: [id, creatorUserId, personaId, displayName, referencePhotoUrls, createdAt]
+      required: [id, creatorUserId, personaId, displayName, referencePhotoUrls, scanUrls, createdAt]
     CreatorPersonaRequest:
       type: object
       properties:
@@ -502,6 +509,12 @@ components:
           type: array
           items: { type: string, format: uri }
           description: Optional; defaults to []. http(s) URLs only.
+        scanUrls:
+          type: array
+          items: { type: string, format: uri }
+          description: >
+            Optional; defaults to []. http(s) URLs only — a link to a 3D scan/model or
+            multi-angle photo set, same posture as referencePhotoUrls.
       required: [personaId, displayName]
     CreatorEarningsResponse:
       type: object
