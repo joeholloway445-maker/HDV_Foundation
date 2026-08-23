@@ -13,6 +13,8 @@ export type { CompanionResponse, CompanionChatOptions, CompanionChatStreamEvents
 
 export { buildMemoryContext, updateMemoryAfterTurn, defaultCompanionMemory } from './memory.js';
 
+export { PERSONA_MODEL_ROUTES, resolvePersonaModel } from './persona_model_catalog.js';
+
 export {
   parsePortraitRequest,
   PortraitValidationError,

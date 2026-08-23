@@ -164,9 +164,11 @@ class FakeStreamingProvider implements LlmProvider {
   constructor(
     private readonly chunks: string[],
     private readonly delayMs = 15,
+    private readonly onOpts?: (opts: CompleteOptions | undefined) => void,
   ) {}
 
-  async complete(_prompt: string, _opts?: CompleteOptions): Promise<CompletionResult> {
+  async complete(_prompt: string, opts?: CompleteOptions): Promise<CompletionResult> {
+    this.onOpts?.(opts);
     return {
       text: this.chunks.join(''),
       model: this.model,
@@ -174,7 +176,8 @@ class FakeStreamingProvider implements LlmProvider {
     };
   }
 
-  async *completeStream(_prompt: string, _opts?: CompleteOptions): AsyncIterable<{ delta: string }> {
+  async *completeStream(_prompt: string, opts?: CompleteOptions): AsyncIterable<{ delta: string }> {
+    this.onOpts?.(opts);
     for (const c of this.chunks) {
       await sleep(this.delayMs);
       yield { delta: c };
@@ -216,6 +219,30 @@ test('POST /v1/companion/chat/stream delivers multiple SSE chunks over time, the
     assert.equal(doneEvent.done, true);
     assert.equal(doneEvent.model, 'fake-stream-1');
     assert.equal(doneEvent.source, 'llm');
+  });
+});
+
+test('POST /v1/companion/chat/stream sends companionId through to CompleteOptions.model, undefined by default', async () => {
+  let capturedOpts: CompleteOptions | undefined;
+  const provider = new FakeStreamingProvider(['ok'], 5, (opts) => {
+    capturedOpts = opts;
+  });
+  const gw = new HopeGateway({ provider, logger: false });
+  await withServer(gw, async (base) => {
+    const res = await fetch(`${base}/v1/companion/chat/stream`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        persona: { name: 'Luna', age: 23 },
+        message: 'hi',
+        companionId: 'luna',
+      }),
+    });
+    assert.equal(res.status, 200);
+    await collectSse(res);
+    // Real catalog is empty today, so an uncatalogued companionId must fall back to the
+    // provider's own default model, same contract as the buffered handler.
+    assert.equal(capturedOpts?.model, undefined);
   });
 });
 
