@@ -23,6 +23,7 @@ import type {
 } from '../persistence/repositories.js';
 import { recordLikenessUsage } from '../creator/handlers.js';
 import { buildMemoryContext, defaultCompanionMemory, updateMemoryAfterTurn } from './memory.js';
+import { resolvePersonaModel } from './persona_model_catalog.js';
 import {
   parseCompanionChatInput,
   CompanionChatValidationError,
@@ -227,6 +228,9 @@ export async function handleCompanionChat(
     // An explicit server-side override (options.temperature) always wins; otherwise the
     // persona's adherence dial drives it (loose adherence -> higher/more-creative temperature).
     temperature: options.temperature ?? temperatureForAdherence(persona.adherence ?? 3),
+    // Routes to a companion's own small trained LoRA (see persona_model_catalog.ts) when one
+    // exists; undefined (⇒ the provider's configured default/shared base model) otherwise.
+    model: resolvePersonaModel(companionId),
   };
 
   try {
@@ -333,7 +337,7 @@ export async function handleCompanionChatStream(
   // Same 18+ floor as handleCompanionChat, enforced by parseCompanionChatInput above, BEFORE
   // any SSE headers are written or any event fires.
 
-  const { persona, history, message } = parsed;
+  const { persona, history, message, companionId } = parsed;
   const seed = message.length + history.length;
   const provider = options.provider;
 
@@ -352,6 +356,8 @@ export async function handleCompanionChatStream(
     system: systemPrompt(persona),
     maxTokens: options.maxTokens ?? 200,
     temperature: options.temperature ?? temperatureForAdherence(persona.adherence ?? 3),
+    // Same persona -> small-LoRA-model routing as handleCompanionChat above.
+    model: resolvePersonaModel(companionId),
   };
 
   let emittedAny = false;
