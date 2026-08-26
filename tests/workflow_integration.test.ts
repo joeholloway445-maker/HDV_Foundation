@@ -236,10 +236,10 @@ describe('VisionBridge — node factory and route helper', () => {
     assert.strictEqual(node.data.moeModel, 'claude-opus-5');
   });
 
-  test('createVisionWorkflowNode defaults tool to bash and sandbox to stub', () => {
+  test('createVisionWorkflowNode defaults tool to bash and sandbox to gvisor', () => {
     const node = createVisionWorkflowNode('n2', { intent: 'hello world' });
     assert.strictEqual(node.data.tool, 'bash');
-    assert.strictEqual(node.data.sandbox, 'stub');
+    assert.strictEqual(node.data.sandbox, 'gvisor');
     assert.strictEqual(node.data.category, 'general');
     assert.strictEqual(node.data.budgetTier, 'medium');
   });

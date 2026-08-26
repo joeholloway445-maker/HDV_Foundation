@@ -56,7 +56,7 @@ export interface VisionWorkflowNode {
 
 // ── KNOLL-gated VISION task runner ────────────────────────────────────────────
 
-const _defaultEngine = new ExecutionEngine('stub');
+const _defaultEngine = new ExecutionEngine('gvisor');
 
 /**
  * Run a VISION execution task inside a workflow node context.
@@ -102,7 +102,7 @@ export async function runVisionTask(
   // VISION execution
   const exec = engine ?? _defaultEngine;
   try {
-    const report = await exec.run(input.intent, input.tool ?? 'bash', input.params ?? {});
+    const report = exec.execute(input.intent, { tool: input.tool ?? 'bash', ...(input.params ?? {}) });
     return {
       ok: report.ok,
       report,
@@ -149,7 +149,7 @@ export function createVisionWorkflowNode(
       category: input.category ?? 'general',
       budgetTier: input.budgetTier ?? 'medium',
       moeModel,
-      sandbox: input.sandbox ?? 'stub',
+      sandbox: input.sandbox ?? 'gvisor',
       params: input.params ?? {},
     },
   };
