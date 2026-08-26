@@ -18,6 +18,7 @@ import {
   parseCompanionChatInput,
   CompanionChatValidationError,
   handleCompanionChat,
+  resolvePersonaModel,
 } from '../companion/index.js';
 import { HopeGateway } from '../gateway/index.js';
 import type { CompleteOptions, CompletionResult, LlmProvider } from '../providers/types.js';
@@ -181,6 +182,37 @@ test('handleCompanionChat defaults to moderate intensity/adherence when omitted'
     return { text: 'ok', model: 'fake-1', usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 } };
   });
   const res = await handleCompanionChat({ persona: { name: 'Luna', age: 23 }, message: 'hi' }, { provider });
+  assert.equal(res.status, 200);
+});
+
+// ---------------------------------------------------------------------------
+// Persona -> small-LoRA-model routing (companion/persona_model_catalog.ts)
+// ---------------------------------------------------------------------------
+
+test('resolvePersonaModel is undefined with no companionId, or one absent from the catalog', () => {
+  assert.equal(resolvePersonaModel(undefined), undefined);
+  assert.equal(resolvePersonaModel('jordyn'), undefined); // real PERSONA_MODEL_ROUTES starts empty
+  assert.equal(resolvePersonaModel('jordyn', {}), undefined);
+});
+
+test('resolvePersonaModel returns the catalogued adapter name for a companionId that has one', () => {
+  const catalog = { jordyn: 'jordyn', isabella: 'isabella' };
+  assert.equal(resolvePersonaModel('jordyn', catalog), 'jordyn');
+  assert.equal(resolvePersonaModel('isabella', catalog), 'isabella');
+  assert.equal(resolvePersonaModel('nova', catalog), undefined); // uncatalogued -> base model
+});
+
+test('handleCompanionChat sends companionId through to CompleteOptions.model, undefined by default', async () => {
+  const provider = new FakeProvider(async (_prompt, opts) => {
+    // Real catalog is empty today, so an uncatalogued companionId must NOT force an unknown
+    // model name onto the provider -- it has to fall back to the provider's own default.
+    assert.equal(opts?.model, undefined);
+    return { text: 'ok', model: 'fake-1', usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 } };
+  });
+  const res = await handleCompanionChat(
+    { persona: { name: 'Luna', age: 23 }, message: 'hi', companionId: 'luna' },
+    { provider },
+  );
   assert.equal(res.status, 200);
 });
 
