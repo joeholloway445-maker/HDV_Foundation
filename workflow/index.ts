@@ -9,3 +9,5 @@
 export { WorkflowGuard } from './knoll_guard.js';
 export { ApexMoERouter, heuristicRoute } from './apex_router.js';
 export type { RouteDecision, WorkflowValidationResult } from './types.js';
+export { runVisionTask, createVisionWorkflowNode, routeVisionTask } from './vision_bridge.js';
+export type { VisionTaskInput, VisionTaskResult, VisionWorkflowNode } from './vision_bridge.js';
