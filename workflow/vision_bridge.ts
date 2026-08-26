@@ -72,12 +72,15 @@ export async function runVisionTask(
   const guard = new WorkflowGuard();
 
   // KNOLL gate
-  const knollValidation = guard.validate({
-    intent: input.intent,
-    tool: input.tool,
-    params: input.params ?? {},
-    userId: input.userId,
-  });
+  const knollValidation = guard.validate(
+    { nodes: [] },
+    {
+      intent: input.intent,
+      tool: input.tool,
+      params: input.params ?? {},
+      userId: input.userId,
+    },
+  );
 
   if (!knollValidation.allowed) {
     return {
