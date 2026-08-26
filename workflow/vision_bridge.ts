@@ -79,7 +79,7 @@ export async function runVisionTask(
     userId: input.userId,
   });
 
-  if (!knollValidation.ok) {
+  if (!knollValidation.allowed) {
     return {
       ok: false,
       moeModel: '',
@@ -165,6 +165,7 @@ export function routeVisionTask(
     model,
     category,
     budgetTier,
+    routedByApex: false,
     reasoning: `VISION bridge: category=${category} budget=${budgetTier} → ${model}`,
   };
 }

@@ -10,6 +10,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { WorkflowGuard } from '../workflow/knoll_guard.js';
 import { ApexMoERouter, heuristicRoute } from '../workflow/apex_router.js';
+import { createVisionWorkflowNode, routeVisionTask } from '../workflow/vision_bridge.js';
 
 // ────────────────────────────────────────────────────────────────────────────
 // WorkflowGuard (KNOLL) tests
@@ -210,5 +211,97 @@ describe('ApexMoERouter — heuristic routing', () => {
   test('analysis/medium → sonnet', async () => {
     const decision = await router.route('analyze trends', 'analysis', 'medium');
     assert.strictEqual(decision.model, 'claude-sonnet-5');
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// VisionBridge — createVisionWorkflowNode and routeVisionTask
+// ────────────────────────────────────────────────────────────────────────────
+
+describe('VisionBridge — node factory and route helper', () => {
+  test('createVisionWorkflowNode returns correct structure', () => {
+    const node = createVisionWorkflowNode('n1', {
+      intent: 'scan logs for anomalies',
+      tool: 'bash',
+      category: 'security',
+      budgetTier: 'high',
+    });
+    assert.strictEqual(node.id, 'n1');
+    assert.strictEqual(node.type, 'vision');
+    assert.strictEqual(node.data.nodeType, 'vision');
+    assert.strictEqual(node.data.intent, 'scan logs for anomalies');
+    assert.strictEqual(node.data.tool, 'bash');
+    assert.strictEqual(node.data.category, 'security');
+    assert.strictEqual(node.data.budgetTier, 'high');
+    assert.strictEqual(node.data.moeModel, 'claude-opus-5');
+  });
+
+  test('createVisionWorkflowNode defaults tool to bash and sandbox to stub', () => {
+    const node = createVisionWorkflowNode('n2', { intent: 'hello world' });
+    assert.strictEqual(node.data.tool, 'bash');
+    assert.strictEqual(node.data.sandbox, 'stub');
+    assert.strictEqual(node.data.category, 'general');
+    assert.strictEqual(node.data.budgetTier, 'medium');
+  });
+
+  test('createVisionWorkflowNode truncates label to 60 chars', () => {
+    const longIntent = 'a'.repeat(100);
+    const node = createVisionWorkflowNode('n3', { intent: longIntent });
+    assert.strictEqual(node.data.label.length, 60);
+  });
+
+  test('createVisionWorkflowNode label matches short intent verbatim', () => {
+    const node = createVisionWorkflowNode('n4', { intent: 'short intent' });
+    assert.strictEqual(node.data.label, 'short intent');
+  });
+
+  test('createVisionWorkflowNode stores params', () => {
+    const params = { threshold: 0.9, maxRetries: 3 };
+    const node = createVisionWorkflowNode('n5', { intent: 'run check', params });
+    assert.deepStrictEqual(node.data.params, params);
+  });
+
+  test('createVisionWorkflowNode creative/high → fable', () => {
+    const node = createVisionWorkflowNode('n6', {
+      intent: 'write a story',
+      category: 'creative',
+      budgetTier: 'high',
+    });
+    assert.strictEqual(node.data.moeModel, 'claude-fable-5');
+  });
+
+  test('routeVisionTask returns RouteDecision with correct fields', () => {
+    const decision = routeVisionTask('audit this', 'security', 'high');
+    assert.strictEqual(decision.model, 'claude-opus-5');
+    assert.strictEqual(decision.category, 'security');
+    assert.strictEqual(decision.budgetTier, 'high');
+    assert.strictEqual(decision.routedByApex, false);
+    assert.ok(typeof decision.reasoning === 'string' && decision.reasoning.length > 0);
+  });
+
+  test('routeVisionTask reasoning includes VISION bridge prefix', () => {
+    const decision = routeVisionTask('write a story', 'creative', 'high');
+    assert.ok(decision.reasoning.startsWith('VISION bridge'));
+  });
+
+  test('routeVisionTask defaults to general/medium', () => {
+    const decision = routeVisionTask('do something');
+    assert.strictEqual(decision.category, 'general');
+    assert.strictEqual(decision.budgetTier, 'medium');
+  });
+
+  test('routeVisionTask creative/high → fable', () => {
+    const decision = routeVisionTask('dream up a world', 'creative', 'high');
+    assert.strictEqual(decision.model, 'claude-fable-5');
+  });
+
+  test('routeVisionTask vision/low → sonnet', () => {
+    const decision = routeVisionTask('describe this image', 'vision', 'low');
+    assert.strictEqual(decision.model, 'claude-sonnet-5');
+  });
+
+  test('routeVisionTask code/low → haiku', () => {
+    const decision = routeVisionTask('fix this bug', 'code', 'low');
+    assert.strictEqual(decision.model, 'claude-haiku-4-5-20251001');
   });
 });
